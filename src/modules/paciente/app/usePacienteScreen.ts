@@ -1,0 +1,1505 @@
+"use client";
+
+import AlientoAI from "@/lib/ai/ai";
+import { useNaraStore } from "@/providers/nara-provider";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { naraAsset } from "./naraAsset";
+
+type Who = "diana" | "rosalba";
+type Tab = "home" | "chat" | "route" | "hist" | "resumen";
+type ChatMsg = { t: "ai" | "me" | "crisis" | "breath"; text?: string };
+type WaRaw = Record<string, unknown>;
+
+type RdState = {
+  slug: string;
+  page: number;
+  mode: "page" | "q" | "done";
+  qi: number;
+  ans: string;
+  share: boolean;
+  audio: boolean;
+  aprog: number;
+};
+
+type PlState = { id: string; prog: number; playing: boolean; done: boolean };
+
+const MOODS = ["Muy mal", "Mal", "Regular", "Bien", "Muy bien"];
+const WA_BAR_H = [40, 70, 55, 90, 60, 35, 80, 65, 45, 95, 70, 50, 30, 75, 85, 55, 40, 65, 90, 50, 35, 60];
+const CL = [
+  ["contacto", "Contacto por teléfono o WhatsApp"],
+  ["remision", "Compartir mi caso con una institución si me remiten"],
+  ["investigacion", "Uso anónimo para investigación"],
+] as const;
+
+const fmt = (x: number) =>
+  `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, "0")}`;
+
+function saludo() {
+  const h = new Date().getHours();
+  return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
+}
+
+function hm() {
+  const d = new Date();
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export function usePacienteScreen() {
+  const store = useNaraStore();
+  const router = useRouter();
+  const S = store.get();
+  const C = store.C;
+  const R = store.REC;
+
+  const [ready, setReady] = useState(false);
+  const [who, setWho] = useState<Who>("diana");
+  const [tab, setTab] = useState<Tab>("home");
+  const [topics, setTopics] = useState<[string, boolean][]>([
+    ["Volver a subir al tercer piso del trabajo", true],
+    ["El miedo con las réplicas pequeñas", true],
+    ["Cómo está durmiendo", true],
+  ]);
+  const [topicInput, setTopicInput] = useState("");
+  const [mood, setMood] = useState<number | null>(null);
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [quick, setQuick] = useState<string[]>([]);
+  const [stage, setStage] = useState("open");
+  const [input, setInput] = useState("");
+  const [typing, setTyping] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [helpSent, setHelpSent] = useState(false);
+  const [consentMsg, setConsentMsg] = useState("");
+  const [wa, setWa] = useState<WaRaw[]>([]);
+  const [waQuick, setWaQuick] = useState<string[]>([]);
+  const [waStage, setWaStage] = useState("none");
+  const [waInput, setWaInput] = useState("");
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [prog, setProg] = useState<Record<string, number>>({});
+  const [splash, setSplash] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+  const [rd, setRd] = useState<RdState | null>(null);
+  const [pl, setPl] = useState<PlState | null>(null);
+  const [libTab, setLibTab] = useState("cuentos");
+  const [libQ, setLibQ] = useState("");
+  const [libTema, setLibTema] = useState("");
+  const [waAsked, setWaAsked] = useState<Record<string, string>>({});
+  const [framed, setFramed] = useState(false);
+  const [devZoom, setDevZoom] = useState(1);
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const waRef = useRef<HTMLDivElement>(null);
+  const modDoneRef = useRef(false);
+  const inboxNRef = useRef(0);
+  const waReadyRef = useRef(false);
+  const auRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const plRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wpRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const touchXRef = useRef(0);
+  const bannerKeyRef = useRef<string | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dianaInitedRef = useRef(false);
+
+  const isDiana = who === "diana";
+  const DP = store.PATIENTS.diana || store.emptyPatient("diana", "Diana Marcela Ruiz", 38);
+  const cons = (S.consents && S.consents.diana) || {};
+
+  const recP = useCallback(() => {
+    const st = store.get();
+    return st.recursos?.people?.diana ?? null;
+  }, [store]);
+
+  const checkModule = useCallback(
+    (s: ReturnType<typeof store.get>) => {
+      const pr = s.recursos?.people?.diana;
+      if (!pr) return false;
+      const c = R.curso(pr.course);
+      const m = c.mods[pr.week - 1];
+      if (m && pr.read[m.cuento] && (pr.tech[m.tecnica] || 0) >= 3 && !pr.doneMods.includes(pr.week)) {
+        pr.doneMods.push(pr.week);
+        return true;
+      }
+      return false;
+    },
+    [R],
+  );
+
+  const celebrate = useCallback(() => {
+    const pr = recP();
+    if (!pr) return "";
+    const m = R.curso(pr.course).mods[pr.week - 1];
+    const t = R.tecnica(m.tecnica);
+    return `Terminó la semana ${pr.week}. Hizo la ${t.title} ${pr.tech[m.tecnica] || 0} veces. ¡Eso cuenta!`;
+  }, [R, recP]);
+
+  const teoSay = useCallback(
+    (text: string) => {
+      store.logAi("diana", "Chat con TEO", text);
+      setMsgs((m) => m.concat([{ t: "ai", text }]));
+    },
+    [store],
+  );
+
+  const me = useCallback((text: string) => {
+    setMsgs((m) => m.concat([{ t: "me", text }]));
+    setQuick([]);
+  }, []);
+
+  const ai = useCallback(
+    (text: string, q?: string[], extra?: ChatMsg[]) => {
+      store.logAi("diana", "Chat con TEO", text);
+      setTyping(true);
+      setQuick([]);
+      setTimeout(() => {
+        setTyping(false);
+        setMsgs((m) => m.concat([{ t: "ai", text }], extra || []));
+        if (q) setQuick(q);
+      }, 800);
+    },
+    [store],
+  );
+
+  const crisisDiana = useCallback(
+    (term: string, said: string) => {
+      setTyping(false);
+      setPaused(true);
+      setQuick([]);
+      setMsgs((m) => m.concat([{ t: "crisis", text: AlientoAI.crisisText("Diana") }]));
+      store.set((s) => {
+        s.diana.crisis = true;
+      });
+      store.addAlert({
+        id: "a-diana",
+        sev: "crisis",
+        pid: "diana",
+        name: "Diana Marcela Ruiz",
+        age: 38,
+        place: "Armenia",
+        profile: "P12",
+        what:
+          (said ? `Escribió a TEO: «${said}». ` : "TEO detectó riesgo en la conversación. ") +
+          "TEO le dio la línea 123, pausó la conversación y levantó la alerta.",
+        term: term || "clasificador IA",
+        source: "Conversación con TEO (IA)",
+        phone: "316 904 1127",
+      });
+    },
+    [store],
+  );
+
+  const initDiana = useCallback(() => {
+    const st = store.get();
+    if (st.diana.crisis) {
+      setMsgs([
+        { t: "ai", text: `${saludo()}, Diana. Anoche durmió 6,4 horas, mejor que la semana pasada. ¿Cómo se siente hoy?` },
+        { t: "crisis", text: AlientoAI.crisisText("Diana") },
+      ]);
+      setPaused(true);
+      setQuick([]);
+      return;
+    }
+    const pr = st.recursos?.people?.diana;
+    const tk = new Date().toDateString();
+    if (pr && pr.teoDay !== tk) {
+      const m = R.curso(pr.course).mods[pr.week - 1];
+      store.set((s) => {
+        if (s.recursos?.people?.diana) s.recursos.people.diana.teoDay = tk;
+      });
+      store.logAi("diana", "Chat con TEO", "Recordatorio del curso");
+      setMsgs([
+        {
+          t: "ai",
+          text: `Hola, Diana. Esta semana le toca «${R.cuento(m.cuento).title}». ¿Lo leemos o lo escuchamos?`,
+        },
+      ]);
+      setQuick(["Leerlo", "Escucharlo", "Más tarde"]);
+      setStage("course");
+      return;
+    }
+    setMsgs([
+      {
+        t: "ai",
+        text: `${saludo()}, Diana. Anoche durmió 6,4 horas, mejor que la semana pasada. ¿Cómo se siente hoy?`,
+      },
+    ]);
+    setQuick(["Bien", "Con algo de miedo", "Cansada"]);
+  }, [R, store]);
+
+  const initWA = useCallback(() => {
+    const st = store.get();
+    waReadyRef.current = true;
+    inboxNRef.current = (st.rosalbaWA.inbox || []).length;
+    if (!st.rosalbaSummary) {
+      setWa([{ k: "sys", text: "Todavía no hay mensajes. TEO le escribe después de la visita del experto de campo." }]);
+      setWaQuick([]);
+      setWaStage("none");
+      return;
+    }
+    const T = st.rosalbaWA.welcomeAt || "8:01";
+    const lines = [
+      { t: "Cómo le ha ido", x: "Hoy empezó su acompañamiento con TEO. Gracias por recibir a Andrés en su casa." },
+      { t: "Lo que está funcionando", x: "Ya manda audios por WhatsApp. Así nos puede contar cómo está." },
+      { t: "Su próximo paso", x: "La Dra. Lucía Marín la llama el viernes 2 de octubre en la mañana." },
+      {
+        t: "Lo que sigue en su ruta",
+        x: (() => {
+          const L = store.pathList(2, 1, null, store.ctxFor("rosalba")).map((x: { id: string }) => x.id);
+          const out: string[] = [];
+          if (L.includes("pmplus")) out.push("Andrés la acompaña en 5 sesiones PM+, una por semana, en su casa");
+          if (L.includes("group")) out.push("cada 15 días hay grupo de apoyo en la escuela de la vereda");
+          if (L.includes("social")) out.push("la conectamos con las ayudas para reparar su casa");
+          return out.length ? `${out.join("; ").replace(/^./, (c) => c.toUpperCase())}.` : "";
+        })(),
+      },
+      { t: "Para usted", x: "Dormir mal después del sismo es muy común. La respiración de la noche puede ayudarle." },
+    ];
+    const IB = st.rosalbaWA.inbox || [];
+    const cut = IB.findIndex((x: WaRaw) => x.k === "sys" && /después/.test(String(x.text)));
+    const today = cut > -1 ? IB.slice(0, cut) : IB;
+    const welcome = today.filter((x: WaRaw) => x.k === "in" && !x.slug).slice(0, 1);
+    const rest = today.filter((x: WaRaw) => welcome.indexOf(x) < 0);
+    const waList: WaRaw[] = [{ k: "sys", text: "Hoy" }].concat(
+      welcome,
+      [
+        { k: "in", text: "Le mandamos su resumen de bienvenida, en imagen y en audio.", time: T },
+        { k: "card", lines, time: T },
+        { k: "audio", id: "rs1", dur: "1:04", secs: 64, caption: "Nota de voz: su resumen leído en voz alta.", time: T },
+      ],
+      rest,
+      [
+        {
+          k: "audio",
+          id: "a1",
+          dur: "0:32",
+          secs: 32,
+          caption: "¿Cómo durmió anoche? Me puede responder con un botón o con un audio.",
+          time: T,
+        },
+      ],
+    );
+    if (st.rosalbaWA.crisis) {
+      waList.push({ k: "crisis", text: AlientoAI.crisisText("Doña Rosalba") });
+      setWa(waList);
+      setWaQuick([]);
+      setWaStage("done");
+      return;
+    }
+    setWa(waList);
+    setWaQuick(["Bien", "Regular", "Mal", "Mandar audio"]);
+    setWaStage("sleep");
+  }, [store]);
+
+  useEffect(() => {
+    const su0 = store.session();
+    if (su0?.id === "oscar") {
+      router.replace("/paciente/plan");
+      return;
+    }
+    const su = store.session();
+    if (!su || !["diana", "rosalba"].includes(su.id)) {
+      router.replace("/ingreso");
+      return;
+    }
+    setWho(su.id as Who);
+    if (!dianaInitedRef.current) {
+      dianaInitedRef.current = true;
+      initDiana();
+      initWA();
+    }
+    setReady(true);
+    const spl = setTimeout(() => setSplash(false), 1500);
+    const clk = setInterval(() => setNow(Date.now()), 20000);
+    const onR = () => {
+      setFramed(window.innerWidth > 600);
+      setDevZoom(window.innerWidth > 600 ? Math.min(1, (window.innerHeight - 32) / 868) : 1);
+    };
+    onR();
+    window.addEventListener("resize", onR);
+    return () => {
+      clearTimeout(spl);
+      clearInterval(clk);
+      window.removeEventListener("resize", onR);
+      if (auRef.current) clearInterval(auRef.current);
+      if (plRef.current) clearInterval(plRef.current);
+      if (wpRef.current) clearInterval(wpRef.current);
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    };
+  }, [initDiana, initWA, router, store]);
+
+  useEffect(() => {
+    return store.subscribe(() => {
+      const st = store.get();
+      setPaused((p) => {
+        if (p && !st.diana.crisis) {
+          setMsgs((m) =>
+            m.concat([
+              {
+                t: "ai",
+                text: "Hola de nuevo, Diana. La Dra. Lucía Marín revisó su mensaje y reabrió nuestra conversación. Aquí estoy cuando quiera.",
+              },
+            ]),
+          );
+          return false;
+        }
+        return p;
+      });
+      const inbox = st.rosalbaWA.inbox || [];
+      if (inbox.length && inboxNRef.current !== inbox.length) {
+        const add = inbox.slice(inboxNRef.current);
+        inboxNRef.current = inbox.length;
+        if (waReadyRef.current) setWa((w) => w.concat(add));
+      }
+      const su = store.session();
+      setWho((w) => (su && (su.id === "rosalba") !== (w === "rosalba") ? (su.id as Who) : w));
+    });
+  }, [store]);
+
+  useEffect(() => {
+    const bn = (S.dianaInbox || []).find((m: { seen?: boolean }) => !m.seen) || null;
+    const bk = bn ? String((bn as { id?: string; text?: string }).id || (bn as { text?: string }).text) : null;
+    if (bk !== bannerKeyRef.current) {
+      bannerKeyRef.current = bk;
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+      if (bk) {
+        bannerTimerRef.current = setTimeout(() => {
+          store.set((s) => {
+            const m = (s.dianaInbox || []).find((x: { seen?: boolean }) => !x.seen);
+            if (m) m.seen = true;
+          });
+        }, 5000);
+      }
+    }
+  }, [S.dianaInbox, store]);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = tab === "chat" ? 1e6 : bodyRef.current.scrollTop;
+  }, [msgs.length, tab]);
+
+  useEffect(() => {
+    if (waRef.current) waRef.current.scrollTop = 1e6;
+  }, [wa.length]);
+
+  const rdUpd = useCallback((o: Partial<RdState>) => {
+    setRd((r) => (r ? { ...r, ...o } : r));
+  }, []);
+
+  const finishReading = useCallback(() => {
+    if (auRef.current) clearInterval(auRef.current);
+    setRd((rd) => {
+      if (!rd) return rd;
+      const c = R.cuento(rd.slug);
+      store.set((s) => {
+        const pr = s.recursos?.people?.diana;
+        if (pr) {
+          pr.read[rd.slug] = true;
+          delete pr.page[rd.slug];
+          modDoneRef.current = checkModule(s);
+        }
+      });
+      return { ...rd, mode: c.preguntas.length ? "q" : "done", audio: false, qi: 0, ans: "" };
+    });
+  }, [R, checkModule, store]);
+
+  const startAudio = useCallback(() => {
+    if (auRef.current) clearInterval(auRef.current);
+    auRef.current = setInterval(() => {
+      setRd((rd) => {
+        if (!rd || !rd.audio || rd.mode !== "page") {
+          if (auRef.current) clearInterval(auRef.current);
+          return rd;
+        }
+        const c = R.cuento(rd.slug);
+        const np = Math.min(1, rd.aprog + (0.25 / (c.audio * 60)) * 20);
+        const page = c.pages ? Math.max(rd.page, Math.min(c.pages, 1 + Math.floor(np * c.pages))) : 1;
+        if (c.pages && page !== rd.page) {
+          store.set((s) => {
+            const pr = s.recursos?.people?.diana;
+            if (pr) pr.page[rd.slug] = Math.max(pr.page[rd.slug] || 1, page);
+          });
+        }
+        if (np >= 1) {
+          if (auRef.current) clearInterval(auRef.current);
+          setTimeout(finishReading, 0);
+        }
+        return { ...rd, aprog: np, page };
+      });
+    }, 250);
+  }, [R, finishReading, store]);
+
+  const openReader = useCallback(
+    (slug: string, audio?: boolean) => {
+      const c = R.cuento(slug);
+      if (!c) return;
+      const pr = recP() || { page: {} as Record<string, number> };
+      const pg = c.pages ? Math.min(c.pages, (pr.page || {})[slug] || 1) : 1;
+      setRd({ slug, page: pg, mode: "page", qi: 0, ans: "", share: true, audio: !!audio, aprog: 0 });
+      if (audio) setTimeout(startAudio, 50);
+    },
+    [R, recP, startAudio],
+  );
+
+  const goPage = useCallback(
+    (d: number) => {
+      setRd((rd) => {
+        if (!rd) return rd;
+        const c = R.cuento(rd.slug);
+        const n = c.pages || 1;
+        const np = rd.page + d;
+        if (np < 1) return rd;
+        if (np > n) {
+          finishReading();
+          return rd;
+        }
+        store.set((s) => {
+          const pr = s.recursos?.people?.diana;
+          if (pr) pr.page[rd.slug] = Math.max(pr.page[rd.slug] || 1, np);
+        });
+        return { ...rd, page: np };
+      });
+    },
+    [R, finishReading, store],
+  );
+
+  const answerQ = useCallback(
+    (skip: boolean) => {
+      setRd((rd) => {
+        if (!rd) return rd;
+        const c = R.cuento(rd.slug);
+        const text = (rd.ans || "").trim();
+        if (text && !skip) {
+          const hit = store.crisisCheck(text);
+          if (hit) {
+            if (auRef.current) clearInterval(auRef.current);
+            setTab("chat");
+            me(text);
+            setTimeout(() => crisisDiana(hit, text), 300);
+            return null;
+          }
+          store.set((s) => {
+            const pr = s.recursos?.people?.diana;
+            if (pr) {
+              pr.answers.push({
+                slug: rd.slug,
+                q: c.preguntas[rd.qi],
+                a: text,
+                at: Date.now(),
+                shared: rd.share,
+              });
+              if (rd.share)
+                store.pushNotif(
+                  s,
+                  "clin",
+                  `Diana Marcela Ruiz compartió su respuesta a «${c.title}»`,
+                  "/clinico?view=patients",
+                );
+            }
+          });
+        }
+        if (rd.qi + 1 < c.preguntas.length) return { ...rd, qi: rd.qi + 1, ans: "", share: true };
+        return { ...rd, mode: "done" };
+      });
+    },
+    [R, crisisDiana, me, store],
+  );
+
+  const closeReader = useCallback(() => {
+    if (auRef.current) clearInterval(auRef.current);
+    setRd((rd) => {
+      if (rd?.mode === "done") {
+        const pr = recP();
+        const m = pr && R.curso(pr.course).mods[pr.week - 1];
+        teoSay(
+          modDoneRef.current
+            ? celebrate()
+            : `Gracias por leer «${R.cuento(rd.slug).title}». ${m ? m.pregunta : ""}`,
+        );
+        modDoneRef.current = false;
+      }
+      return null;
+    });
+  }, [R, celebrate, recP, teoSay]);
+
+  const runPlayer = useCallback(() => {
+    if (plRef.current) clearInterval(plRef.current);
+    plRef.current = setInterval(() => {
+      setPl((pl) => {
+        if (!pl || !pl.playing) {
+          if (plRef.current) clearInterval(plRef.current);
+          return pl;
+        }
+        const it = R.item(pl.id);
+        const np = Math.min(1, pl.prog + (0.25 / (it.min * 60)) * 30);
+        if (np >= 1) {
+          if (plRef.current) clearInterval(plRef.current);
+          let doneMod = false;
+          if (it.kind === "tecnica") {
+            store.set((s) => {
+              const pr = s.recursos?.people?.diana;
+              if (pr) {
+                pr.tech[pl.id] = (pr.tech[pl.id] || 0) + 1;
+                pr.tech4w[pl.id] = (pr.tech4w[pl.id] || 0) + 1;
+                doneMod = checkModule(s);
+              }
+            });
+          }
+          if (doneMod) teoSay(celebrate());
+          return { ...pl, prog: 1, playing: false, done: true };
+        }
+        return { ...pl, prog: np };
+      });
+    }, 250);
+  }, [R, celebrate, checkModule, store, teoSay]);
+
+  const playItem = useCallback(
+    (id: string) => {
+      if (!R.item(id)) return;
+      if (plRef.current) clearInterval(plRef.current);
+      setPl({ id, prog: 0, playing: true, done: false });
+      setTimeout(runPlayer, 30);
+    },
+    [R, runPlayer],
+  );
+
+  const startBreath = useCallback(() => {
+    setQuick([]);
+    setStage("breath");
+    setMsgs((m) => m.concat([{ t: "breath" }]));
+  }, []);
+
+  const onBreathDone = useCallback(() => {
+    setStage("rate");
+    ai("¿Cómo está ahora, del 1 al 10?", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  }, [ai]);
+
+  const quickDiana = useCallback(
+    (label: string) => {
+      me(label);
+      if (stage === "course") {
+        const pr = recP();
+        const m = pr && R.curso(pr.course).mods[pr.week - 1];
+        setStage("open");
+        if (m && label !== "Más tarde") openReader(m.cuento, label === "Escucharlo");
+        return ai("Está bien. ¿Cómo se siente hoy?", ["Bien", "Con algo de miedo", "Cansada"]);
+      }
+      if (stage === "open") {
+        if (label === "Con algo de miedo") {
+          setStage("fear");
+          me("Ayer hubo una réplica pequeña en el trabajo y me volvió el miedo.");
+          return ai(
+            "Es muy comprensible. Después de un sismo el cuerpo se queda alerta, y una réplica pequeña puede traer todo el miedo de vuelta. No quiere decir que esté retrocediendo. ¿Hacemos juntas una respiración de 2 minutos?",
+            ["Sí, respiremos", "Ahora no"],
+          );
+        }
+        setStage("fear");
+        return ai(
+          label === "Bien"
+            ? "Gracias por contarme. ¿Quiere hacer la respiración de hoy para cuidar ese buen momento?"
+            : "Gracias por contarme. Cuando hay cansancio, una pausa corta ayuda. ¿Hacemos una respiración de 2 minutos?",
+          ["Sí, respiremos", "Ahora no"],
+        );
+      }
+      if (stage === "fear") {
+        if (label === "Sí, respiremos") return startBreath();
+        setStage("free");
+        return ai("Está bien. Aquí estoy cuando lo necesite. Si quiere, le recomiendo el video «El miedo después del sismo» · 4 min.");
+      }
+      if (stage === "rate") {
+        setStage("note");
+        return ai(
+          "Gracias. ¿Quiere que anote «miedo con las réplicas en el trabajo» para su próxima sesión con la Dra. Lucía Marín?",
+          ["Sí, anótelo", "No, gracias"],
+        );
+      }
+      if (stage === "note") {
+        setStage("free");
+        return ai(
+          label === "Sí, anótelo"
+            ? "Listo, quedó anotado para el miércoles 7 de octubre. También le puede servir el video «El miedo después del sismo» · 4 min."
+            : "Está bien. Le dejo el video «El miedo después del sismo» · 4 min, por si le sirve.",
+        );
+      }
+    },
+    [R, ai, me, openReader, recP, stage, startBreath],
+  );
+
+  const sendDiana = useCallback(async () => {
+    const text = input.trim();
+    if (!text || paused) return;
+    me(text);
+    setInput("");
+    setTyping(true);
+    const hit = store.crisisCheck(text);
+    if (hit) return setTimeout(() => crisisDiana(hit, text), 500);
+    let reply = "Gracias por contármelo. ¿Quiere contarme un poco más de cómo se ha sentido?";
+    try {
+      const hist = msgs
+        .filter((m) => m.t === "ai" || m.t === "me")
+        .slice(-6)
+        .map((m) => `${m.t === "ai" ? "TEO: " : "Diana: "}${m.text}`)
+        .join("\n");
+      const out = await AlientoAI.complete(
+        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con Diana, 38 años, de Armenia. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín, próxima sesión miércoles 7 de octubre). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\nDiana: ${text}\nTEO:`,
+      );
+      if (/^\s*CRISIS/.test(out)) return crisisDiana("clasificador IA", text);
+      reply = out.trim();
+    } catch {
+      /* local fallback */
+    }
+    store.logAi("diana", "Chat con TEO", reply);
+    setTyping(false);
+    setMsgs((m) => m.concat([{ t: "ai", text: reply }]));
+  }, [crisisDiana, input, me, msgs, paused, store]);
+
+  const chipAnswer = useCallback(
+    (label: string) => {
+      const P = store.PATIENTS.diana || store.emptyPatient("diana", "Diana Marcela Ruiz", 38);
+      const phq = Array.isArray(P.phq) ? P.phq : [];
+      const sleep = Array.isArray(P.sleep) ? P.sleep : [];
+      const practice = Array.isArray(P.practice) ? P.practice : [];
+      const cur = phq.length ? phq[phq.length - 1] : null;
+      const wk = sleep.length ? sleep.slice(-7).reduce((a: number, b: number) => a + b, 0) / Math.min(7, sleep.length) : null;
+      const daysN = practice.reduce((a: number, b: number) => a + b, 0);
+      const T: Record<string, string> = {
+        "¿Cómo voy?":
+          phq.length && cur != null
+            ? `Su cuestionario de ánimo ${phq.length > 1 ? `empezó en ${phq[0]} y hoy está en ${cur}` : `está en ${cur}`}; más bajo es mejor.${wk != null ? ` Esta semana durmió casi ${Math.round(wk)} horas por noche.` : ""}${daysN ? ` La respiración la hizo ${daysN} días.` : ""}`
+            : "Todavía no hay mediciones suyas en el programa. Cuando haga check-ins o tenga visita, aquí verá cómo va.",
+        "¿Qué hablé la última vez con la doctora?":
+          P.lastSession?.d
+            ? `El ${String(P.lastSession.d).toLowerCase()} hablaron de ${P.lastSession.topic || "su avance"}.`
+            : "Aún no hay notas de una sesión anterior en su expediente.",
+        "¿Qué me toca esta semana?":
+          P.next
+            ? `Su próximo paso registrado es: ${P.next}.`
+            : "Todavía no hay tareas ni cita programada en su expediente.",
+      };
+      if (paused) return;
+      me(label);
+      ai(T[label]);
+    },
+    [ai, me, paused, store],
+  );
+
+  const waMe = useCallback((item: WaRaw) => {
+    setWa((w) => w.concat([{ ...item, time: hm() }]));
+    setWaQuick([]);
+  }, []);
+
+  const waPush = useCallback((items: WaRaw[], quick?: string[], stage?: string) => {
+    items.forEach((i) => {
+      if (i.k === "in" || i.k === "crisis") store.logAi("rosalba", "WhatsApp", String(i.text));
+    });
+    setWaQuick([]);
+    setTimeout(() => {
+      setWa((w) => w.concat(items));
+      if (quick) setWaQuick(quick);
+      if (stage) setWaStage(stage);
+    }, 700);
+  }, [store]);
+
+  const waTech = useCallback(
+    (intro: string) =>
+      [
+        { k: "in", text: intro, time: hm() },
+        { k: "audio", id: "t1", title: "Respiración para dormir", dur: "3:10", secs: 190, time: hm() },
+      ] as WaRaw[],
+    [],
+  );
+
+  const waReminder = useCallback(
+    () =>
+      [
+        {
+          k: "in",
+          text: "La Dra. Lucía Marín la llama el viernes 2 de octubre en la mañana. Responda 1 si le queda bien o 2 para otro día.",
+          time: hm(),
+        },
+      ] as WaRaw[],
+    [],
+  );
+
+  const waAnswer = useCallback(
+    (label: string) => {
+      if (waStage === "summary") {
+        if (label === "Mandar audio") {
+          waMe({
+            k: "audio",
+            me: true,
+            id: "v2",
+            dur: "0:14",
+            secs: 14,
+            transcript: "Gracias, mija. Ya me aprendí lo de respirar despacio. El viernes espero la llamada.",
+          });
+          return waPush(
+            [
+              {
+                k: "in",
+                text: "Gracias por contarme, doña Rosalba. El viernes la llama la Dra. Lucía Marín. Que pase buen día.",
+                time: hm(),
+              },
+            ],
+            [],
+            "done",
+          );
+        }
+        waMe({ k: "me", text: label });
+        return waPush([{ k: "in", text: "Con mucho gusto, doña Rosalba. Aquí estamos con usted.", time: hm() }], [], "done");
+      }
+      if (waStage === "sleep") {
+        if (label === "Mandar audio") {
+          waMe({
+            k: "audio",
+            me: true,
+            id: "v1",
+            dur: "0:18",
+            secs: 18,
+            transcript: "Dormí regular, me desperté otra vez a las tres pensando en el temblor.",
+          });
+          return waPush(
+            waTech(
+              "Gracias por su audio, doña Rosalba. Despertarse con ese miedo es muy común después de un sismo. Le mando una técnica para esta noche; escúchela ya acostada.",
+            ).concat(waReminder()),
+            ["1", "2"],
+            "remind",
+          );
+        }
+        waMe({ k: "me", text: label });
+        if (label === "Mal") {
+          return waPush(
+            [
+              {
+                k: "in",
+                text: "Siento que haya pasado mala noche, doña Rosalba. ¿Quiere que su psicóloga la llame antes del viernes 2 de octubre?",
+                time: hm(),
+              },
+            ],
+            ["Sí", "No, gracias"],
+            "earlier",
+          );
+        }
+        return waPush(
+          waTech(
+            label === "Bien"
+              ? "Gracias, doña Rosalba. Para seguir durmiendo bien, le mando una técnica corta."
+              : "Gracias por contarme, doña Rosalba. Le mando una técnica para esta noche; escúchela ya acostada.",
+          ).concat(waReminder()),
+          ["1", "2"],
+          "remind",
+        );
+      }
+      if (waStage === "earlier") {
+        waMe({ k: "me", text: label });
+        if (label === "Sí") {
+          store.addAlert({
+            id: "a-rosalba-wa",
+            sev: "revisar",
+            pid: "rosalba",
+            name: "Rosalba Giraldo",
+            age: 67,
+            place: "Vereda La Esperanza, Salento",
+            profile: "P08",
+            what: "Respondió «Mal» sobre su sueño y pidió que su psicóloga la llame antes del viernes 2 de octubre.",
+            source: "WhatsApp · check-in de sueño",
+          });
+        }
+        return waPush(
+          waTech(
+            label === "Sí"
+              ? "Listo. Le avisamos a la Dra. Lucía Marín para que la llame antes. Mientras tanto, le dejo esta técnica para dormir."
+              : "Está bien. Le dejo esta técnica para dormir, por si le sirve esta noche.",
+          ).concat(waReminder()),
+          ["1", "2"],
+          "remind",
+        );
+      }
+      if (waStage === "remind") {
+        waMe({ k: "me", text: label });
+        return waPush(
+          [
+            {
+              k: "in",
+              text:
+                label === "1"
+                  ? "Perfecto, quedó confirmada la llamada del viernes en la mañana."
+                  : "Listo, le vamos a proponer otro día. Le llegará un mensaje a este celular.",
+              time: hm(),
+            },
+            {
+              k: "in",
+              text: "Si en algún momento necesita ayuda, escriba AYUDA y el equipo la llama.",
+              time: hm(),
+            },
+          ],
+          [],
+          "done",
+        );
+      }
+    },
+    [store, waMe, waPush, waReminder, waStage, waTech],
+  );
+
+  const waSendText = useCallback(async () => {
+    const text = waInput.trim();
+    if (!text) return;
+    waMe({ k: "me", text });
+    setWaInput("");
+    const hitW = store.crisisCheck(text);
+    if (hitW) {
+      store.set((s) => {
+        s.rosalbaWA.crisis = true;
+      });
+      store.addAlert({
+        id: "a-rosalba-ayuda",
+        sev: "crisis",
+        pid: "rosalba",
+        name: "Rosalba Giraldo",
+        age: 67,
+        place: "Vereda La Esperanza, Salento",
+        profile: "P08",
+        what: `Escribió «${text}» por WhatsApp.`,
+        term: hitW,
+        source: "WhatsApp · celular de Paola (hija)",
+        phone: "311 839 2205",
+        expert: "andres",
+      });
+      return waPush([{ k: "crisis", text: AlientoAI.crisisText("Doña Rosalba") }], [], "done");
+    }
+    let reply = "Gracias, doña Rosalba. Le paso su mensaje al equipo.";
+    try {
+      const out = await AlientoAI.complete(
+        `Eres TEO, el acompañante por WhatsApp de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Le escribes a doña Rosalba, 67 años, de la Vereda La Esperanza (Salento), al celular de su hija Paola. Trátala de "doña Rosalba" y de usted. Frases muy cortas y palabras sencillas; ella prefiere audios. No reemplazas a su psicóloga (Dra. Lucía Marín). Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas riesgo suicida o peligro, responde solo CRISIS. Máximo 2 frases.\nDoña Rosalba: ${text}\nTEO:`,
+      );
+      if (/^\s*CRISIS/.test(out)) {
+        setWaInput("AYUDA");
+        return waSendText();
+      }
+      reply = out.trim();
+    } catch {
+      /* local */
+    }
+    waPush([{ k: "in", text: reply, time: "8:20" }]);
+  }, [store, waInput, waMe, waPush]);
+
+  const waPlay = useCallback((id: string, secs: number) => {
+    if (wpRef.current) clearInterval(wpRef.current);
+    if (playing === id) {
+      setPlaying(null);
+      return;
+    }
+    setPlaying(id);
+    setProg((p) => ({ ...p, [id]: 0 }));
+    const step = 100 / Math.min(secs, 12) / 4;
+    wpRef.current = setInterval(() => {
+      setProg((p) => {
+        const v = (p[id] || 0) + step;
+        if (v >= 100) {
+          if (wpRef.current) clearInterval(wpRef.current);
+          setPlaying(null);
+          return { ...p, [id]: 100 };
+        }
+        return { ...p, [id]: v };
+      });
+    }, 250);
+  }, [playing]);
+
+  const waAsk = useCallback(
+    (m: WaRaw, label: string) => {
+      setWaAsked((a) => ({ ...a, [String(m.id)]: label }));
+      waMe({ k: "me", text: label });
+      store.set((s) => {
+        const r = s.recursos?.people?.rosalba;
+        if (r) {
+          r.answers.push({
+            slug: "el-pais-de-los-suenos",
+            q: String(m.text),
+            a: label,
+            at: Date.now(),
+            shared: true,
+          });
+          if (label !== "No lo escuché") r.read["el-pais-de-los-suenos"] = true;
+        }
+      });
+      waPush([
+        {
+          k: "in",
+          time: "9:02",
+          text:
+            label === "No lo escuché"
+              ? "Está bien, doña Rosalba. El audio queda aquí para cuando tenga un rato."
+              : label === "Sí"
+                ? "Gracias por contarme, doña Rosalba. ¿Qué parte le gustó más?"
+                : "Gracias por decirme, doña Rosalba. Andrés le puede contar más en la próxima visita.",
+        },
+      ]);
+    },
+    [store, waMe, waPush],
+  );
+
+  const clock = useMemo(() => {
+    const d = new Date(now);
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }, [now]);
+
+  const greet = useMemo(() => {
+    const h = new Date(now).getHours();
+    return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
+  }, [now]);
+
+  const sleepSeries = Array.isArray(DP.sleep) ? DP.sleep : [];
+  const practiceSeries = Array.isArray(DP.practice) ? DP.practice : [];
+  const wkS = sleepSeries.length ? sleepSeries.slice(-7).reduce((a: number, b: number) => a + b, 0) / Math.min(7, sleepSeries.length) : 0;
+  const days = practiceSeries.reduce((a: number, b: number) => a + b, 0);
+  const res = useMemo(
+    () => ({
+      week: sleepSeries.length
+        ? `Esta semana durmió en promedio casi ${Math.round(wkS)} horas por noche.`
+        : "Aún no hay datos de sueño registrados.",
+      blocks: [
+        {
+          t: "Cómo le ha ido esta semana",
+          x: sleepSeries.length
+            ? `Esta semana durmió en promedio casi ${Math.round(wkS)} horas por noche.`
+            : "Cuando haya check-ins o manilla, aquí verá su progreso.",
+        },
+        {
+          t: "Lo que está funcionando",
+          x: days
+            ? `La respiración 4-6 la ha usado ${days} días. ¡Eso cuenta!`
+            : "Todavía no hay prácticas registradas esta semana.",
+        },
+        {
+          t: "Su próximo paso",
+          x: DP.next || "Su equipo clínico le avisará la próxima sesión.",
+        },
+        {
+          t: "Un mensaje para usted",
+          x: "Cada paso cuenta. Cuando tenga datos nuevos, este resumen se actualizará solo.",
+        },
+      ],
+      dots: (practiceSeries.length ? practiceSeries : [0, 0, 0, 0, 0, 0, 0]).map((v: number, i: number) => ({
+        bg: v ? C.verde : "#fff",
+        l: ["mié", "jue", "vie", "sáb", "dom", "lun", "mar"][i],
+      })),
+    }),
+    [C.verde, DP.next, days, practiceSeries, sleepSeries.length, wkS],
+  );
+
+  const pr = recP();
+  const hasCourse = !!pr;
+  const EB = { calma: "#A9D4FF", curiosidad: "#FFE189", energia: "#FFC0E0" } as const;
+
+  const dc = useMemo(() => {
+    if (!pr) return null;
+    const c = R.curso(pr.course);
+    const cur = c.mods[pr.week - 1];
+    const done = pr.doneMods.length;
+    return {
+      title: c.title,
+      week: pr.week,
+      weeks: c.weeks,
+      pctW: `${(done / c.weeks) * 100}%`,
+      doneLabel: `${done} de ${c.weeks} semanas hechas`,
+      cover: naraAsset(R.cover(cur.cuento)),
+      mods: c.mods.map((m, i) => {
+        const n = i + 1;
+        const state = pr.doneMods.includes(n)
+          ? "Hecho"
+          : n === pr.week
+            ? "Esta semana"
+            : n < pr.week
+              ? "Pendiente"
+              : "Próximo";
+        const t = R.tecnica(m.tecnica);
+        const v = R.video(m.video);
+        return {
+          n,
+          slug: m.cuento,
+          cuento: R.cuento(m.cuento).title,
+          tecnicaId: m.tecnica,
+          videoId: m.video,
+          cover: naraAsset(R.cover(m.cuento)),
+          state,
+          chipBg: state === "Hecho" ? "#E3F1E8" : state === "Esta semana" ? "#FDCD22" : "#F0ECE6",
+          bd: state === "Esta semana" ? "2px solid #161413" : "1px solid #DCD6CD",
+          tech: `${t.title} · ${t.min} min`,
+          techCount:
+            n === pr.week
+              ? (pr.tech[m.tecnica] || 0) >= 3
+                ? `✓ ${pr.tech[m.tecnica]} veces`
+                : `${pr.tech[m.tecnica] || 0} de 3`
+              : "Escuchar",
+          video: `${v.title} · ${v.min} min`,
+        };
+      }),
+    };
+  }, [R, pr]);
+
+  const lib = useMemo(() => {
+    const tab = libTab;
+    const q = libQ.toLowerCase();
+    const tema = libTema;
+    const pool =
+      tab === "cuentos" ? R.CUENTOS.filter(R.openLib) : tab === "videos" ? R.VIDEOS : R.TECNICAS;
+    const match = (x: { title: string; temas?: string; tema?: string }) =>
+      (!q || x.title.toLowerCase().includes(q) || (x.temas || x.tema || "").toLowerCase().includes(q)) &&
+      (!tema || R.temaMatch(x, tema));
+    const list = pool.filter(match);
+    return {
+      tabs: [
+        ["cuentos", "Cuentos"],
+        ["videos", "Videos"],
+        ["tecnicas", "Técnicas"],
+      ].map(([k, label]) => ({
+        label,
+        on: tab === k,
+        bg: tab === k ? "#fff" : "transparent",
+        fw: tab === k ? 600 : 500,
+        key: k,
+      })),
+      temas: R.TEMAS,
+      isCuentos: tab === "cuentos",
+      isList: tab !== "cuentos",
+      empty: !list.length,
+      cuentos:
+        tab === "cuentos"
+          ? list.map((c: { title: string; slug: string; lect: number; audio: number; restr?: string }) => ({
+              title: c.title,
+              cover: naraAsset(R.cover(c.slug)),
+              meta: `${c.lect} min · audio ${c.audio} min${c.restr === "pandemia" ? ` · ${R.TAG.pandemia}` : ""}`,
+              slug: c.slug,
+            }))
+          : [],
+      items:
+        tab !== "cuentos"
+          ? list.map(
+              (v: { title: string; min: number; tema: string; emo: keyof typeof EB; kind: string; id: string }) => ({
+                title: v.title,
+                meta: `${v.min} min · ${v.tema}`,
+                bg: EB[v.emo],
+                char: naraAsset(`marca/personajes/nara-${v.emo}.svg`),
+                cta: v.kind === "video" ? "Ver" : "Escuchar",
+                id: v.id,
+              }),
+            )
+          : [],
+    };
+  }, [EB, R, libQ, libTab, libTema]);
+
+  const rdView = useMemo(() => {
+    if (!rd) return null;
+    const c = R.cuento(rd.slug);
+    const n = c.preguntas.length;
+    return {
+      title: c.title,
+      counter: rd.mode === "page" ? (c.pages ? `${rd.page} de ${c.pages}` : "Portada") : "",
+      img: naraAsset(c.pages ? R.page(rd.slug, rd.page) : R.cover(rd.slug)),
+      alt: `${c.title}${c.pages ? `, página ${rd.page}` : ", portada"}`,
+      isPage: rd.mode === "page",
+      isQ: rd.mode === "q",
+      isDone: rd.mode === "done",
+      noPages: !c.pages,
+      prevOp: rd.page > 1 ? 1 : 0.35,
+      audioLabel: rd.audio ? "Pausar" : "Escuchar",
+      aW: `${rd.aprog * 100}%`,
+      aTime: `${fmt(rd.aprog * c.audio * 60)} / ${fmt(c.audio * 60)}`,
+      qCounter: `Pregunta ${rd.qi + 1} de ${n}`,
+      q: c.preguntas[rd.qi] || "",
+      ans: rd.ans,
+      share: rd.share,
+      yesBg: rd.share ? "#FDCD22" : "#fff",
+      noBg: rd.share ? "#fff" : "#FDCD22",
+      nextLabel: rd.qi + 1 < n ? "Siguiente" : "Terminar",
+      doneTitle: `Terminó «${c.title}»`,
+      doneText: modDoneRef.current
+        ? celebrate()
+        : "Quedó guardado en su curso. Puede volver a leerlo cuando quiera.",
+    };
+  }, [R, celebrate, rd]);
+
+  const plView = useMemo(() => {
+    if (!pl) return null;
+    const it = R.item(pl.id);
+    const cnt = pr ? pr.tech[pl.id] || 0 : 0;
+    return {
+      title: it.title,
+      meta: `${it.kind === "video" ? "Video" : "Técnica guiada"} · ${it.min} min · ${it.tema}`,
+      bg: EB[it.emo as keyof typeof EB],
+      char: naraAsset(`marca/personajes/nara-${it.emo}.svg`),
+      w: `${pl.prog * 100}%`,
+      time: `${fmt(pl.prog * it.min * 60)} / ${fmt(it.min * 60)}`,
+      done: pl.done,
+      doneText:
+        it.kind === "tecnica"
+          ? `Quedó registrada. Esta semana la hizo ${cnt}${cnt === 1 ? " vez." : " veces."}`
+          : "Video terminado.",
+      label: pl.done ? "Otra vez" : pl.playing ? "Pausar" : "Reproducir",
+    };
+  }, [EB, R, pl, pr]);
+
+  const dianaLines = store.crisisLines("Armenia").map((l: { tel: string; label: string; sub: string; main?: boolean }) => ({
+    tel: l.tel,
+    label: l.label,
+    sub: l.sub,
+    bg: l.main ? "#B42318" : "#fff",
+    fg: l.main ? "#fff" : "#8A1C14",
+  }));
+
+  const rosaLines = store.crisisLines("Salento").map((l: { tel: string; label: string; sub: string; main?: boolean }) => ({
+    tel: l.tel,
+    label: l.label,
+    sub: l.sub,
+    bg: l.main ? "#B42318" : "#fff",
+    fg: l.main ? "#fff" : "#8A1C14",
+  }));
+
+  const unreadBanner = (S.dianaInbox || []).find((m: { seen?: boolean }) => !m.seen) as
+    | { text?: string; tab?: Tab }
+    | undefined;
+
+  const screenCode = isDiana
+    ? ({ resumen: "PatientWeeklySummary", home: "PatientHome", chat: "TeoChat", route: "PatientPath", hist: "PatientHistory" } as const)[
+        tab === "resumen" ? "resumen" : tab
+      ]
+    : "WhatsAppChannel";
+
+  const routeChanges = (S.pathAdjust.diana || [])
+    .map((x: string) => ({
+      d: "Hoy · Dra. Lucía Marín",
+      x:
+        ({
+          "Subir a sesiones semanales": "Sus sesiones con la psicóloga ahora son cada semana.",
+          "Bajar intensidad": "Su ruta ahora tiene menos sesiones, porque va mejorando.",
+          "Agregar revisita del experto": "Su experta de campo la va a visitar de nuevo en casa.",
+        } as Record<string, string>)[x.split(".")[0]] || x,
+    }))
+    .concat(
+      S.referrals
+        .filter((x: { pid: string }) => x.pid === "diana")
+        .map((x: { date: string; status: string }) => ({
+          d: x.date,
+          x: `Su psicóloga la remitió a otra institución para que la atiendan allí. Estado: ${x.status.toLowerCase()}.`,
+        })),
+    );
+
+  const route = [
+    ["Sesiones con su psicóloga", 4, 26],
+    ["Conversaciones con TEO", 18, null],
+    ["Técnicas", 9, 12],
+    ["Videos", 3, 8],
+    ["Check-ins por WhatsApp", 16, 18],
+    ["Manilla", "Activa", null],
+  ]
+    .concat(
+      store
+        .pathList(3, 2, null, store.ctxFor("diana"))
+        .filter((x: { id: string }) => ["pmplus", "group", "social"].includes(x.id))
+        .map((x: { id: string; name: string; freq: string; channel: string }) => [
+          x.id === "social" ? `Ayudas sociales · ${x.channel.toLowerCase()}` : x.name,
+          x.id === "social" ? "En trámite" : x.freq,
+          null,
+        ]),
+    )
+    .map(([name, a, b]) => ({
+      name: name as string,
+      val: b ? `${a} de ${b}` : String(a),
+      hasBar: !!b,
+      pct: b ? `${Math.round((Number(a) / Number(b)) * 100)}%` : "0%",
+    }));
+
+  const hist = [
+    [15, "10 ago"],
+    [12, "24 ago"],
+    [10, "7 sep"],
+    [9, "21 sep"],
+  ].map(([v, d]) => ({ v, d, h: `${Math.round((Number(v) / 27) * 100)}%` }));
+
+  const waMapped = wa.map((m) => {
+    const id = String(m.id || "");
+    const p = prog[id] || 0;
+    return {
+      raw: m,
+      sys: m.k === "sys",
+      inText: m.k === "in",
+      meText: m.k === "me",
+      crisis: m.k === "crisis",
+      isAudio: m.k === "audio",
+      isCard: m.k === "card",
+      isStory: m.k === "story",
+      isAsk: m.k === "ask",
+      text: m.text as string | undefined,
+      time: m.time as string | undefined,
+      cover: m.slug ? naraAsset(R.cover(String(m.slug))) : "",
+      open: m.k === "ask" && !waAsked[String(m.id)],
+      opts: ((m.opts as string[]) || []).map((label) => ({ label, go: () => waAsk(m, label) })),
+      lines: (m.lines as { t: string; x: string }[]) || [],
+      align: m.me ? "flex-end" : "flex-start",
+      bg: m.me ? "#FFF4CC" : "#fff",
+      hasTitle: !!m.title,
+      title: m.title as string | undefined,
+      dur: m.dur as string | undefined,
+      hasCaption: !!m.caption,
+      caption: m.caption as string | undefined,
+      hasTranscript: !!m.transcript,
+      transcript: m.transcript as string | undefined,
+      icon: playing === id ? "❚❚" : "▶",
+      play: () => waPlay(id, Number(m.secs) || 12),
+      bars: WA_BAR_H.map((h, i) => ({
+        h: `${h}%`,
+        c: (i / WA_BAR_H.length) * 100 < p ? "#161413" : "#B3ACA2",
+      })),
+    };
+  });
+
+  const chatMsgs = msgs.map((m) => ({
+    ai: m.t === "ai",
+    me: m.t === "me",
+    crisis: m.t === "crisis",
+    breath: m.t === "breath",
+    text: m.text,
+    avatar: naraAsset(
+      `marca/personajes/teo-${
+        paused
+          ? "calma"
+          : /(eso cuenta|lo logró|completó|mejoró|avance|terminó la semana)/i.test(m.text || "")
+            ? "energia"
+            : /respir|dorm|sueño|técnica|calma|despacio|aire/i.test(m.text || "")
+              ? "calma"
+              : "curiosidad"
+      }.svg`,
+    ),
+  }));
+
+  return {
+    ready,
+    isDiana,
+    isRosalba: !isDiana,
+    framed,
+    dev: store.devMode(),
+    devW: framed ? "390px" : "100%",
+    devH: framed ? "844px" : "100dvh",
+    devZoom,
+    devR: framed ? "56px" : "0",
+    devBd: framed ? "12px solid #161413" : "none",
+    devSh: framed ? "0 30px 60px rgba(22,20,19,.25), 0 0 0 2px #3A3633" : "none",
+    scrR: framed ? "44px" : "0",
+    sbBg: isDiana ? "#F0ECE6" : "#161413",
+    sbFg: isDiana ? "#161413" : "#fff",
+    gestC: "#161413",
+    clock,
+    splash: isDiana && splash,
+    screenCode,
+    hasBanner: isDiana && !!unreadBanner,
+    bannerText: unreadBanner?.text || "",
+    bannerTop: framed ? "54px" : "10px",
+    dismissBanner: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      store.set((s) => {
+        const m = (s.dianaInbox || []).find((x: { seen?: boolean }) => !x.seen);
+        if (m) m.seen = true;
+      });
+    },
+    openBanner: () => {
+      const m = unreadBanner;
+      store.set((s) => {
+        const x = (s.dianaInbox || []).find((y: { seen?: boolean }) => !y.seen);
+        if (x) x.seen = true;
+      });
+      if (m?.tab) setTab(m.tab);
+    },
+    bodyRef,
+    waRef,
+    tab,
+    setTab,
+    tabHome: tab === "home",
+    tabChat: tab === "chat",
+    tabRoute: tab === "route",
+    tabHist: tab === "hist",
+    tabRes: tab === "resumen",
+    openResumen: () => setTab("resumen"),
+    closeResumen: () => setTab("home"),
+    greet,
+    res,
+    moods: MOODS.map((label, i) => ({
+      n: i + 1,
+      label,
+      bd: mood === i ? C.verde : C.lineas,
+      bg: mood === i ? C.amarillo : "#fff",
+      fg: C.tinta,
+      pick: () => setMood(i),
+    })),
+    moodDone: mood !== null,
+    hasCourse,
+    dc,
+    startTechnique: () => {
+      setTab("chat");
+      if (!paused && stage !== "breath") {
+        me("Quiero hacer la respiración de hoy");
+        startBreath();
+      }
+    },
+    chatMsgs,
+    typing,
+    quick: quick.map((label) => ({ label, go: () => quickDiana(label) })),
+    paused,
+    notPaused: !paused,
+    input,
+    setInput,
+    sendDiana,
+    askChips: ["¿Cómo voy?", "¿Qué hablé la última vez con la doctora?", "¿Qué me toca esta semana?"].map(
+      (label) => ({ label, go: () => chipAnswer(label) }),
+    ),
+    topics: topics.map(([label, on], i) => ({
+      label,
+      mark: on ? "✓" : "",
+      bg: on ? C.verde : "#fff",
+      toggle: () =>
+        setTopics((t) => t.map((row, j) => (j === i ? [row[0], !row[1]] : row))),
+    })),
+    topicInput,
+    setTopicInput,
+    addTopic: () => {
+      const t = topicInput.trim();
+      if (t) {
+        setTopics((top) => top.concat([[t, true]]));
+        setTopicInput("");
+      }
+    },
+    sesionDia: "miércoles 7 de octubre",
+    lib,
+    setLibTab: (k: string) => {
+      setLibTab(k);
+      setLibTema("");
+    },
+    setLibQ,
+    setLibTema,
+    libQ,
+    libTema,
+    openReader,
+    playItem,
+    route,
+    routeChanges,
+    hasRouteChanges: !!(S.pathAdjust.diana || []).length || !!S.referrals.find((x: { pid: string }) => x.pid === "diana"),
+    hist,
+    consents: CL.map(([k, label]) => ({
+      label,
+      state: cons[k] ? "Sí" : "No",
+      bg: cons[k] ? C.verde : "#C4BDB3",
+      x: cons[k] ? "25px" : "3px",
+      toggle: () => {
+        const v = !cons[k];
+        store.set((s) => {
+          s.consents = s.consents || {};
+          s.consents.diana = s.consents.diana || {};
+          s.consents.diana[k] = v;
+          if (!v)
+            store.pushNotif(
+              s,
+              "clin",
+              `Consentimiento retirado: Diana Marcela Ruiz · ${label.toLowerCase()}`,
+              "/clinico?pid=diana",
+            );
+          if (!v)
+            s.alerts.push({
+              id: `a-cons-${k}${Date.now()}`,
+              sev: "info",
+              pid: "diana",
+              name: "Diana Marcela Ruiz",
+              age: 38,
+              place: "Armenia",
+              profile: "P12",
+              what: `Retiró su consentimiento: ${label.toLowerCase()}.`,
+              source: "App · Historial",
+              at: Date.now(),
+              status: "open",
+            });
+        });
+        setConsentMsg(v ? "Cambio guardado." : "Cambio guardado. Le avisamos a su psicóloga.");
+      },
+    })),
+    consentMsg,
+    clearConsentMsg: () => setConsentMsg(""),
+    tabs: [
+      ["home", "Inicio"],
+      ["chat", "TEO"],
+      ["route", "Mi ruta"],
+      ["hist", "Historial"],
+    ].map(([k, label]) => ({
+      label,
+      on: tab === k,
+      fg: tab === k ? "#161413" : "#5E5750",
+      fw: tab === k ? 600 : 500,
+      dot: tab === k ? "#FDCD22" : "transparent",
+      op: tab === k ? 1 : 0.7,
+      isHome: k === "home",
+      isTeo: k === "chat",
+      isRoute: k === "route",
+      isHist: k === "hist",
+      go: () => setTab(k as Tab),
+    })),
+    rdOpen: !!rd,
+    rdView,
+    rdUpd,
+    goPage,
+    closeReader,
+    answerQ,
+    startAudio,
+    toggleReaderAudio: () => {
+      setRd((rd) => {
+        if (!rd) return rd;
+        const on = !rd.audio;
+        if (on) setTimeout(startAudio, 30);
+        else if (auRef.current) clearInterval(auRef.current);
+        return { ...rd, audio: on };
+      });
+    },
+    touchXRef,
+    plOpen: !!pl,
+    plView,
+    plToggle: () => {
+      if (!pl) return;
+      if (pl.done) return playItem(pl.id);
+      const on = !pl.playing;
+      setPl({ ...pl, playing: on });
+      if (on) setTimeout(runPlayer, 30);
+      else if (plRef.current) clearInterval(plRef.current);
+    },
+    plClose: () => {
+      if (plRef.current) clearInterval(plRef.current);
+      setPl(null);
+    },
+    helpOpen: help,
+    helpNotSent: !helpSent && !S.diana.crisis,
+    helpText:
+      helpSent || S.diana.crisis
+        ? "Ya avisamos al equipo. Una persona la va a llamar en menos de 30 minutos. Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4."
+        : "Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4. También puede pedir que alguien del equipo la llame ya.",
+    openHelp: () => setHelp(true),
+    closeHelp: () => setHelp(false),
+    askCall: () => {
+      setHelpSent(true);
+      store.addAlert({
+        id: "a-diana-btn",
+        sev: "crisis",
+        pid: "diana",
+        name: "Diana Marcela Ruiz",
+        age: 38,
+        place: "Armenia",
+        profile: "P12",
+        what: "Tocó «Necesito ayuda ahora» y pidió que la llamen ya.",
+        source: "Botón de ayuda · app",
+        phone: "316 904 1127",
+      });
+    },
+    dianaLines,
+    rosaLines,
+    waMapped,
+    waQuick: waQuick.map((label) => ({ label, go: () => waAnswer(label) })),
+    waInput,
+    setWaInput,
+    waSendText,
+    waEmpty: !waInput.trim(),
+    waHasText: !!waInput.trim(),
+    onBreathDone,
+  };
+}

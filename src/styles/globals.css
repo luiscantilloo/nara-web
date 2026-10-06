@@ -1,0 +1,462 @@
+@import "tailwindcss";
+@import "./nara-tokens.css";
+
+@theme inline {
+  --color-nara-amarillo: var(--nara-amarillo);
+  --color-nara-rosa: var(--nara-rosa);
+  --color-nara-crema: var(--nara-crema);
+  --color-nara-tinta: var(--nara-tinta);
+  --color-nara-blanco: var(--nara-blanco);
+  --color-nara-calma: var(--nara-calma);
+  --color-nara-curiosidad: var(--nara-curiosidad);
+  --color-nara-duda: var(--nara-duda);
+  --color-nara-energia: var(--nara-energia);
+  --color-personaje-nara-calma: var(--personaje-nara-calma);
+  --color-personaje-nara-curiosidad: var(--personaje-nara-curiosidad);
+  --color-personaje-nara-duda: var(--personaje-nara-duda);
+  --color-personaje-nara-energia: var(--personaje-nara-energia);
+  --color-teo-calma: var(--teo-calma);
+  --color-teo-curiosidad: var(--teo-curiosidad);
+  --color-teo-duda: var(--teo-duda);
+  --color-teo-energia: var(--teo-energia);
+  --color-texto-secundario: var(--texto-secundario);
+  --color-linea: var(--linea);
+  --color-superficie-2: var(--superficie-2);
+  --color-crisis: var(--crisis);
+  --color-crisis-suave: var(--crisis-suave);
+  --color-crisis-texto: var(--crisis-texto);
+  --color-ia-borrador: var(--ia-borrador);
+  --color-riesgo-minimo: var(--riesgo-minimo);
+  --color-riesgo-leve: var(--riesgo-leve);
+  --color-riesgo-moderado: var(--riesgo-moderado);
+  --color-riesgo-moderado-severo: var(--riesgo-moderado-severo);
+  --color-riesgo-severo: var(--riesgo-severo);
+  --color-digital-baja: var(--digital-baja);
+  --color-digital-media: var(--digital-media);
+  --color-digital-alta: var(--digital-alta);
+  --color-estado-al-dia: var(--estado-al-dia);
+  --color-exito-suave: var(--exito-suave);
+  --color-estado-bajo-meta: var(--estado-bajo-meta);
+  --color-estado-revisar: var(--estado-revisar);
+  --font-titulos: var(--fuente-titulos);
+  --font-texto: var(--fuente-texto);
+}
+
+@font-face {
+  font-family: "Fredoka";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Fredoka-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fredoka";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Fredoka-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fredoka";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Fredoka-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fredoka";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Fredoka-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Figtree-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Figtree-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Figtree-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/nara/marca/fuentes/Figtree-Bold.woff2") format("woff2");
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--nara-crema, #f0ece6);
+  color: var(--nara-tinta, #161413);
+  font-family: Figtree, system-ui, sans-serif;
+  overflow-x: clip;
+}
+
+/* Scroll amarillo solo en zonas de contenido (bajo el topbar), no en toda la ventana */
+.nara-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nara-amarillo, #fdcd22) transparent;
+}
+
+.nara-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.nara-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nara-scroll::-webkit-scrollbar-thumb {
+  background: var(--nara-amarillo, #fdcd22);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.nara-scroll::-webkit-scrollbar-thumb:hover {
+  background: #e0b41a;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+:focus-visible {
+  outline: none;
+}
+
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+a {
+  color: inherit;
+}
+
+/* Layouts responsive NARA */
+.nara-page {
+  --nara-page-pad-x: 16px;
+  --nara-page-pad-y: 20px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  /* Sin padding-top: el cabecero sticky lo aporta (así no se mueve al scrollear). */
+  padding: 0 var(--nara-page-pad-x) 48px;
+  box-sizing: border-box;
+  container-type: inline-size;
+  container-name: nara-page;
+}
+
+@media (min-width: 768px) {
+  .nara-page {
+    --nara-page-pad-x: 32px;
+    --nara-page-pad-y: 28px;
+    padding-bottom: 56px;
+  }
+}
+
+/**
+ * Cabecero de página (título, subtítulo, pestañas, CTA).
+ * Queda fijo bajo el topbar; solo scrollea lo de abajo.
+ */
+.nara-page-head {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--nara-crema, #f0ece6);
+  padding: var(--nara-page-pad-y) 0 12px;
+  margin-bottom: 4px;
+}
+
+.nara-page-head .nara-tabs-scroll {
+  margin-bottom: 0;
+}
+
+/* Home: columnas según el ancho ÚTIL (no el de la ventana). */
+.nara-home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  /* Sin PageHead: deja aire bajo el topbar */
+  padding-top: var(--nara-page-pad-y, 20px);
+}
+
+/* Solo 2 columnas cuando hay espacio real de lectura (evita aplastar con TEO). */
+@container nara-page (min-width: 1100px) {
+  .nara-home-grid {
+    grid-template-columns: minmax(0, 1fr) min(300px, 30%);
+    gap: 28px;
+  }
+}
+
+.nara-home-main {
+  background: #fff;
+  border: 1px solid #dcd6cd;
+  border-radius: 20px;
+  padding: 22px 18px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@container nara-page (min-width: 640px) {
+  .nara-home-main {
+    padding: 28px 32px 0;
+    min-height: 560px;
+  }
+}
+
+.nara-form-grid-3 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+@media (min-width: 900px) {
+  .nara-form-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 22px;
+  }
+}
+
+.nara-scroll-x {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nara-kpi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .nara-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .nara-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.nara-split-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+/* Ancho ÚTIL de la página (con TEO abierto el viewport puede seguir ancho). */
+@container nara-page (min-width: 1024px) {
+  .nara-split-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(0, min(480px, 40%));
+    gap: 18px;
+  }
+}
+
+.nara-split-panel-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+@container nara-page (min-width: 1024px) {
+  .nara-split-panel-start {
+    grid-template-columns: minmax(0, min(420px, 42%)) minmax(0, 1fr);
+    gap: 18px;
+  }
+}
+
+/* Par de selects en editor de cursos: no desborda al estrechar. */
+.nara-course-week-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+@container nara-page (min-width: 420px) {
+  .nara-course-week-pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.nara-form-grid-4 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+@media (min-width: 640px) {
+  .nara-form-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1100px) {
+  .nara-form-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+
+.nara-kpi-grid-5 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .nara-kpi-grid-5 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 900px) {
+  .nara-kpi-grid-5 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .nara-kpi-grid-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.nara-tabs-scroll {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid #dcd6cd;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.nara-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.nara-label-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+@media (min-width: 640px) {
+  .nara-label-row {
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+/* SweetAlert2 · marca NARA */
+.nara-swal-popup {
+  font-family: Figtree, system-ui, sans-serif !important;
+  color: var(--nara-tinta, #161413) !important;
+  border-radius: 20px !important;
+  border: 1px solid var(--linea, #dcd6cd) !important;
+  padding: 1.5rem 1.25rem 1.25rem !important;
+  box-shadow: 0 24px 60px rgba(22, 20, 19, 0.22) !important;
+}
+
+.nara-swal-title {
+  font-family: Fredoka, Figtree, system-ui, sans-serif !important;
+  font-weight: 600 !important;
+  color: var(--nara-tinta, #161413) !important;
+}
+
+.nara-swal-html {
+  font-size: 16px !important;
+  color: var(--nara-tinta, #161413) !important;
+  line-height: 1.45 !important;
+}
+
+.nara-swal-actions {
+  gap: 10px !important;
+  margin-top: 1.25rem !important;
+  flex-wrap: wrap !important;
+}
+
+.nara-swal-confirm,
+.nara-swal-deny,
+.nara-swal-cancel {
+  font-family: Figtree, system-ui, sans-serif !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  height: 44px !important;
+  padding: 0 18px !important;
+  border-radius: 14px !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+}
+
+.nara-swal-confirm {
+  background: var(--nara-amarillo, #fdcd22) !important;
+  color: var(--nara-tinta, #161413) !important;
+  border: none !important;
+}
+
+.nara-swal-deny {
+  background: #fff !important;
+  color: var(--nara-tinta, #161413) !important;
+  border: 1.5px solid var(--nara-tinta, #161413) !important;
+}
+
+.nara-swal-cancel {
+  background: #fff !important;
+  color: var(--nara-tinta, #161413) !important;
+  border: 1.5px solid var(--linea, #dcd6cd) !important;
+}
+
+.swal2-icon.swal2-success .swal2-success-ring {
+  border-color: rgba(253, 205, 34, 0.45) !important;
+}
+
+.swal2-icon.swal2-success [class^="swal2-success-line"] {
+  background-color: var(--nara-tinta, #161413) !important;
+}
+
+.swal2-icon.swal2-info,
+.swal2-icon.swal2-warning {
+  border-color: var(--nara-amarillo, #fdcd22) !important;
+  color: var(--nara-tinta, #161413) !important;
+}

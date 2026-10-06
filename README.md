@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NARA (nara-web)
 
-## Getting Started
+Frontend del programa de salud mental post-sismo (Eje Cafetero).  
+Fuente de verdad de UX: mockup HTML interactivo. Solo frontend mock hasta que haya API.
 
-First, run the development server:
+## Scripts
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+| Comando | Qué hace |
+|---------|----------|
+| `npm run dev` | Dev server en **http://localhost:3002** (Turbopack) |
+| `npm run dev:webpack` | Igual, con Webpack |
+| `npm run build` | Build de producción |
+| `npm run start` | Serve build en puerto 3002 |
+| `npm run lint` | ESLint |
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Convención
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Rutas delgadas en `src/app/`
+- Dominio del producto en `src/modules/`
+- UI genérica en `src/components/`
+- Paths y menús en `src/config/`
+- Datos falsos en `src/data/mock/` + `src/services/mock/`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Detalle: `src/README.md`.
 
-## Learn More
+## Desarrollo por pasos
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Plan de 18 pasos. No avanzar features sin el número de paso. Scaffold = paso 1.

@@ -1,0 +1,117 @@
+export const TERR: {
+  name: string;
+  dep: string;
+  level: string;
+  experts: number;
+  cap: number;
+  goal: number;
+  rural: number;
+  ruralG: number;
+  br: number;
+  insts: number;
+  isNew?: boolean;
+  sixtyG?: number;
+}[] = [];
+
+export const EXPERTS: (string | number)[][] = [];
+
+export const CHECKS: [string, string][] = [
+  ["GPS al inicio y al final", "Visita no presencial o fuera del territorio"],
+  ["Duración de la entrevista (mín. ~20 min)", "Visitas apuradas o inventadas"],
+  ["Consentimiento firmado", "Personas inventadas"],
+  ["Detección de duplicados", "Persona registrada dos veces o teléfono compartido"],
+  ["Patrones de respuesta", "Respuestas idénticas entre visitas"],
+  ["Borradores de TEO confirmados muy rápido", "El experto no revisa lo que propone TEO"],
+  ["Llamadas aleatorias del supervisor (~5 %)", "Visitas que no ocurrieron"],
+  ["SMS o WhatsApp a la persona", "«¿Le visitó [experto] hoy?»"],
+];
+
+export const NOTES: Record<string, string> = {
+  pmplus: "OMS · 5 sesiones con experto capacitado",
+  group: "Encuentro grupal con facilitador",
+  social: "Automático: daño en la vivienda o pérdida de un familiar",
+  clin: "Canal según nivel digital",
+  ia: "Solo app (digital alta)",
+  wa: "Audio primero",
+  call: "Para digital baja",
+  bracelet: "Sueño y ritmo cardiaco",
+  videos: "Sueño, duelo, miedo después del sismo",
+  tech: "Respiración, sueño, anclaje",
+  revisit: "Visita en casa del experto",
+};
+
+export type AdminUiState = {
+  view: string;
+  agentOpen: boolean;
+  terrFilter: string;
+  msg: string;
+  msgActions: { label: string; go: () => void }[];
+  terrForm: boolean;
+  tf: {
+    dep: string;
+    mun: string;
+    goal: string;
+    level: string;
+    rural: string;
+    sixty: string;
+    mods: { base: boolean; ctx: boolean; videos: boolean };
+    insts: { hl: boolean; cu: boolean; cf: boolean };
+  };
+  tfErr: string;
+  expForm: boolean;
+  ef: { name: string; phone: string; terr: string; target: string };
+  sel: string;
+  drafts: Record<string, { s: Record<string, string>; months: number }>;
+  scope: string;
+  zoom?: number;
+  teamTab?: string;
+  pathTab?: string;
+  pfPer?: string;
+  pfTerr?: string;
+  pfSort?: string;
+  pfDir?: number;
+  rd?: unknown;
+  rulesMsg?: string;
+  au?: { expert: string; clin: string; review: string };
+  autoMsg?: string;
+  simPhq?: string;
+  simDig?: string;
+  simDano?: string;
+  simLoss?: boolean;
+  simQ9?: boolean;
+  libKind?: string;
+  libSel?: string | null;
+  libCourse?: string;
+  q?: string;
+  pf?: Record<string, string>;
+  pendingAsk?: string;
+  /** Detalle de activos: territorio + manilla | tablet */
+  assetTerr?: string;
+  assetKind?: "manilla" | "tablet";
+  [key: string]: unknown;
+};
+
+export const INITIAL_ADMIN_STATE: AdminUiState = {
+  view: "home",
+  agentOpen: false,
+  terrFilter: "",
+  msg: "",
+  msgActions: [],
+  terrForm: false,
+  tf: {
+    dep: "Quindío",
+    mun: "Filandia",
+    goal: "800",
+    level: "Veredas seleccionadas",
+    rural: "60",
+    sixty: "25",
+    mods: { base: true, ctx: true, videos: true },
+    insts: { hl: true, cu: true, cf: false },
+  },
+  tfErr: "",
+  expForm: false,
+  ef: { name: "Natalia Loaiza", phone: "310 555 0142", terr: "Filandia", target: "9" },
+  sel: "P08",
+  drafts: {},
+  scope: "all",
+};
