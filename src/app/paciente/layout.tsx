@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { ShellLayout } from "@/components/layouts/shell";
 
-/** Toda la app autenticada: no indexar. */
+/** App paciente: privada, no indexar. */
 export const metadata: Metadata = {
   robots: {
     index: false,
@@ -11,10 +10,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ShellGroupLayout({
+export default function PacienteLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return <ShellLayout>{children}</ShellLayout>;
+  return children;
 }
