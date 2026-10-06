@@ -20,7 +20,7 @@ const OUTCOMES = [
 
 export function useClinicoScreen() {
   const store = useNaraStore();
-  const session = useRequireSession(["lucia"]);
+  const session = useRequireSession(["clinico", "lucia"]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [st, setStateRaw] = useState({
@@ -38,6 +38,7 @@ export function useClinicoScreen() {
     pendingAsk: "",
     fileFrom: null,
     asg: null,
+    tick: 0,
   });
   const setState = useCallback((u) => {
     setStateRaw((prev) => ({ ...prev, ...(typeof u === "function" ? u(prev) : u) }));
@@ -400,7 +401,14 @@ export function useClinicoScreen() {
           : SEV[c.sev][0],
     }));
 
-    const ids = A.CASE_IDS.slice();
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    const pushId = (id: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      ids.push(id);
+    };
+    A.CASE_IDS.forEach((id: string) => pushId(id));
     (S.caseload || []).forEach((c) => {
       if (!A.PATIENTS[c.id])
         A.PATIENTS[c.id] = {
@@ -429,7 +437,7 @@ export function useClinicoScreen() {
             },
           ],
         };
-      ids.push(c.id);
+      pushId(c.id);
     });
     if (S.visits.rosalba && !S.visits.rosalba.crisis) ids.push("rosalba");
     if (
@@ -667,33 +675,41 @@ export function useClinicoScreen() {
         title: "Reglas de clasificación",
         meta: "Enviado por " + pd.by + " · " + A.agoText(pd.at),
         lines: ruleLines(pd).concat(["La regla de crisis (pregunta 9 mayor que 0) no cambia."]),
+        kind: "rules",
         approve: () => {
-          A.set((s) => {
-            const p = s.rules.pending;
-            s.rules.risk = p.draft.risk;
-            s.rules.dig = p.draft.dig;
-            s.rules.pending = null;
-            s.rules.versions.unshift({
-              v: s.rules.versions[0].v + 1,
-              by: "Dra. Lucía Marín (líder clínica)",
-              at: Date.now(),
-              what:
-                "Aprobó el cambio de reglas enviado por " +
-                p.by +
-                ": " +
-                ruleLines(p).join(" · "),
+          try {
+            A.set((s) => {
+              const p = s.rules.pending;
+              if (!p?.draft) return;
+              s.rules.risk = p.draft.risk;
+              s.rules.dig = p.draft.dig;
+              s.rules.pending = null;
+              s.rules.versions = Array.isArray(s.rules.versions) ? s.rules.versions : [];
+              const prevV = (s.rules.versions[0] && s.rules.versions[0].v) || 1;
+              s.rules.versions.unshift({
+                v: prevV + 1,
+                by: "Dra. Lucía Marín (líder clínica)",
+                at: Date.now(),
+                what:
+                  "Aprobó el cambio de reglas enviado por " +
+                  p.by +
+                  ": " +
+                  ruleLines(p).join(" · "),
+              });
+              A.pushNotif(
+                s,
+                "admin",
+                "La líder clínica aprobó el cambio en las reglas de clasificación",
+                "/rutas?tab=2",
+              );
+              A.logActivity(s, "lucia", "Aprobó un cambio en las reglas de clasificación");
             });
-            A.pushNotif(
-              s,
-              "admin",
-              "La líder clínica aprobó el cambio en las reglas de clasificación",
-              "/rutas?tab=2",
-            );
-            A.logActivity(s, "lucia", "Aprobó un cambio en las reglas de clasificación");
-          });
-          setState({ msg: "" });
+            setState({ msg: "Reglas aprobadas. Ya aplican en el programa.", tick: Date.now() });
+          } catch (e) {
+            setState({ msg: "No se pudo aprobar el cambio de reglas." });
+          }
         },
-        reject: () =>
+        reject: () => {
           A.set((s) => {
             s.rules.pending = null;
             A.pushNotif(
@@ -703,22 +719,40 @@ export function useClinicoScreen() {
               "/rutas?tab=2",
             );
             A.logActivity(s, "lucia", "Devolvió un cambio en las reglas de clasificación");
-          }),
+          });
+          setState({ msg: "Cambio de reglas devuelto sin aprobar.", tick: Date.now() });
+        },
       });
     }
     (S.pathRequests || []).forEach((rq) => {
       const { r, d } = A.parseCode(rq.code);
-      const curPath = A.pathList(r, d),
-        nx = A.pathList(r, d, rq.draft);
+      const curPath = A.pathList(r, d);
+      const nx = A.pathList(r, d, rq.draft);
+      const kept = nx.filter((x) => curPath.find((c) => c.id === x.id && c.freq === x.freq));
+      const changed = nx.filter((x) => {
+        const prev = curPath.find((c) => c.id === x.id);
+        return prev && prev.freq !== x.freq;
+      });
+      const added = nx.filter((x) => !curPath.find((c) => c.id === x.id));
+      const removed = curPath.filter((c) => !nx.find((x) => x.id === c.id));
+      const riskLabel = A.RISK[r]?.k || "";
+      const digLabel = (A.DIG[d]?.k || "").toLowerCase();
       approvals.push({
-        title:
-          "Ruta " +
-          rq.code +
-          " · " +
-          A.RISK[r].k +
-          " × digital " +
-          A.DIG[d].k.toLowerCase(),
+        kind: "path",
+        code: rq.code,
+        riskLabel,
+        digLabel,
+        riskColor: A.RISK[r]?.c || "#161413",
+        title: "Ruta " + rq.code + " · " + riskLabel + " × digital " + digLabel,
         meta: rq.scope === "all" ? "Todos los territorios" : "Solo " + rq.scope,
+        months: rq.draft?.months || 3,
+        kept: kept.map((x) => ({ name: x.name, freq: x.freq })),
+        changed: changed.map((x) => {
+          const prev = curPath.find((c) => c.id === x.id);
+          return { name: x.name, freq: x.freq, from: prev?.freq || "" };
+        }),
+        added: added.map((x) => ({ name: x.name, freq: x.freq })),
+        removed: removed.map((c) => ({ name: c.name, freq: c.freq })),
         lines: nx
           .map(
             (x) =>
@@ -727,40 +761,54 @@ export function useClinicoScreen() {
               x.freq +
               (curPath.find((c) => c.id === x.id && c.freq === x.freq) ? "" : " (cambia)"),
           )
-          .concat(
-            curPath
-              .filter((c) => !nx.find((x) => x.id === c.id))
-              .map((c) => "Se quita: " + c.name),
-          )
-          .concat(["Duración: " + rq.draft.months + " meses"]),
-        approve: () =>
-          A.set((s) => {
-            s.pathOverrides = s.pathOverrides || {};
-            s.pathOverrides[rq.code] = rq.draft;
-            s.pathRequests = s.pathRequests.filter(
-              (x) => x !== rq && !(x.code === rq.code && x.scope === rq.scope),
-            );
-            s.rules.versions.unshift({
-              v: s.rules.versions[0].v + 1,
-              by: "Dra. Lucía Marín (líder clínica)",
-              at: Date.now(),
-              what:
-                "Aprobó la ruta " +
-                rq.code +
-                " (" +
-                (rq.scope === "all" ? "todos los territorios" : rq.scope) +
-                ").",
+          .concat(removed.map((c) => "Se quita: " + c.name))
+          .concat(["Duración: " + (rq.draft?.months || 3) + " meses"]),
+        approve: () => {
+          try {
+            A.set((s) => {
+              s.pathOverrides = s.pathOverrides || {};
+              // Copia profunda: s:{} (sin módulos) debe quedar tal cual, sin reinyectar mood
+              const approved = JSON.parse(
+                JSON.stringify(rq.draft || { s: {}, months: 3 }),
+              );
+              if (!approved.s || typeof approved.s !== "object") approved.s = {};
+              s.pathOverrides[rq.code] = approved;
+              s.pathRequests = (s.pathRequests || []).filter(
+                (x) => !(x.code === rq.code && x.scope === rq.scope),
+              );
+              s.rules = s.rules || {};
+              s.rules.versions = Array.isArray(s.rules.versions) ? s.rules.versions : [];
+              const prevV = (s.rules.versions[0] && s.rules.versions[0].v) || 1;
+              s.rules.versions.unshift({
+                v: prevV + 1,
+                by: "Dra. Lucía Marín (líder clínica)",
+                at: Date.now(),
+                what:
+                  "Aprobó la ruta " +
+                  rq.code +
+                  " (" +
+                  (rq.scope === "all" ? "todos los territorios" : rq.scope) +
+                  ").",
+              });
+              A.pushNotif(
+                s,
+                "admin",
+                "Ruta " + rq.code + " aprobada por la líder clínica",
+                "/rutas",
+              );
+              A.logActivity(s, "lucia", "Aprobó la ruta " + rq.code);
             });
-            A.pushNotif(
-              s,
-              "admin",
-              "Ruta " + rq.code + " aprobada por la líder clínica",
-              "/rutas",
-            );
-          }),
-        reject: () =>
+            setState({
+              msg: "Ruta " + rq.code + " aprobada. Ya aplica en el programa.",
+              tick: Date.now(),
+            });
+          } catch (e) {
+            setState({ msg: "No se pudo aprobar la ruta. Intente de nuevo." });
+          }
+        },
+        reject: () => {
           A.set((s) => {
-            s.pathRequests = s.pathRequests.filter(
+            s.pathRequests = (s.pathRequests || []).filter(
               (x) => !(x.code === rq.code && x.scope === rq.scope),
             );
             A.pushNotif(
@@ -769,7 +817,13 @@ export function useClinicoScreen() {
               "Ruta " + rq.code + " devuelta sin aprobar",
               "/rutas",
             );
-          }),
+            A.logActivity(s, "lucia", "Devolvió la ruta " + rq.code + " sin aprobar");
+          });
+          setState({
+            msg: "Ruta " + rq.code + " devuelta sin aprobar.",
+            tick: Date.now(),
+          });
+        },
       });
     });
     const apprN = approvals.length;

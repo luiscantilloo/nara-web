@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { naraAsset } from "./naraAsset";
 
-type Who = "diana" | "rosalba";
 type Tab = "home" | "chat" | "route" | "hist" | "resumen";
 type ChatMsg = { t: "ai" | "me" | "crisis" | "breath"; text?: string };
 type WaRaw = Record<string, unknown>;
@@ -53,11 +52,11 @@ export function usePacienteScreen() {
   const R = store.REC;
 
   const [ready, setReady] = useState(false);
-  const [who, setWho] = useState<Who>("diana");
+  const [who, setWho] = useState("p-rosa-elena");
   const [tab, setTab] = useState<Tab>("home");
   const [topics, setTopics] = useState<[string, boolean][]>([
-    ["Volver a subir al tercer piso del trabajo", true],
     ["El miedo con las réplicas pequeñas", true],
+    ["Preocupación por la casa", true],
     ["Cómo está durmiendo", true],
   ]);
   const [topicInput, setTopicInput] = useState("");
@@ -99,43 +98,62 @@ export function usePacienteScreen() {
   const touchXRef = useRef(0);
   const bannerKeyRef = useRef<string | null>(null);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dianaInitedRef = useRef(false);
+  const appInitedRef = useRef(false);
+  const pidRef = useRef(who);
 
-  const isDiana = who === "diana";
-  const DP = store.PATIENTS.diana || store.emptyPatient("diana", "Diana Marcela Ruiz", 38);
-  const cons = (S.consents && S.consents.diana) || {};
+  const isRosalba = who === "rosalba";
+  const isDiana = !isRosalba; // UI app TEO (Diana o Rosa); Rosalba = WhatsApp
+  const pid = who;
+  pidRef.current = pid;
+  const DP =
+    store.PATIENTS[pid] ||
+    store.emptyPatient(pid, store.session()?.name || "Paciente", 0);
+  const firstName = String(DP.name || "Paciente").split(/\s+/)[0] || "Paciente";
+  const cons = (S.consents && S.consents[pid]) || {};
 
   const recP = useCallback(() => {
     const st = store.get();
-    return st.recursos?.people?.diana ?? null;
+    const id = pidRef.current;
+    return st.recursos?.people?.[id] ?? null;
   }, [store]);
+
+  const courseMod = useCallback(
+    (pr: { course?: string; week?: number } | null | undefined) => {
+      if (!pr?.course) return null;
+      const c = R.curso(pr.course);
+      if (!c?.mods?.length) return null;
+      return c.mods[Math.max(0, Math.min(c.mods.length, pr.week || 1) - 1)] || null;
+    },
+    [R],
+  );
 
   const checkModule = useCallback(
     (s: ReturnType<typeof store.get>) => {
-      const pr = s.recursos?.people?.diana;
+      const id = pidRef.current;
+      const pr = s.recursos?.people?.[id];
       if (!pr) return false;
-      const c = R.curso(pr.course);
-      const m = c.mods[pr.week - 1];
+      const m = courseMod(pr);
       if (m && pr.read[m.cuento] && (pr.tech[m.tecnica] || 0) >= 3 && !pr.doneMods.includes(pr.week)) {
         pr.doneMods.push(pr.week);
         return true;
       }
       return false;
     },
-    [R],
+    [courseMod],
   );
 
   const celebrate = useCallback(() => {
     const pr = recP();
     if (!pr) return "";
-    const m = R.curso(pr.course).mods[pr.week - 1];
+    const m = courseMod(pr);
+    if (!m) return `Terminó la semana ${pr.week}.`;
     const t = R.tecnica(m.tecnica);
     return `Terminó la semana ${pr.week}. Hizo la ${t.title} ${pr.tech[m.tecnica] || 0} veces. ¡Eso cuenta!`;
-  }, [R, recP]);
+  }, [R, courseMod, recP]);
 
   const teoSay = useCallback(
     (text: string) => {
-      store.logAi("diana", "Chat con TEO", text);
+      store.logAi(pidRef.current, "Chat con TEO", text);
       setMsgs((m) => m.concat([{ t: "ai", text }]));
     },
     [store],
@@ -148,7 +166,7 @@ export function usePacienteScreen() {
 
   const ai = useCallback(
     (text: string, q?: string[], extra?: ChatMsg[]) => {
-      store.logAi("diana", "Chat con TEO", text);
+      store.logAi(pidRef.current, "Chat con TEO", text);
       setTyping(true);
       setQuick([]);
       setTimeout(() => {
@@ -162,27 +180,31 @@ export function usePacienteScreen() {
 
   const crisisDiana = useCallback(
     (term: string, said: string) => {
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
+      const fname = String(P.name || "Paciente").split(/\s+/)[0];
       setTyping(false);
       setPaused(true);
       setQuick([]);
-      setMsgs((m) => m.concat([{ t: "crisis", text: AlientoAI.crisisText("Diana") }]));
+      setMsgs((m) => m.concat([{ t: "crisis", text: AlientoAI.crisisText(fname) }]));
       store.set((s) => {
-        s.diana.crisis = true;
+        s.diana = s.diana || { crisis: false };
+        if (id === "diana") s.diana.crisis = true;
       });
       store.addAlert({
-        id: "a-diana",
+        id: "a-" + id,
         sev: "crisis",
-        pid: "diana",
-        name: "Diana Marcela Ruiz",
-        age: 38,
-        place: "Armenia",
-        profile: "P12",
+        pid: id,
+        name: P.name,
+        age: P.age,
+        place: (P.place || "").split(",")[0] || P.place,
+        profile: P.profile || "P05",
         what:
           (said ? `Escribió a TEO: «${said}». ` : "TEO detectó riesgo en la conversación. ") +
           "TEO le dio la línea 123, pausó la conversación y levantó la alerta.",
         term: term || "clasificador IA",
         source: "Conversación con TEO (IA)",
-        phone: "316 904 1127",
+        phone: P.phone || "",
       });
     },
     [store],
@@ -190,41 +212,67 @@ export function usePacienteScreen() {
 
   const initDiana = useCallback(() => {
     const st = store.get();
-    if (st.diana.crisis) {
+    const id = pidRef.current;
+    const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
+    const fname = String(P.name || "Paciente").split(/\s+/)[0];
+    // Asegura recurso de curso para la paciente actual
+    const existing = st.recursos?.people?.[id];
+    const courseId = existing?.course && R.curso(existing.course) ? existing.course : "dormir";
+    if (!existing || !R.curso(existing.course)) {
+      store.set((s) => {
+        s.recursos = s.recursos || { people: {} };
+        s.recursos.people = s.recursos.people || {};
+        s.recursos.people[id] = {
+          course: courseId,
+          week: existing?.week || 1,
+          read: existing?.read || {},
+          page: existing?.page || {},
+          tech: existing?.tech || {},
+          doneMods: existing?.doneMods || [],
+          teoDay: existing?.teoDay ?? null,
+        };
+      });
+    }
+    if (id === "diana" && st.diana?.crisis) {
       setMsgs([
-        { t: "ai", text: `${saludo()}, Diana. Anoche durmió 6,4 horas, mejor que la semana pasada. ¿Cómo se siente hoy?` },
-        { t: "crisis", text: AlientoAI.crisisText("Diana") },
+        { t: "ai", text: `${saludo()}, ${fname}. Anoche durmió 6,4 horas, mejor que la semana pasada. ¿Cómo se siente hoy?` },
+        { t: "crisis", text: AlientoAI.crisisText(fname) },
       ]);
       setPaused(true);
       setQuick([]);
       return;
     }
-    const pr = st.recursos?.people?.diana;
+    const pr = store.get().recursos?.people?.[id];
     const tk = new Date().toDateString();
-    if (pr && pr.teoDay !== tk) {
-      const m = R.curso(pr.course).mods[pr.week - 1];
-      store.set((s) => {
-        if (s.recursos?.people?.diana) s.recursos.people.diana.teoDay = tk;
-      });
-      store.logAi("diana", "Chat con TEO", "Recordatorio del curso");
-      setMsgs([
-        {
-          t: "ai",
-          text: `Hola, Diana. Esta semana le toca «${R.cuento(m.cuento).title}». ¿Lo leemos o lo escuchamos?`,
-        },
-      ]);
-      setQuick(["Leerlo", "Escucharlo", "Más tarde"]);
-      setStage("course");
-      return;
+    if (pr && pr.teoDay !== tk && pr.teoDay != null) {
+      const m = courseMod(pr);
+      if (m) {
+        store.set((s) => {
+          if (s.recursos?.people?.[id]) s.recursos.people[id].teoDay = tk;
+        });
+        store.logAi(id, "Chat con TEO", "Recordatorio del curso");
+        setMsgs([
+          {
+            t: "ai",
+            text: `Hola, ${fname}. Esta semana le toca «${R.cuento(m.cuento).title}». ¿Lo leemos o lo escuchamos?`,
+          },
+        ]);
+        setQuick(["Leerlo", "Escucharlo", "Más tarde"]);
+        setStage("course");
+        return;
+      }
     }
+    const sleepHint = Array.isArray(P.sleep) && P.sleep.length
+      ? `Según su manilla, ha dormido cerca de ${Number(P.sleep[P.sleep.length - 1]).toFixed(1).replace(".", ",")} horas.`
+      : "Aún no hay datos de manilla; vamos con cómo se siente.";
     setMsgs([
       {
         t: "ai",
-        text: `${saludo()}, Diana. Anoche durmió 6,4 horas, mejor que la semana pasada. ¿Cómo se siente hoy?`,
+        text: `${saludo()}, ${fname}. ${sleepHint} ¿Cómo se siente hoy?`,
       },
     ]);
     setQuick(["Bien", "Con algo de miedo", "Cansada"]);
-  }, [R, store]);
+  }, [R, courseMod, store]);
 
   const initWA = useCallback(() => {
     const st = store.get();
@@ -297,15 +345,17 @@ export function usePacienteScreen() {
       return;
     }
     const su = store.session();
-    if (!su || !["diana", "rosalba"].includes(su.id)) {
+    const isPaciente = !!su && (/Paciente/i.test(su.role || "") || ["diana", "rosalba", "p-rosa-elena"].includes(su.id));
+    if (!su || !isPaciente) {
       router.replace("/ingreso");
       return;
     }
-    setWho(su.id as Who);
-    if (!dianaInitedRef.current) {
-      dianaInitedRef.current = true;
-      initDiana();
-      initWA();
+    setWho(su.id);
+    pidRef.current = su.id;
+    if (!appInitedRef.current) {
+      appInitedRef.current = true;
+      if (su.id === "rosalba") initWA();
+      else initDiana();
     }
     setReady(true);
     const spl = setTimeout(() => setSplash(false), 1500);
@@ -351,7 +401,7 @@ export function usePacienteScreen() {
         if (waReadyRef.current) setWa((w) => w.concat(add));
       }
       const su = store.session();
-      setWho((w) => (su && (su.id === "rosalba") !== (w === "rosalba") ? (su.id as Who) : w));
+      setWho((w) => (su && su.id !== w ? su.id : w));
     });
   }, [store]);
 
@@ -390,7 +440,7 @@ export function usePacienteScreen() {
       if (!rd) return rd;
       const c = R.cuento(rd.slug);
       store.set((s) => {
-        const pr = s.recursos?.people?.diana;
+        const pr = s.recursos?.people?.[pidRef.current];
         if (pr) {
           pr.read[rd.slug] = true;
           delete pr.page[rd.slug];
@@ -414,7 +464,7 @@ export function usePacienteScreen() {
         const page = c.pages ? Math.max(rd.page, Math.min(c.pages, 1 + Math.floor(np * c.pages))) : 1;
         if (c.pages && page !== rd.page) {
           store.set((s) => {
-            const pr = s.recursos?.people?.diana;
+            const pr = s.recursos?.people?.[pidRef.current];
             if (pr) pr.page[rd.slug] = Math.max(pr.page[rd.slug] || 1, page);
           });
         }
@@ -452,7 +502,7 @@ export function usePacienteScreen() {
           return rd;
         }
         store.set((s) => {
-          const pr = s.recursos?.people?.diana;
+          const pr = s.recursos?.people?.[pidRef.current];
           if (pr) pr.page[rd.slug] = Math.max(pr.page[rd.slug] || 1, np);
         });
         return { ...rd, page: np };
@@ -477,7 +527,7 @@ export function usePacienteScreen() {
             return null;
           }
           store.set((s) => {
-            const pr = s.recursos?.people?.diana;
+            const pr = s.recursos?.people?.[pidRef.current];
             if (pr) {
               pr.answers.push({
                 slug: rd.slug,
@@ -486,13 +536,16 @@ export function usePacienteScreen() {
                 at: Date.now(),
                 shared: rd.share,
               });
-              if (rd.share)
+              if (rd.share) {
+                const id = pidRef.current;
+                const Pn = store.PATIENTS[id]?.name || "Paciente";
                 store.pushNotif(
                   s,
                   "clin",
-                  `Diana Marcela Ruiz compartió su respuesta a «${c.title}»`,
-                  "/clinico?view=patients",
+                  `${Pn} compartió su respuesta a «${c.title}»`,
+                  "/clinico?pid=" + id,
                 );
+              }
             }
           });
         }
@@ -508,7 +561,7 @@ export function usePacienteScreen() {
     setRd((rd) => {
       if (rd?.mode === "done") {
         const pr = recP();
-        const m = pr && R.curso(pr.course).mods[pr.week - 1];
+        const m = courseMod(pr);
         teoSay(
           modDoneRef.current
             ? celebrate()
@@ -518,7 +571,7 @@ export function usePacienteScreen() {
       }
       return null;
     });
-  }, [R, celebrate, recP, teoSay]);
+  }, [R, celebrate, courseMod, recP, teoSay]);
 
   const runPlayer = useCallback(() => {
     if (plRef.current) clearInterval(plRef.current);
@@ -535,7 +588,7 @@ export function usePacienteScreen() {
           let doneMod = false;
           if (it.kind === "tecnica") {
             store.set((s) => {
-              const pr = s.recursos?.people?.diana;
+              const pr = s.recursos?.people?.[pidRef.current];
               if (pr) {
                 pr.tech[pl.id] = (pr.tech[pl.id] || 0) + 1;
                 pr.tech4w[pl.id] = (pr.tech4w[pl.id] || 0) + 1;
@@ -577,7 +630,7 @@ export function usePacienteScreen() {
       me(label);
       if (stage === "course") {
         const pr = recP();
-        const m = pr && R.curso(pr.course).mods[pr.week - 1];
+        const m = courseMod(pr);
         setStage("open");
         if (m && label !== "Más tarde") openReader(m.cuento, label === "Escucharlo");
         return ai("Está bien. ¿Cómo se siente hoy?", ["Bien", "Con algo de miedo", "Cansada"]);
@@ -620,7 +673,7 @@ export function usePacienteScreen() {
         );
       }
     },
-    [R, ai, me, openReader, recP, stage, startBreath],
+    [ai, courseMod, me, openReader, recP, stage, startBreath],
   );
 
   const sendDiana = useCallback(async () => {
@@ -633,27 +686,32 @@ export function usePacienteScreen() {
     if (hit) return setTimeout(() => crisisDiana(hit, text), 500);
     let reply = "Gracias por contármelo. ¿Quiere contarme un poco más de cómo se ha sentido?";
     try {
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
+      const fname = String(P.name || "Paciente").split(/\s+/)[0];
+      const place = String(P.place || "Quindío").split(",")[0];
       const hist = msgs
         .filter((m) => m.t === "ai" || m.t === "me")
         .slice(-6)
-        .map((m) => `${m.t === "ai" ? "TEO: " : "Diana: "}${m.text}`)
+        .map((m) => `${m.t === "ai" ? "TEO: " : fname + ": "}${m.text}`)
         .join("\n");
       const out = await AlientoAI.complete(
-        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con Diana, 38 años, de Armenia. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín, próxima sesión miércoles 7 de octubre). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\nDiana: ${text}\nTEO:`,
+        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con ${P.name}, ${P.age || "—"} años, de ${place}. Perfil ${P.profile || "P05"}. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\n${fname}: ${text}\nTEO:`,
       );
       if (/^\s*CRISIS/.test(out)) return crisisDiana("clasificador IA", text);
       reply = out.trim();
     } catch {
       /* local fallback */
     }
-    store.logAi("diana", "Chat con TEO", reply);
+    store.logAi(pidRef.current, "Chat con TEO", reply);
     setTyping(false);
     setMsgs((m) => m.concat([{ t: "ai", text: reply }]));
   }, [crisisDiana, input, me, msgs, paused, store]);
 
   const chipAnswer = useCallback(
     (label: string) => {
-      const P = store.PATIENTS.diana || store.emptyPatient("diana", "Diana Marcela Ruiz", 38);
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
       const phq = Array.isArray(P.phq) ? P.phq : [];
       const sleep = Array.isArray(P.sleep) ? P.sleep : [];
       const practice = Array.isArray(P.practice) ? P.practice : [];
@@ -992,8 +1050,10 @@ export function usePacienteScreen() {
   const dc = useMemo(() => {
     if (!pr) return null;
     const c = R.curso(pr.course);
-    const cur = c.mods[pr.week - 1];
-    const done = pr.doneMods.length;
+    if (!c || !Array.isArray(c.mods) || !c.mods.length) return null;
+    const cur = c.mods[Math.max(0, Math.min(c.mods.length, pr.week || 1) - 1)];
+    if (!cur) return null;
+    const done = (pr.doneMods || []).length;
     return {
       title: c.title,
       week: pr.week,
@@ -1163,7 +1223,7 @@ export function usePacienteScreen() {
       ]
     : "WhatsAppChannel";
 
-  const routeChanges = (S.pathAdjust.diana || [])
+  const routeChanges = (S.pathAdjust[pid] || [])
     .map((x: string) => ({
       d: "Hoy · Dra. Lucía Marín",
       x:
@@ -1175,28 +1235,144 @@ export function usePacienteScreen() {
     }))
     .concat(
       S.referrals
-        .filter((x: { pid: string }) => x.pid === "diana")
+        .filter((x: { pid: string }) => x.pid === pid)
         .map((x: { date: string; status: string }) => ({
           d: x.date,
           x: `Su psicóloga la remitió a otra institución para que la atiendan allí. Estado: ${x.status.toLowerCase()}.`,
         })),
     );
 
+  const { r: pathR, d: pathD } = store.parseCode(DP.profile || "P05");
+  const pathServices = store.pathList(pathR, pathD, null, store.ctxFor(pid));
+  const pathById = Object.fromEntries(pathServices.map((s: { id: string; freq: string; channel: string; name: string }) => [s.id, s]));
+  const mods = {
+    mood: !!pathById.mood,
+    clin: !!pathById.clin,
+    ia: !!pathById.ia,
+    wa: !!pathById.wa,
+    call: !!pathById.call,
+    bracelet: !!pathById.bracelet,
+    videos: !!pathById.videos,
+    tech: !!pathById.tech,
+    cursos: !!pathById.cursos,
+    group: !!pathById.group,
+    pmplus: !!pathById.pmplus,
+    social: !!pathById.social,
+    revisit: !!pathById.revisit,
+  };
+  const showRouteTab = !!(
+    mods.cursos ||
+    mods.videos ||
+    mods.tech ||
+    mods.wa ||
+    mods.call ||
+    mods.group ||
+    mods.revisit ||
+    mods.social
+  );
+  const hasAnyModule = !!(
+    mods.mood ||
+    mods.ia ||
+    mods.wa ||
+    mods.call ||
+    mods.videos ||
+    mods.tech ||
+    mods.cursos ||
+    mods.group ||
+    mods.revisit ||
+    mods.social ||
+    mods.clin ||
+    mods.bracelet
+  );
+  const showHomeTab = hasAnyModule;
+  const showHistTab = hasAnyModule;
+
+  useEffect(() => {
+    if (!hasAnyModule) {
+      setTab("home");
+      return;
+    }
+    if (tab === "chat" && !mods.ia) setTab("home");
+    if (tab === "route" && !showRouteTab) setTab("home");
+    if (tab === "hist" && !showHistTab) setTab("home");
+  }, [tab, mods.ia, showRouteTab, hasAnyModule, showHistTab]);
+
+  const waCard = mods.wa
+    ? {
+        freq: pathById.wa.freq,
+        channel: pathById.wa.channel || "Audio primero",
+        title: "Check-in por WhatsApp",
+        body: `Le escribimos ${String(pathById.wa.freq).toLowerCase()} por WhatsApp (${pathById.wa.channel || "audio primero"}). Puede responder con un audio corto de cómo se siente.`,
+        tip: "Cuando llegue el mensaje, respóndalo desde WhatsApp. Aquí solo ve el recordatorio.",
+      }
+    : null;
+
+  const callCard = mods.call
+    ? {
+        freq: pathById.call.freq,
+        title: "Llamada de seguimiento",
+        when: DP.next || `Llamada ${String(pathById.call.freq).toLowerCase()}`,
+        phone: DP.phone || "—",
+        clin: DP.clin || "Su equipo clínico",
+        body: `Según su ruta: llamada ${String(pathById.call.freq).toLowerCase()}. Conteste desde su número registrado.`,
+      }
+    : null;
+
+  const revisitCard = mods.revisit
+    ? {
+        title: "Revisita del experto",
+        freq: pathById.revisit.freq,
+        expert: DP.expert || "Su experta de campo",
+        place: (DP.place || "").split(",")[0] || "su vereda",
+        body: `${DP.expert || "Su experta de campo"} la visitará en casa (${pathById.revisit.channel || "visita en casa"}). Frecuencia: ${String(pathById.revisit.freq).toLowerCase()}.`,
+        tip: "Prepare un lugar tranquilo. Si no puede atender, avise con tiempo.",
+      }
+    : null;
+
+  const groupCard = mods.group
+    ? {
+        title: "Grupo de apoyo en la vereda",
+        freq: pathById.group.freq,
+        channel: pathById.group.channel || "En la vereda · con facilitador",
+        body: `Encuentro ${String(pathById.group.freq).toLowerCase()} en ${pathById.group.channel || "la vereda, con facilitador"}.`,
+        tip: "No tiene que hablar si no quiere. Ir ya cuenta como cuidar su salud.",
+      }
+    : null;
+
+  const socialCard = mods.social
+    ? {
+        title: "Ayudas sociales",
+        channel: pathById.social.channel || "Según el caso",
+        body: `Su ruta incluye vinculación a ayudas: ${pathById.social.channel || "según su situación"}.`,
+        tip: "Su experta de campo le ayuda con los trámites. Aquí solo ve el estado de ese apoyo.",
+        status: "En trámite con el equipo de campo",
+      }
+    : null;
+
+  const openVideosLib = () => {
+    setLibTab("videos");
+    setTab("route");
+  };
+
+  const openCursos = () => {
+    if (mods.cursos) {
+      setLibTab("cuentos");
+      setTab("route");
+    }
+  };
+
   const route = [
-    ["Sesiones con su psicóloga", 4, 26],
-    ["Conversaciones con TEO", 18, null],
-    ["Técnicas", 9, 12],
-    ["Videos", 3, 8],
-    ["Check-ins por WhatsApp", 16, 18],
-    ["Manilla", "Activa", null],
+    ["Sesiones con su psicóloga", DP.lastSession ? 1 : 0, null],
+    ["Conversaciones con TEO", (S.aiLog || []).filter((l: { pid?: string }) => l.pid === pid).length || 0, null],
+    ["Check-ins por WhatsApp", "Según la ruta", null],
+    ["Manilla", DP.braceletStatus || "Según la ruta", null],
   ]
     .concat(
-      store
-        .pathList(3, 2, null, store.ctxFor("diana"))
-        .filter((x: { id: string }) => ["pmplus", "group", "social"].includes(x.id))
+      pathServices
+        .filter((x: { id: string }) => !["mood", "clin", "bracelet", "pmplus"].includes(x.id))
         .map((x: { id: string; name: string; freq: string; channel: string }) => [
-          x.id === "social" ? `Ayudas sociales · ${x.channel.toLowerCase()}` : x.name,
-          x.id === "social" ? "En trámite" : x.freq,
+          x.id === "social" ? `Ayudas sociales · ${(x.channel || "").toLowerCase()}` : x.name,
+          x.id === "social" ? "Según el caso" : x.freq,
           null,
         ]),
     )
@@ -1207,12 +1383,12 @@ export function usePacienteScreen() {
       pct: b ? `${Math.round((Number(a) / Number(b)) * 100)}%` : "0%",
     }));
 
-  const hist = [
-    [15, "10 ago"],
-    [12, "24 ago"],
-    [10, "7 sep"],
-    [9, "21 sep"],
-  ].map(([v, d]) => ({ v, d, h: `${Math.round((Number(v) / 27) * 100)}%` }));
+  const phqHist = Array.isArray(DP.phq) ? DP.phq : [];
+  const phqDates = Array.isArray(DP.phqDates) ? DP.phqDates : [];
+  const hist = (phqHist.length
+    ? phqHist.map((v: number, i: number) => [v, phqDates[i] || "Medición"])
+    : [[7, "Hoy"]]
+  ).map(([v, d]) => ({ v, d, h: `${Math.round((Number(v) / 27) * 100)}%` }));
 
   const waMapped = wa.map((m) => {
     const id = String(m.id || "");
@@ -1319,6 +1495,23 @@ export function usePacienteScreen() {
     openResumen: () => setTab("resumen"),
     closeResumen: () => setTab("home"),
     greet,
+    firstName,
+    patientName: DP.name,
+    mods,
+    waCard,
+    callCard,
+    revisitCard,
+    groupCard,
+    socialCard,
+    openVideosLib,
+    openCursos,
+    showCourse: mods.cursos && !!hasCourse && !!dc,
+    showTech: mods.tech,
+    showResumen: false,
+    showBracelet: false,
+    hasAnyModule,
+    showHomeTab,
+    showHistTab,
     res,
     moods: MOODS.map((label, i) => ({
       n: i + 1,
@@ -1366,7 +1559,15 @@ export function usePacienteScreen() {
       }
     },
     sesionDia: "miércoles 7 de octubre",
-    lib,
+    lib: {
+      ...lib,
+      tabs: lib.tabs.filter((t: { key: string }) => {
+        if (t.key === "videos") return mods.videos;
+        if (t.key === "cuentos") return mods.cursos;
+        if (t.key === "tecnicas") return mods.tech;
+        return false;
+      }),
+    },
     setLibTab: (k: string) => {
       setLibTab(k);
       setLibTema("");
@@ -1379,7 +1580,7 @@ export function usePacienteScreen() {
     playItem,
     route,
     routeChanges,
-    hasRouteChanges: !!(S.pathAdjust.diana || []).length || !!S.referrals.find((x: { pid: string }) => x.pid === "diana"),
+    hasRouteChanges: !!(S.pathAdjust[pid] || []).length || !!S.referrals.find((x: { pid: string }) => x.pid === pid),
     hist,
     consents: CL.map(([k, label]) => ({
       label,
@@ -1388,26 +1589,28 @@ export function usePacienteScreen() {
       x: cons[k] ? "25px" : "3px",
       toggle: () => {
         const v = !cons[k];
+        const id = pidRef.current;
+        const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
         store.set((s) => {
           s.consents = s.consents || {};
-          s.consents.diana = s.consents.diana || {};
-          s.consents.diana[k] = v;
+          s.consents[id] = s.consents[id] || {};
+          s.consents[id][k] = v;
           if (!v)
             store.pushNotif(
               s,
               "clin",
-              `Consentimiento retirado: Diana Marcela Ruiz · ${label.toLowerCase()}`,
-              "/clinico?pid=diana",
+              `Consentimiento retirado: ${P.name} · ${label.toLowerCase()}`,
+              "/clinico?pid=" + id,
             );
           if (!v)
             s.alerts.push({
               id: `a-cons-${k}${Date.now()}`,
               sev: "info",
-              pid: "diana",
-              name: "Diana Marcela Ruiz",
-              age: 38,
-              place: "Armenia",
-              profile: "P12",
+              pid: id,
+              name: P.name,
+              age: P.age,
+              place: P.place,
+              profile: P.profile || "P05",
               what: `Retiró su consentimiento: ${label.toLowerCase()}.`,
               source: "App · Historial",
               at: Date.now(),
@@ -1419,24 +1622,32 @@ export function usePacienteScreen() {
     })),
     consentMsg,
     clearConsentMsg: () => setConsentMsg(""),
-    tabs: [
-      ["home", "Inicio"],
-      ["chat", "TEO"],
-      ["route", "Mi ruta"],
-      ["hist", "Historial"],
-    ].map(([k, label]) => ({
-      label,
-      on: tab === k,
-      fg: tab === k ? "#161413" : "#5E5750",
-      fw: tab === k ? 600 : 500,
-      dot: tab === k ? "#FDCD22" : "transparent",
-      op: tab === k ? 1 : 0.7,
-      isHome: k === "home",
-      isTeo: k === "chat",
-      isRoute: k === "route",
-      isHist: k === "hist",
-      go: () => setTab(k as Tab),
-    })),
+    tabs: (
+      [
+        showHomeTab ? ["home", "Inicio"] : null,
+        mods.ia ? ["chat", "TEO"] : null,
+        showRouteTab ? ["route", "Mi ruta"] : null,
+        showHistTab ? ["hist", "Historial"] : null,
+      ] as Array<[string, string] | null>
+    )
+      .filter(Boolean)
+      .map((row) => {
+        const [k, label] = row as [string, string];
+        return {
+          label,
+          on: tab === k,
+          fg: tab === k ? "#161413" : "#5E5750",
+          fw: tab === k ? 600 : 500,
+          dot: tab === k ? "#FDCD22" : "transparent",
+          op: tab === k ? 1 : 0.7,
+          isHome: k === "home",
+          isTeo: k === "chat",
+          isRoute: k === "route",
+          isHist: k === "hist",
+          go: () => setTab(k as Tab),
+        };
+      }),
+    tabCount: [showHomeTab, mods.ia, showRouteTab, showHistTab].filter(Boolean).length,
     rdOpen: !!rd,
     rdView,
     rdUpd,
@@ -1469,29 +1680,31 @@ export function usePacienteScreen() {
       setPl(null);
     },
     helpOpen: help,
-    helpNotSent: !helpSent && !S.diana.crisis,
+    helpNotSent: !helpSent && !(pid === "diana" && S.diana?.crisis),
     helpText:
-      helpSent || S.diana.crisis
+      helpSent || (pid === "diana" && S.diana?.crisis)
         ? "Ya avisamos al equipo. Una persona la va a llamar en menos de 30 minutos. Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4."
         : "Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4. También puede pedir que alguien del equipo la llame ya.",
     openHelp: () => setHelp(true),
     closeHelp: () => setHelp(false),
     askCall: () => {
       setHelpSent(true);
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
       store.addAlert({
-        id: "a-diana-btn",
+        id: "a-" + id + "-btn",
         sev: "crisis",
-        pid: "diana",
-        name: "Diana Marcela Ruiz",
-        age: 38,
-        place: "Armenia",
-        profile: "P12",
+        pid: id,
+        name: P.name,
+        age: P.age,
+        place: (P.place || "").split(",")[0] || P.place,
+        profile: P.profile || "P05",
         what: "Tocó «Necesito ayuda ahora» y pidió que la llamen ya.",
         source: "Botón de ayuda · app",
-        phone: "316 904 1127",
+        phone: P.phone || "",
       });
     },
-    dianaLines,
+    dianaLines: ((DP.place || "").includes("Salento") ? rosaLines : dianaLines),
     rosaLines,
     waMapped,
     waQuick: waQuick.map((label) => ({ label, go: () => waAnswer(label) })),

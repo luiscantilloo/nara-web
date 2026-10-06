@@ -792,7 +792,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
         ) : null}
 
         {v.isApprovals ? (
-          <div className="flex max-w-[820px] flex-col gap-5">
+          <div className="flex max-w-[880px] flex-col gap-6">
             <button
               type="button"
               onClick={() => (v.goHome as () => void)?.()}
@@ -800,59 +800,211 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
             >
               ← Volver a Inicio
             </button>
-            <div className="flex flex-col gap-1.5">
-              <span className="font-titulos text-[clamp(24px,4vw,28px)] font-semibold text-nara-tinta">
-                Aprobaciones de la líder clínica
-              </span>
-              <span className="text-[15px] leading-snug text-texto-secundario">
-                Cambios en rutas y reglas de clasificación enviados por la administración
-              </span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <span className="font-titulos text-[clamp(26px,4vw,32px)] font-semibold tracking-tight text-nara-tinta">
+                  Aprobaciones
+                </span>
+                <span className="max-w-[36rem] text-[15px] leading-snug text-texto-secundario">
+                  Revise los cambios de rutas y reglas enviados por administración. Al aprobar, aplican al programa.
+                </span>
+              </div>
+              <img
+                src="/nara/marca/personajes/nara-curiosidad.svg"
+                alt=""
+                className="hidden h-14 w-auto shrink-0 sm:block"
+              />
             </div>
-            {(v.approvals as { title: string; meta: string; lines: string[]; approve: () => void; reject: () => void }[] | undefined)?.map(
-              (ap, i) => (
-                <div
-                  key={i}
-                  className="flex flex-col gap-4 rounded-[20px] border border-linea bg-nara-blanco px-5 py-5 sm:gap-5 sm:px-7 sm:py-6"
+            {v.msg ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-linea bg-exito-suave px-4 py-3 font-texto text-[15px] text-nara-tinta">
+                <span>{v.msg as string}</span>
+                <button
+                  type="button"
+                  onClick={() => (v.clearMsg as () => void)?.()}
+                  className="cursor-pointer border-none bg-transparent p-0 text-sm font-medium text-nara-tinta underline"
                 >
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span className="text-[17px] font-medium text-nara-tinta sm:text-lg">
+                  Cerrar
+                </button>
+              </div>
+            ) : null}
+            {(
+              v.approvals as
+                | {
+                    kind?: string;
+                    code?: string;
+                    title: string;
+                    meta: string;
+                    months?: number;
+                    riskLabel?: string;
+                    digLabel?: string;
+                    riskColor?: string;
+                    kept?: { name: string; freq: string }[];
+                    changed?: { name: string; freq: string; from: string }[];
+                    added?: { name: string; freq: string }[];
+                    removed?: { name: string; freq: string }[];
+                    lines: string[];
+                    approve: () => void;
+                    reject: () => void;
+                  }[]
+                | undefined
+            )?.map((ap, i) => (
+              <article
+                key={ap.code || ap.title + i}
+                className="overflow-hidden rounded-[24px] border border-linea bg-nara-blanco shadow-[0_10px_30px_rgba(22,20,19,0.04)]"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linea bg-[linear-gradient(135deg,#FFF9E3_0%,#F0ECE6_55%,#FFFFFF_100%)] px-5 py-4 sm:px-7">
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-nara-amarillo px-2.5 py-1 font-texto text-xs font-semibold text-nara-tinta">
+                        Pendiente
+                      </span>
+                      <span className="rounded-full border border-linea bg-nara-blanco px-2.5 py-1 font-texto text-xs text-texto-secundario">
+                        {ap.kind === "rules" ? "Reglas" : "Ruta de cuidado"}
+                      </span>
+                    </div>
+                    <h2 className="font-titulos text-xl font-semibold text-nara-tinta sm:text-[22px]">
                       {ap.title}
-                    </span>
+                    </h2>
                     <span className="text-sm text-texto-secundario">{ap.meta}</span>
                   </div>
-                  <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-                    {ap.lines.map((l, j) => (
-                      <li
-                        key={j}
-                        className="flex gap-2.5 text-[15px] leading-snug text-nara-tinta"
+                  {ap.kind === "path" ? (
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span
+                        className="rounded-full px-3 py-1 font-texto text-xs font-semibold text-nara-blanco"
+                        style={{ background: ap.riskColor || "#161413" }}
                       >
-                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-nara-tinta" />
-                        <span>{l}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex flex-wrap gap-2.5 border-t border-[#E6E1D9] pt-4">
-                    <button
-                      type="button"
-                      onClick={() => ap.approve?.()}
-                      className="h-11 cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-4 font-texto text-[15px] font-medium text-nara-tinta sm:px-5"
-                    >
-                      Aprobar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => ap.reject?.()}
-                      className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta sm:px-5"
-                    >
-                      Devolver sin aprobar
-                    </button>
-                  </div>
+                        {ap.riskLabel}
+                      </span>
+                      <span className="text-xs text-texto-secundario">Digital {ap.digLabel}</span>
+                      <span className="font-texto text-sm font-medium text-nara-tinta">
+                        {ap.months} meses
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
-              ),
-            )}
+
+                <div className="flex flex-col gap-5 px-5 py-5 sm:px-7 sm:py-6">
+                  {ap.kind === "path" ? (
+                    <>
+                      {ap.added?.length ? (
+                        <section className="flex flex-col gap-2.5">
+                          <span className="font-texto text-xs font-semibold uppercase tracking-wide text-estado-al-dia">
+                            Se agrega
+                          </span>
+                          <div className="flex flex-col gap-2">
+                            {ap.added.map((x) => (
+                              <div
+                                key={"a-" + x.name}
+                                className="flex items-center justify-between gap-3 rounded-2xl bg-exito-suave px-3.5 py-3"
+                              >
+                                <span className="text-[15px] font-medium text-nara-tinta">{x.name}</span>
+                                <span className="shrink-0 text-sm text-texto-secundario">{x.freq}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                      {ap.changed?.length ? (
+                        <section className="flex flex-col gap-2.5">
+                          <span className="font-texto text-xs font-semibold uppercase tracking-wide text-estado-bajo-meta">
+                            Cambia
+                          </span>
+                          <div className="flex flex-col gap-2">
+                            {ap.changed.map((x) => (
+                              <div
+                                key={"c-" + x.name}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#FFF4CC] px-3.5 py-3"
+                              >
+                                <span className="text-[15px] font-medium text-nara-tinta">{x.name}</span>
+                                <span className="text-sm text-texto-secundario">
+                                  {x.from} → <span className="font-medium text-nara-tinta">{x.freq}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                      {ap.removed?.length ? (
+                        <section className="flex flex-col gap-2.5">
+                          <span className="font-texto text-xs font-semibold uppercase tracking-wide text-crisis-texto">
+                            Se quita
+                          </span>
+                          <div className="flex flex-col gap-2">
+                            {ap.removed.map((x) => (
+                              <div
+                                key={"r-" + x.name}
+                                className="flex items-center justify-between gap-3 rounded-2xl bg-crisis-suave px-3.5 py-3"
+                              >
+                                <span className="text-[15px] font-medium text-nara-tinta line-through decoration-crisis-texto/40">
+                                  {x.name}
+                                </span>
+                                <span className="shrink-0 text-sm text-texto-secundario">{x.freq}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                      {ap.kept?.length ? (
+                        <section className="flex flex-col gap-2.5">
+                          <span className="font-texto text-xs font-semibold uppercase tracking-wide text-texto-secundario">
+                            Se mantiene
+                          </span>
+                          <div className="flex flex-col gap-2">
+                            {ap.kept.map((x) => (
+                              <div
+                                key={"k-" + x.name}
+                                className="flex items-center justify-between gap-3 rounded-2xl border border-linea bg-superficie-2 px-3.5 py-3"
+                              >
+                                <span className="text-[15px] text-nara-tinta">{x.name}</span>
+                                <span className="shrink-0 text-sm text-texto-secundario">{x.freq}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                    </>
+                  ) : (
+                    <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+                      {ap.lines.map((l, j) => (
+                        <li
+                          key={j}
+                          className="flex gap-2.5 rounded-2xl border border-linea bg-superficie-2 px-3.5 py-3 text-[15px] leading-snug text-nara-tinta"
+                        >
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-nara-amarillo" />
+                          <span>{l}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 border-t border-linea bg-superficie-2/60 px-5 py-4 sm:px-7">
+                  <button
+                    type="button"
+                    onClick={() => ap.approve?.()}
+                    className="h-12 min-w-[140px] cursor-pointer rounded-2xl border-none bg-nara-amarillo px-5 font-texto text-[15px] font-semibold text-nara-tinta transition hover:brightness-95"
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => ap.reject?.()}
+                    className="h-12 cursor-pointer rounded-2xl border-[1.5px] border-nara-tinta bg-nara-blanco px-5 font-texto text-[15px] font-medium text-nara-tinta transition hover:bg-nara-crema"
+                  >
+                    Devolver sin aprobar
+                  </button>
+                </div>
+              </article>
+            ))}
             {v.noApprovals ? (
-              <div className="rounded-[20px] border border-linea bg-nara-blanco px-6 py-6 text-[15px] text-texto-secundario">
-                No hay cambios esperando su aprobación.
+              <div className="flex flex-col items-start gap-3 rounded-[24px] border border-linea bg-nara-blanco px-6 py-8">
+                <img src="/nara/marca/personajes/nara-calma.svg" alt="" className="h-12 w-auto" />
+                <span className="font-titulos text-lg font-semibold text-nara-tinta">
+                  No hay cambios pendientes
+                </span>
+                <span className="text-[15px] text-texto-secundario">
+                  Cuando administración envíe una ruta o reglas, aparecerán aquí para su visto bueno.
+                </span>
               </div>
             ) : null}
           </div>

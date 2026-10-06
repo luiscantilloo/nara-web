@@ -123,7 +123,7 @@ export function useAdminInformesScreen() {
 
   useEffect(() => {
     const u = A.session();
-    if (!u || u.id !== "paula") {
+    if (!u || !/Admin/i.test(u.role || "")) {
       router.replace("/ingreso");
       return;
     }

@@ -63,7 +63,7 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
           'Check-ins: ' + (P.lastCheckin ? 'último el ' + P.lastCheckin : 'sin registro') + (P.adherence != null ? '. Adherencia ' + P.adherence + ' %' : '') + '.',
           (() => { const cp = A().courseProgress(A().get(), 'gloria'); return cp ? 'Curso: «' + cp.c.title + '», semana ' + cp.week + ' de ' + cp.c.weeks + ' · ' + cp.done + ' semanas hechas.' : 'Sin curso asignado.'; })()
         ], aiNote: P.summary ? 'En sus audios (resumen IA · verifique): ' + P.summary : '',
-          text: '', charts: sleep.length ? gloriaCharts(P) : [], basis: 'Ficha de ' + P.name, method: 'Datos de la ficha en localStorage.',
+          text: '', charts: sleep.length ? gloriaCharts(P) : [], basis: 'Ficha de ' + P.name, method: 'Datos de la ficha en el store.',
           detail: { target: 'file', pid: 'gloria', label: 'Ficha de Gloria' }, report: true };
       } },
       { id: 'c6', q: '¿Quiénes dejaron su curso a la mitad?', keys: ['dejaron su curso', 'a la mitad', 'curso a medias'], run: S => { const R = A().REC, P = (S.recursos || {}).people || {}, nm = { diana: 'Diana Marcela Ruiz', gloria: 'Gloria Patiño', oscar: 'Óscar Hernández', hernan: 'Hernán Ríos', rosalba: 'Rosalba Giraldo' }; const L = Object.keys(P).filter(k => P[k].stalled).map(k => ({ name: nm[k] || k, c: R.curso(P[k].course), p: P[k] })); return { text: L.length ? L.length + (L.length === 1 ? ' persona dejó' : ' personas dejaron') + ' su curso a la mitad: ' + L.map(x => x.name + ' («' + x.c.title + '», ' + x.p.doneMods.length + ' de ' + x.c.weeks + ' semanas, sin actividad hace 9 días)').join(', ') + '.' : 'Ninguno de sus pacientes dejó su curso a la mitad.', list: L.map(x => ({ name: x.name, meta: x.c.title + ' · ' + x.p.doneMods.length + ' de ' + x.c.weeks + ' semanas' })), basis: 'Sus pacientes con curso · hoy', method: 'Curso empezado, menos de la mitad de las semanas hechas y sin abrir un cuento ni practicar una técnica en 7 días o más.' }; } },
@@ -75,7 +75,7 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
           if (p.phq[p.phq.length - 1] > p.phq[p.phq.length - 2]) out.push({ pid: id, name: p.name, meta: 'PHQ-9 ' + p.phq[p.phq.length - 2] + ' → ' + p.phq[p.phq.length - 1] + ' · ' + p.profile, spark: p.phq });
         });
         return { text: out.length ? out.map(o => o.name).join(', ') + (out.length === 1 ? ' empeoró' : ' empeoraron') + ' según sus últimas mediciones.' : 'Nadie empeoró con los datos disponibles.', list: out,
-          basis: 'Carga de casos en localStorage', method: 'Compara las dos últimas mediciones PHQ-9.', detail: { target: 'patients', label: 'Mis pacientes' } };
+          basis: 'Carga de casos en el store', method: 'Compara las dos últimas mediciones PHQ-9.', detail: { target: 'patients', label: 'Mis pacientes' } };
       } },
       { id: 'c3', q: '¿Quién no ha respondido check-ins en 7 días?', keys: ['check', 'respondido'], run: () => {
         const P = A().PATIENTS, out = Object.keys(P).filter(id => P[id] && P[id].checkinDays != null && P[id].checkinDays >= 7).map(id => ({ pid: id, name: P[id].name, meta: 'Último check-in: ' + (P[id].lastCheckin || '—') + ' · hace ' + P[id].checkinDays + ' días', spark: P[id].phq || [] }));

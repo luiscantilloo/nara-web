@@ -1,3 +1,4 @@
-export const CLAVE_SESION = "nara-session";
-export const CLAVE_DATOS = "nara-demo-v1";
-export const CLAVE_DEV = "nara-devmode";
+/** Claves legacy (ya no se usan: el estado vive en memoria hasta MongoDB). */
+export const CLAVE_SESION = "";
+export const CLAVE_DATOS = "";
+export const CLAVE_DEV = "";

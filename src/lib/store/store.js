@@ -1,6 +1,14 @@
-// NARA · estado compartido de la demo (localStorage) + reglas del modelo
-const KEY = 'nara-demo-v1';
-  try { Object.keys(localStorage).filter(k => /^aliento-/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { }
+// NARA · estado en memoria (sin localStorage). Persistencia: MongoDB vía /api/app-state.
+import { schedulePersist } from './persist.js';
+
+const KEY = 'nara-memory-v1';
+  // Limpia restos de demos anteriores en el navegador (una vez al cargar el módulo).
+  if (typeof window !== 'undefined') {
+    try {
+      ['nara-demo-v1', 'nara-session', 'nara-devmode', 'nara-typed'].forEach(k => localStorage.removeItem(k));
+      Object.keys(localStorage).filter(k => /^(aliento-|nara-)/.test(k)).forEach(k => localStorage.removeItem(k));
+    } catch (e) { /* ignore */ }
+  }
   const C = {
     verde: '#161413', azul: '#161413', amarillo: '#FDCD22', rosa: '#FFA3D0', niebla: '#F0ECE6', blanco: '#FFFFFF', tinta: '#161413',
     texto2: '#5E5750', lineas: '#DCD6CD', ambar: '#3FEA73', ambarTx: '#161413', ambarBg: '#D8FBE3', crisisTx: '#8A1C14',
@@ -50,6 +58,7 @@ const KEY = 'nara-demo-v1';
   ];
 
   const SERVICES = [
+    { id: 'mood', name: 'Estado de ánimo', freqs: ['Diario'], note: 'Check-in «¿Cómo se siente hoy?» en la app' },
     { id: 'clin', name: 'Psicólogo clínico', freqs: ['Semanal', 'Quincenal', 'Mensual'] },
     { id: 'ia', name: 'Acompañante con IA (TEO)', freqs: ['Acceso libre', 'Entre sesiones'] },
     { id: 'wa', name: 'Check-ins por WhatsApp', freqs: ['3 veces por semana', '1 vez por semana'] },
@@ -132,9 +141,16 @@ const KEY = 'nara-demo-v1';
   })();
   function recPerson(s, pid) { return ((s.recursos || {}).people || {})[pid] || null; }
   function courseProgress(s, pid) { const p = recPerson(s, pid); if (!p || !p.course) return null; const c = REC.curso(p.course); const done = (p.doneMods || []).length; return { p, c, done, pct: Math.round(done / c.weeks * 100), week: p.week, mod: c.mods[Math.min(p.week, c.weeks) - 1] }; }
-  function defaultPath(r, d) { const p = basePath(r, d); p.s.cursos = cursosFreq(r); if (r === 1 || r === 2) p.s.pmplus = '5 sesiones semanales'; if (d <= 1 && r <= 3) p.s.group = r >= 2 ? 'Quincenal' : 'Mensual'; return p; }
+  function defaultPath(r, d) {
+    const p = basePath(r, d);
+    p.s.mood = p.s.mood || 'Diario';
+    p.s.cursos = cursosFreq(r);
+    if (r === 1 || r === 2) p.s.pmplus = '5 sesiones semanales';
+    if (d <= 1 && r <= 3) p.s.group = r >= 2 ? 'Quincenal' : 'Mensual';
+    return p;
+  }
   function basePath(r, d) {
-    const s = {};
+    const s = { mood: 'Diario' };
     const on = (id, freq) => { s[id] = freq; };
     if (r <= 1) {
       if (d === 0) { on('call', 'Mensual'); on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
@@ -155,14 +171,33 @@ const KEY = 'nara-demo-v1';
     if (r === 3 && d === 2) on('ia', 'Entre sesiones');
     return { s, months: 12 };
   }
-  // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 } → activa «Vinculación a ayudas sociales» sin importar el perfil
+  // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 } → activa «Vinculación a ayudas sociales» en ruta por defecto
   const needsSocial = ctx => !!ctx && ((ctx.dano || 0) > 0 || (ctx.perdida || 0) > 0);
+  function asPathDraft(x) {
+    // s:{} vacío cuenta como override explícito (ruta sin módulos).
+    if (!x || typeof x !== 'object') return null;
+    if (!Object.prototype.hasOwnProperty.call(x, 's') || typeof x.s !== 'object' || !x.s) return null;
+    return x;
+  }
   function pathList(r, d, override, ctx) {
-    const p0 = (override && override.s ? override : null) || (cache && cache.pathOverrides && cache.pathOverrides[code(r, d)]) || defaultPath(r, d);
-    const p = { s: Object.assign({}, p0.s), months: p0.months }; delete p.s.social; if (needsSocial(ctx)) p.s.social = 'Según el caso'; if (!p.s.cursos) p.s.cursos = cursosFreq(r);
+    const storeOv = cache && cache.pathOverrides && cache.pathOverrides[code(r, d)];
+    const explicit = asPathDraft(override) || asPathDraft(storeOv);
+    const usingDefault = !explicit;
+    const p0 = explicit || defaultPath(r, d);
+    const p = { s: Object.assign({}, p0.s || {}), months: p0.months != null ? p0.months : 3 };
+
+    if (usingDefault) {
+      // Plantilla base: completar mood/cursos y social por contexto
+      delete p.s.social;
+      if (needsSocial(ctx)) p.s.social = 'Según el caso';
+      if (!p.s.cursos) p.s.cursos = cursosFreq(r);
+      if (!p.s.mood) p.s.mood = 'Diario';
+    }
+    // Override aprobado: respetar exactamente lo marcado (si s está vacío, no se fuerza nada).
+
     return SERVICES.filter(x => p.s[x.id]).map(x => ({
       id: x.id, name: x.name, freq: p.s[x.id],
-      channel: x.id === 'clin' ? CLIN_CH[d] : x.id === 'wa' ? 'Audio primero' : x.id === 'ia' ? 'App' : x.id === 'call' ? 'Teléfono' : x.id === 'revisit' ? 'Visita en casa' : x.id === 'bracelet' ? 'Sueño y ritmo cardiaco' : x.id === 'pmplus' ? 'En casa · experto capacitado' : x.id === 'group' ? 'En la vereda · con facilitador' : x.id === 'cursos' ? REC.channel(d) : x.id === 'social' ? (ctx && ctx.dano === 2 ? 'Vivienda y reconstrucción' : ctx && ctx.dano === 1 ? 'Reparación de vivienda' : 'Apoyo por pérdida familiar') : '',
+      channel: x.id === 'mood' ? 'App · check-in diario' : x.id === 'clin' ? CLIN_CH[d] : x.id === 'wa' ? 'Audio primero' : x.id === 'ia' ? 'App' : x.id === 'call' ? 'Teléfono' : x.id === 'revisit' ? 'Visita en casa' : x.id === 'bracelet' ? 'Sueño y ritmo cardiaco' : x.id === 'pmplus' ? 'En casa · experto capacitado' : x.id === 'group' ? 'En la vereda · con facilitador' : x.id === 'cursos' ? REC.channel(d) : x.id === 'social' ? (ctx && ctx.dano === 2 ? 'Vivienda y reconstrucción' : ctx && ctx.dano === 1 ? 'Reparación de vivienda' : 'Apoyo por pérdida familiar') : '',
       main: x.id === 'clin' && r >= 2
     }));
   }
@@ -180,10 +215,10 @@ const KEY = 'nara-demo-v1';
     };
   }
 
-  /** Seed operativo vacío. Solo usuarios/permisos se rellenan en ensure(). */
+  /** Seed operativo vacío (cero datos). */
   function seed() {
     return {
-      v: 4,
+      v: 5,
       people: [],
       patients: {},
       assets: [],
@@ -217,22 +252,8 @@ const KEY = 'nara-demo-v1';
       notifs: { clin: [], andres: [], mj: [], admin: [], fin: [], inv: [], inst: [], oscar: [] },
       dianaInbox: [],
       caseload: [],
+      accounts: [],
     };
-  }
-
-  function defaultAccounts() {
-    return [
-      { id: 'paula', name: 'Paula Henao', contact: 'paula.henao@nara.co', role: 'Administrador', org: 'Programa NARA', terr: 'Todos', status: 'Activo' },
-      { id: 'andres', name: 'Andrés Ocampo', contact: '310 612 4471', role: 'Experto de campo', org: 'Programa NARA', terr: '—', status: 'Activo' },
-      { id: 'lft', name: 'Luisa Fernanda Toro', contact: '312 448 1093', role: 'Experto de campo', org: 'Programa NARA', terr: '—', status: 'Activo' },
-      { id: 'mj', name: 'María José Vélez', contact: '315 207 6630', role: 'Experto de campo', org: 'Programa NARA', terr: '—', status: 'Activo' },
-      { id: 'nc', name: 'Natalia Cardona', contact: '314 903 2217', role: 'Experto de campo', org: 'Programa NARA', terr: '—', status: 'Activo' },
-      { id: 'lucia', name: 'Dra. Lucía Marín', contact: 'lucia.marin@nara.co', role: 'Clínico', org: 'Programa NARA', terr: '—', status: 'Activo', lead: true },
-      { id: 'felipe', name: 'Dr. Felipe Ruiz', contact: 'felipe.ruiz@nara.co', role: 'Clínico', org: 'Programa NARA', terr: '—', status: 'Activo' },
-      { id: 'fin', name: 'Fundación financiadora', contact: 'seguimiento@fundacion.org', role: 'Observador', org: 'Fundación financiadora', orgType: 'Financiador', terr: 'Todos', status: 'Activo', modules: ['avance', 'recursos', 'resultados'] },
-      { id: 'inv', name: 'Grupo de investigación', contact: 'grupo.salud@universidad.edu.co', role: 'Observador', org: 'Grupo de investigación', orgType: 'Investigación', terr: 'Todos', status: 'Activo', modules: ['resultados', 'datos'], ethics: 'CEI-2026-114' },
-      { id: 'inst', name: 'Hospital local de Salento', contact: 'salud.mental@hospitalsalento.gov.co', role: 'Observador', org: 'Hospital local de Salento', orgType: 'Institución de salud', terr: '—', status: 'Activo', modules: ['casos'] },
-    ];
   }
 
   /** Completa claves faltantes sin reintroducir datos demo. */
@@ -252,7 +273,7 @@ const KEY = 'nara-demo-v1';
         pending: null,
         versions: [{ v: 1, by: 'Sistema', at: Date.now(), what: 'Reglas iniciales del programa.' }],
       },
-      accounts: defaultAccounts(),
+      accounts: [],
       activity: [],
       terrOv: {}, expertOv: {}, personOv: {}, assetOv: {}, accessLog: {},
       schedules: [],
@@ -265,19 +286,43 @@ const KEY = 'nara-demo-v1';
     Object.keys(def).forEach(k => { if (s[k] === undefined) { s[k] = def[k]; changed = true; } });
     if (!s.notifs) { s.notifs = { clin: [], andres: [], mj: [], admin: [], fin: [], inv: [], inst: [], oscar: [] }; changed = true; }
     if (s.notifs && !s.notifs.oscar) { s.notifs.oscar = []; changed = true; }
-    if (!Array.isArray(s.accounts) || !s.accounts.length) { s.accounts = defaultAccounts(); changed = true; }
+    if (!Array.isArray(s.accounts)) { s.accounts = []; changed = true; }
     if (s.rules && (!Array.isArray(s.rules.versions) || !s.rules.versions.length)) {
       s.rules.versions = [{ v: 1, by: 'Sistema', at: Date.now(), what: 'Reglas iniciales del programa.' }];
       changed = true;
     }
-    // Perfiles mínimos de pacientes de login (sin series inventadas)
-    if (!s.patients) { s.patients = {}; changed = true; }
-    [['diana', 'Diana Marcela Ruiz', 38], ['rosalba', 'Rosalba Giraldo', 67], ['oscar', 'Óscar Hernández', 71]].forEach(([id, name, age]) => {
-      if (!s.patients[id]) { s.patients[id] = emptyPatient(id, name, age); changed = true; }
-    });
+    // Reglas hidratadas desde Mongo a veces vienen incompletas (solo cuts, sin dig.q).
+    if (s.rules) {
+      if (!Array.isArray(s.rules.risk) || !s.rules.risk.length) {
+        s.rules.risk = RISK.map(r => ({ k: r.k, min: r.min, max: r.max, c: r.c }));
+        changed = true;
+      }
+      if (!s.rules.dig || typeof s.rules.dig !== 'object') {
+        s.rules.dig = {};
+        changed = true;
+      }
+      if (!Array.isArray(s.rules.dig.q) || !s.rules.dig.q.length) {
+        s.rules.dig.q = DIGQ.map(x => ({ q: x.q, o: x.o.map((o, i) => ({ o, p: i })) }));
+        changed = true;
+      }
+      if (!Array.isArray(s.rules.dig.cuts) || !s.rules.dig.cuts.length) {
+        s.rules.dig.cuts = DIG.map(d => ({ k: d.k, min: d.min, max: d.max }));
+        changed = true;
+      }
+      if (!s.rules.auto) {
+        s.rules.auto = { expert: 'vereda', clin: 'carga', review: 'Cada 4 semanas' };
+        changed = true;
+      }
+    }
+    if (!s.patients || typeof s.patients !== 'object') { s.patients = {}; changed = true; }
     return changed;
   }
-  function applyRules(s) { if (!s.rules) return; s.rules.risk.forEach((r, i) => { if (RISK[i]) Object.assign(RISK[i], { k: r.k, min: r.min, max: r.max, c: r.c }); }); s.rules.dig.cuts.forEach((c, i) => { if (DIG[i]) Object.assign(DIG[i], { min: c.min, max: c.max }); }); }
+  function applyRules(s) {
+    if (!s.rules) return;
+    ensure(s);
+    (s.rules.risk || []).forEach((r, i) => { if (RISK[i]) Object.assign(RISK[i], { k: r.k, min: r.min, max: r.max, c: r.c }); });
+    ((s.rules.dig && s.rules.dig.cuts) || []).forEach((c, i) => { if (DIG[i]) Object.assign(DIG[i], { min: c.min, max: c.max }); });
+  }
   function syncPatients(s) {
     Object.keys(PATIENTS).forEach(k => { if (!(s.patients && s.patients[k])) delete PATIENTS[k]; });
     Object.assign(PATIENTS, s.patients || {});
@@ -305,63 +350,67 @@ const KEY = 'nara-demo-v1';
   }
 
   let cache = null;
-  function migrateToV4(prev) {
-    const accounts = prev && Array.isArray(prev.accounts) && prev.accounts.length ? prev.accounts : null;
-    const next = seed();
-    ensure(next);
-    if (accounts) next.accounts = accounts;
-    return next;
-  }
   function get() {
-    if (typeof window === 'undefined') {
-      if (!cache) { cache = seed(); ensure(cache); applyRules(cache); syncPatients(cache); }
-      return cache;
+    if (!cache) {
+      cache = seed();
+      ensure(cache);
+      applyRules(cache);
+      syncPatients(cache);
     }
-    if (cache) return cache;
-    try { cache = JSON.parse(localStorage.getItem(KEY)); } catch (e) { cache = null; }
-    if (!cache || cache.v !== 4) {
-      cache = migrateToV4(cache);
-      save();
-    } else if (ensure(cache)) save();
-    applyRules(cache);
-    syncPatients(cache);
     return cache;
   }
   function save() {
     if (cache) syncPatients(cache);
     if (typeof window === 'undefined') return;
-    try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch (e) { }
     window.dispatchEvent(new Event('nara-change'));
   }
-  function set(fn) { const s = get(); fn(s); cache = s; save(); }
+  function set(fn) { const s = get(); fn(s); ensure(s); cache = s; save(); schedulePersist({ get }); }
   function reset() {
-    const accounts = cache && Array.isArray(cache.accounts) && cache.accounts.length ? cache.accounts.slice() : null;
     cache = seed();
     ensure(cache);
-    if (accounts) cache.accounts = accounts;
+    sessionId = null;
+    devFlag = false;
     save();
   }
   function subscribe(cb) {
     if (typeof window === 'undefined') return () => {};
-    const onStorage = e => { if (e.key === KEY) { cache = null; cb(); } };
-    window.addEventListener('storage', onStorage);
     window.addEventListener('nara-change', cb);
-    const t = setInterval(() => { const raw = localStorage.getItem(KEY); if (raw && cache && raw !== JSON.stringify(cache)) { cache = null; cb(); } else cb(); }, 1000);
-    return () => { window.removeEventListener('storage', onStorage); window.removeEventListener('nara-change', cb); clearInterval(t); };
+    return () => { window.removeEventListener('nara-change', cb); };
   }
 
+  function ensureExpertBuckets(s, ex) {
+    if (!ex) return;
+    s.worklists = s.worklists || {};
+    if (!Array.isArray(s.worklists[ex])) s.worklists[ex] = [];
+    s.revisits = s.revisits || {};
+    if (!Array.isArray(s.revisits[ex])) s.revisits[ex] = [];
+    s.groupSessions = s.groupSessions || {};
+    if (!Array.isArray(s.groupSessions[ex])) s.groupSessions[ex] = [];
+    s.notifs = s.notifs || {};
+    if (!Array.isArray(s.notifs[ex])) s.notifs[ex] = [];
+    s.notices = s.notices || {};
+    if (!Array.isArray(s.notices[ex])) s.notices[ex] = [];
+    s.weekBase = s.weekBase || {};
+    if (s.weekBase[ex] == null) s.weekBase[ex] = 0;
+    s.rejected = s.rejected || {};
+    if (s.rejected[ex] == null) s.rejected[ex] = 0;
+    s.pendingSync = s.pendingSync || {};
+    if (s.pendingSync[ex] == null) s.pendingSync[ex] = 0;
+  }
   function quotas(s, ex) {
-    const wl = s.worklists[ex];
+    ensureExpertBuckets(s, ex);
+    const wl = s.worklists[ex] || [];
     const v = wl.filter(x => x.status === 'validada');
     const targets = ex === 'andres' ? { rural: 5, sixty: 3 } : { rural: 1, sixty: 2 };
+    const todayT = 9;
     return {
-      today: v.length, todayT: 9,
-      week: s.weekBase[ex] + v.length - s.rejected[ex], weekT: 45,
+      today: v.length, todayT,
+      week: (s.weekBase[ex] || 0) + v.length - (s.rejected[ex] || 0), weekT: 45,
       rural: v.filter(x => x.rural).length, ruralT: targets.rural,
       sixty: v.filter(x => x.age >= 60).length, sixtyT: targets.sixty
     };
   }
-  function openFlags(s, ex) { return s.flags.filter(f => f.expert === ex && f.status === 'pending').length; }
+  function openFlags(s, ex) { return (s.flags || []).filter(f => f.expert === ex && f.status === 'pending').length; }
 
   function minsAgo(at) { return Math.max(0, Math.floor((Date.now() - at) / 60000)); }
   function agoText(at) { const m = minsAgo(at); if (m < 1) return 'hace un momento'; if (m < 60) return 'hace ' + m + ' min'; const h = Math.floor(m / 60); return h < 24 ? 'hace ' + h + ' h' : 'hace ' + Math.floor(h / 24) + ' d'; }
@@ -404,19 +453,20 @@ const KEY = 'nara-demo-v1';
     });
   }
 
-  // Sesión y modo desarrollador (fuera del estado compartido)
-  const USERS = [
-    { id: 'paula', name: 'Paula Henao', role: 'Administradora', terr: 'Programa post-sismo Eje Cafetero', href: '/inicio', nk: 'admin' },
-    { id: 'andres', name: 'Andrés Ocampo', role: 'Experto de campo', terr: 'Salento', href: '/experto', nk: 'andres' },
-    { id: 'mj', name: 'María José Vélez', role: 'Experta de campo', terr: 'Armenia', href: '/experto', nk: 'mj' },
-    { id: 'lucia', name: 'Dra. Lucía Marín', role: 'Clínica', terr: 'Turno Quindío', href: '/clinico', nk: 'clin' },
-    { id: 'diana', name: 'Diana Marcela Ruiz', role: 'Paciente', terr: 'App', href: '/paciente', nk: null },
-    { id: 'rosalba', name: 'Rosalba Giraldo', role: 'Paciente', terr: 'WhatsApp', href: '/paciente', nk: null },
-    { id: 'oscar', name: 'Óscar Hernández', role: 'Paciente', terr: 'Plan impreso', href: '/paciente/plan', nk: null },
-    { id: 'fin', name: 'Fundación financiadora', role: 'Observador', terr: 'Financiador', href: '/observador', nk: 'fin' },
-    { id: 'inv', name: 'Grupo de investigación', role: 'Observador', terr: 'Investigación', href: '/observador', nk: 'inv' },
-    { id: 'inst', name: 'Hospital local de Salento', role: 'Observador', terr: 'Institución de salud', href: '/observador', nk: 'inst' }
-  ];
+  // Sesión y modo desarrollador (solo memoria; se pierden al recargar hasta MongoDB)
+  const USERS = [];
+  let sessionId = null;
+  let devFlag = false;
+  const ROLE_HREF = {
+    Administrador: '/inicio', Administradora: '/inicio',
+    'Experto de campo': '/experto', 'Experta de campo': '/experto',
+    Clínico: '/clinico', Clínica: '/clinico',
+    Paciente: '/paciente', Observador: '/observador',
+  };
+  const ROLE_NK = {
+    Administrador: 'admin', Administradora: 'admin',
+    Clínico: 'clin', Clínica: 'clin',
+  };
   const OBS_MODULES = [
     { id: 'avance', name: 'Avance', desc: 'Captación, cuotas y ritmo (agregado)' },
     { id: 'recursos', name: 'Recursos', desc: 'Presupuesto, manillas y costo por persona (agregado)' },
@@ -425,36 +475,66 @@ const KEY = 'nara-demo-v1';
     { id: 'casos', name: 'Casos remitidos', desc: 'Solo los casos remitidos a su institución, con autorización del paciente' }
   ];
   const OBS_TEMPLATES = { 'Financiador': ['avance', 'recursos', 'resultados'], 'Investigación': ['resultados', 'datos'], 'Institución de salud': ['casos'] };
-  const SKEY = 'nara-session', DKEY = 'nara-devmode';
-  function session() {
-    if (typeof window === 'undefined') return null;
-    try {
-      const id = localStorage.getItem(SKEY);
-      if (!id) return null;
-      const u = USERS.find(x => x.id === id);
-      const a = (get().accounts || []).find(x => x.id === id);
-      if (u) {
-        return Object.assign({}, u, {
-          name: (a && a.name) || u.name,
-          contact: (a && a.contact) || '',
-          org: (a && a.org) || '',
-          terr: (a && a.terr && a.terr !== '—') ? a.terr : u.terr,
-        });
-      }
-      if (a && a.created && a.role === 'Observador' && a.status === 'Activo') {
-        return { id: a.id, name: a.name, role: 'Observador', terr: a.orgType || 'Observador', href: '/observador', nk: a.id, contact: a.contact || '', org: a.org || '' };
-      }
-      return null;
-    } catch (e) { return null; }
+  function isAdminRole(role) { return !!role && /Admin/i.test(role); }
+  function accountAsUser(a) {
+    if (!a || a.status !== 'Activo') return null;
+    const role = a.role || '';
+    const href = role === 'Paciente' && a.id === 'oscar' ? '/paciente/plan' : (ROLE_HREF[role] || '/ingreso');
+    const nk = ROLE_NK[role] || (role === 'Experto de campo' || role === 'Experta de campo' ? a.id : role === 'Observador' ? a.id : null);
+    return {
+      id: a.id, name: a.name, role, roleId: a.roleId || null,
+      email: a.email || '',
+      terr: (a.terr && a.terr !== '—') ? a.terr : (a.orgType || a.org || ''),
+      href, nk, contact: a.contact || a.email || '', org: a.org || '',
+    };
   }
-  function login(id) { if (typeof window === 'undefined') return; localStorage.setItem(SKEY, id); }
-  function logout() { if (typeof window === 'undefined') return; localStorage.removeItem(SKEY); location.href = '/ingreso'; }
-  function requireSession(ids) { const u = session(); if (!u || (ids && !ids.includes(u.id) && !(ids.includes('obs') && u.role === 'Observador'))) { if (typeof window !== 'undefined') location.replace('/ingreso'); return null; } return u; }
-  function devMode() { if (typeof window === 'undefined') return false; return localStorage.getItem(DKEY) === '1'; }
-  function setDevMode(v) { if (typeof window === 'undefined') return; localStorage.setItem(DKEY, v ? '1' : '0'); window.dispatchEvent(new Event('nara-change')); }
+  function session() {
+    if (typeof window === 'undefined' || !sessionId) return null;
+    const a = (get().accounts || []).find(x => x.id === sessionId);
+    return accountAsUser(a);
+  }
+  function login(id) {
+    if (typeof window === 'undefined') return;
+    sessionId = id;
+    window.dispatchEvent(new Event('nara-change'));
+  }
+  function logout() {
+    if (typeof window === 'undefined') return;
+    sessionId = null;
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+      .catch(() => {})
+      .finally(() => { location.href = '/ingreso'; });
+  }
+  function requireSession(ids) {
+    const u = session();
+    if (!u) {
+      if (typeof window !== 'undefined') location.replace('/ingreso');
+      return null;
+    }
+    if (!ids) return u;
+    const role = u.role || '';
+    const ok =
+      ids.includes(u.id) ||
+      (ids.includes('obs') && role === 'Observador') ||
+      ((ids.includes('paula') || ids.includes('admin')) && isAdminRole(role)) ||
+      (ids.includes('experto') && /Experto de campo/i.test(role)) ||
+      (ids.includes('clinico') && /Cl[ií]nic/i.test(role)) ||
+      ((ids.includes('andres') || ids.includes('mj')) && /Experto de campo/i.test(role)) ||
+      (ids.includes('lucia') && /Cl[ií]nic/i.test(role));
+    if (!ok) {
+      if (typeof window !== 'undefined') location.replace('/ingreso');
+      return null;
+    }
+    return u;
+  }
+  function devMode() { return !!devFlag; }
+  function setDevMode(v) {
+    devFlag = !!v;
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('nara-change'));
+  }
   const param = k => (typeof window === 'undefined' ? null : new URLSearchParams(location.search).get(k));
 
-  // Catálogos operativos: vacíos en bundle; la fuente de verdad es localStorage (s.people / s.territories / s.experts / s.assets / s.patients).
+  // Catálogos operativos vacíos; la fuente de verdad será MongoDB.
   const PEOPLE = [];
   const CASE_IDS = [];
   function territoryDist(name) {
@@ -596,14 +676,14 @@ const KEY = 'nara-demo-v1';
     const done = new WeakMap(), TEST = new RegExp(DRX.source, 'i');
     // Texto que escribe un usuario: nunca se desplaza. Además de [data-real-date], se recuerda lo escrito con fecha
     // (TKEY) para que tampoco se corra cuando se muestra dentro de otro texto (alertas, notificaciones, fichas).
-    const TKEY = 'nara-typed'; let typed = []; try { typed = JSON.parse(localStorage.getItem(TKEY) || '[]'); } catch (e) { }
+    let typed = [];
     const slot = new WeakMap();
     document.addEventListener('input', e => {
       const el = e.target; if (!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName) || /^(date|time|number|password|checkbox|radio)$/i.test(el.type || '')) return;
       const v = String(el.value || '').trim(), i = slot.get(el);
       if (!TEST.test(v)) { if (i !== undefined) { typed[i] = ''; } return; }
       if (i !== undefined && typed[i] !== undefined) typed[i] = v; else { typed.push(v); slot.set(el, typed.length - 1); }
-      try { localStorage.setItem(TKEY, JSON.stringify(typed.filter(Boolean).slice(-200))); } catch (e2) { }
+      typed = typed.filter(Boolean).slice(-200);
     }, true);
     const isTyped = v => { const t = v.trim(); return typed.some(r => r && (t.includes(r) || (t.length >= 5 && r.includes(t)))); };
     const fixText = n => {
@@ -656,7 +736,7 @@ const KEY = 'nara-demo-v1';
     OFFSET, shiftText, fmtDay, today0, needsSocial, crisisLines, ctxFor, teamPerf, OBS_MODULES, OBS_TEMPLATES, ensure, TERRS, EXPERT_LIST, CLINICIANS, ROSTER, TCODE, person, people, terrInfo, experts, assetList, logActivity, logAccess,
     KEY, C, RISK, DIG, PHQ, PHQ_OPTS, Q9_EXACT, DIGQ, CTX, SERVICES, CLIN_CH, HEAT, PATIENTS, emptyPatient,
     riskIdx, digIdx, code, parseCode, defaultPath, pathList,
-    get, set, reset, subscribe, quotas, openFlags, minsAgo, agoText, countdown, addAlert,
+    get, set, reset, subscribe, ensureExpertBuckets, quotas, openFlags, minsAgo, agoText, countdown, addAlert,
     CRISIS_TERMS, crisisCheck, logAgent, logAi, SAMPLE,
     USERS, session, login, logout, requireSession, devMode, setDevMode, param, notify, pushNotif, PEOPLE, CASE_IDS, territoryDist, placeMap, small, REC, recPerson, courseProgress
   };

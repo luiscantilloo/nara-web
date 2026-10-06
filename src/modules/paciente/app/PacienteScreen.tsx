@@ -304,34 +304,20 @@ function DianaApp({ vm }: { vm: Vm }) {
               <img src={naraAsset("marca/logo/nara-isotipo.svg")} alt="" style={{ flex: "none", width: 48, height: 48, display: "block" }} />
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28, lineHeight: 1.15 }}>
-                  {vm.greet}, Diana
+                  {vm.greet}, {vm.firstName || "Paciente"}
                 </span>
                 <span style={{ color: "#5E5750" }}>Martes 29 de septiembre</span>
               </div>
             </div>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={vm.openResumen}
-              onKeyDown={(e) => e.key === "Enter" && vm.openResumen()}
-              style={{
-                transition: "transform .12s",
-                background: "#FFE189",
-                borderRadius: 20,
-                padding: 16,
-                display: "flex",
-                gap: 14,
-                alignItems: "flex-start",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-                <span style={{ fontSize: 14, color: "#161413", fontWeight: 600 }}>Mi resumen de la semana</span>
-                <span style={{ lineHeight: 1.45 }}>{vm.res.week}</span>
-                <span style={{ fontWeight: 600, color: "#161413", textDecoration: "underline" }}>Ver mi resumen →</span>
+            {!vm.hasAnyModule ? (
+              <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 18, display: "flex", flexDirection: "column", gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>Sin módulos activos</span>
+                <span style={{ color: "#5E5750", lineHeight: 1.45 }}>
+                  Su ruta aún no tiene servicios en la app. Cuando el equipo active alguno, aparecerá aquí.
+                </span>
               </div>
-              <img src={naraAsset("marca/personajes/nara-curiosidad.svg")} alt="" style={{ flex: "none", width: 52, height: "auto", display: "block" }} />
-            </div>
+            ) : null}
+            {vm.mods?.mood ? (
             <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               <span style={{ fontWeight: 500 }}>¿Cómo se siente hoy?</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
@@ -361,22 +347,82 @@ function DianaApp({ vm }: { vm: Vm }) {
                 ))}
               </div>
               {vm.moodDone ? (
-                <span style={{ fontSize: 16, color: "#161413" }}>Gracias. Su psicóloga ve cómo va semana a semana.</span>
+                <span style={{ fontSize: 16, color: "#161413" }}>Gracias. Quedó registrado en su seguimiento.</span>
               ) : null}
             </div>
+            ) : null}
+            {vm.callCard ? (
             <div style={{ background: "#FFC0E0", borderRadius: 20, padding: 16, display: "flex", gap: 14, alignItems: "center" }}>
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ color: "#161413", fontSize: 15, fontWeight: 600 }}>Próxima sesión</span>
-                <span style={{ fontWeight: 500 }}>Miércoles 7 de octubre · 10:00</span>
-                <span>Videollamada con la Dra. Lucía Marín</span>
+                <span style={{ color: "#161413", fontSize: 15, fontWeight: 600 }}>{vm.callCard.title}</span>
+                <span style={{ fontWeight: 500 }}>{vm.callCard.when}</span>
+                <span>{vm.callCard.clin} · {vm.callCard.phone}</span>
+                <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.callCard.body}</span>
               </div>
               <img src={naraAsset("marca/personajes/nara-energia.svg")} alt="" style={{ flex: "none", width: 48, height: "auto", display: "block" }} />
             </div>
-            {vm.hasCourse && vm.dc ? (
+            ) : null}
+            {vm.waCard ? (
+            <div style={{ background: "#D8FBE3", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontWeight: 600, color: "#161413" }}>{vm.waCard.title}</span>
+              <span style={{ lineHeight: 1.45 }}>{vm.waCard.body}</span>
+              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.waCard.tip}</span>
+            </div>
+            ) : null}
+            {vm.mods?.videos ? (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={vm.openVideosLib}
+              onKeyDown={(e) => e.key === "Enter" && vm.openVideosLib()}
+              style={{
+                transition: "transform .12s",
+                background: "#FFE189",
+                borderRadius: 20,
+                padding: 16,
+                display: "flex",
+                gap: 14,
+                alignItems: "center",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 15, fontWeight: 600 }}>Videos psicoeducativos</span>
+                <span>Biblioteca de videos · sueño, miedo, calma</span>
+                <span style={{ fontWeight: 600, textDecoration: "underline" }}>Abrir biblioteca →</span>
+              </div>
+              <img src={naraAsset("marca/personajes/nara-curiosidad.svg")} alt="" style={{ flex: "none", width: 48, height: "auto", display: "block" }} />
+            </div>
+            ) : null}
+            {vm.revisitCard ? (
+            <div style={{ background: "#F0ECE6", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{vm.revisitCard.title}</span>
+              <span style={{ fontWeight: 500 }}>{vm.revisitCard.expert} · {vm.revisitCard.freq}</span>
+              <span style={{ lineHeight: 1.45 }}>{vm.revisitCard.body}</span>
+              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.revisitCard.tip}</span>
+            </div>
+            ) : null}
+            {vm.groupCard ? (
+            <div style={{ background: "#E8F0E4", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{vm.groupCard.title}</span>
+              <span style={{ fontWeight: 500 }}>{vm.groupCard.freq} · {vm.groupCard.channel}</span>
+              <span style={{ lineHeight: 1.45 }}>{vm.groupCard.body}</span>
+              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.groupCard.tip}</span>
+            </div>
+            ) : null}
+            {vm.socialCard ? (
+            <div style={{ background: "#FFF4CC", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{vm.socialCard.title}</span>
+              <span style={{ fontWeight: 500 }}>{vm.socialCard.status}</span>
+              <span style={{ lineHeight: 1.45 }}>{vm.socialCard.body}</span>
+              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.socialCard.tip}</span>
+            </div>
+            ) : null}
+            {vm.showCourse && vm.dc ? (
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => vm.setTab("route")}
+                onClick={vm.openCursos}
                 style={{
                   transition: "transform .12s",
                   background: "#A9D4FF",
@@ -391,7 +437,7 @@ function DianaApp({ vm }: { vm: Vm }) {
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <img src={vm.dc.cover} alt="" style={{ flex: "none", width: 48, height: 62, objectFit: "cover", borderRadius: 8, boxShadow: "0 2px 6px rgba(22,20,19,.25)", display: "block" }} />
                   <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>Mi curso</span>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>Cursos y cuentos</span>
                     <span style={{ fontWeight: 500, lineHeight: 1.3 }}>
                       {vm.dc.title} · semana {vm.dc.week} de {vm.dc.weeks}
                     </span>
@@ -427,6 +473,27 @@ function DianaApp({ vm }: { vm: Vm }) {
                 </div>
               </div>
             ) : null}
+            {vm.mods?.cursos && !vm.dc ? (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={vm.openCursos}
+              style={{
+                background: "#A9D4FF",
+                borderRadius: 20,
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>Cursos y cuentos</span>
+              <span>Tiene acceso a la biblioteca de cuentos de su ruta.</span>
+              <span style={{ fontWeight: 600, textDecoration: "underline" }}>Abrir cuentos →</span>
+            </div>
+            ) : null}
+            {vm.showTech ? (
             <div
               role="button"
               tabIndex={0}
@@ -451,31 +518,24 @@ function DianaApp({ vm }: { vm: Vm }) {
               </div>
               <span style={{ fontSize: 15, fontWeight: 500, background: "#fff", color: "#161413", borderRadius: 20, padding: "10px 14px" }}>Empezar</span>
             </div>
-            <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              <span style={{ gridColumn: "1/3", color: "#5E5750", fontSize: 15 }}>Manilla · sueño</span>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28 }}>6,4 h</span>
-                <span style={{ fontSize: 15, color: "#5E5750" }}>Anoche</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28 }}>5,9 h</span>
-                <span style={{ fontSize: 15, color: "#5E5750" }}>Promedio semana</span>
-              </div>
-              <span style={{ gridColumn: "1/3", fontSize: 14, color: "#5E5750" }}>Última sincronización: hoy 7:12</span>
-            </div>
+            ) : null}
           </div>
         ) : null}
 
-        {vm.tabChat ? <DianaChat vm={vm} /> : null}
+        {vm.tabChat && vm.mods?.ia ? <DianaChat vm={vm} /> : null}
         {vm.tabRes ? <DianaResumen vm={vm} /> : null}
         {vm.tabRoute ? <DianaRoute vm={vm} /> : null}
         {vm.tabHist ? <DianaHist vm={vm} /> : null}
       </div>
 
+      {(vm.tabCount || 0) > 0 ? (
       <div
         role="tablist"
-        className="grid shrink-0 grid-cols-4 border-t border-linea bg-nara-blanco px-1.5 pt-1.5"
-        style={{ paddingBottom: 10 }}
+        className="grid shrink-0 border-t border-linea bg-nara-blanco px-1.5 pt-1.5"
+        style={{
+          paddingBottom: 10,
+          gridTemplateColumns: `repeat(${vm.tabCount || vm.tabs.length || 2}, minmax(0, 1fr))`,
+        }}
       >
         {vm.tabs.map((t) => (
           <button
@@ -519,6 +579,7 @@ function DianaApp({ vm }: { vm: Vm }) {
           </button>
         ))}
       </div>
+      ) : null}
 
       {vm.rdOpen && vm.rdView ? <ReaderOverlay vm={vm} /> : null}
       {vm.plOpen && vm.plView ? <PlayerOverlay vm={vm} /> : null}
@@ -670,16 +731,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
   return (
     <div style={{ animation: "naraTab .22s ease-out", padding: "6px 18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
       <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28 }}>Mi ruta</span>
-      <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 500 }}>Semana 7 de 52</span>
-          <span style={{ color: "#5E5750" }}>12 meses</span>
-        </div>
-        <div style={{ height: 10, borderRadius: 5, background: "#E6E1D9" }}>
-          <div style={{ width: "13%", height: "100%", borderRadius: 5, background: "#161413" }} />
-        </div>
-      </div>
-      {vm.hasCourse && vm.dc ? (
+      {vm.showCourse && vm.dc ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
             <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>Mi curso</span>
@@ -712,9 +764,12 @@ function DianaRoute({ vm }: { vm: Vm }) {
           ))}
         </div>
       ) : null}
+      {vm.mods?.videos || vm.mods?.cursos || vm.mods?.tech ? (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>Biblioteca</span>
-        <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, background: "#E6E1D9", borderRadius: 14, padding: 4 }}>
+        <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>
+          {vm.mods?.videos && !vm.mods?.cursos ? "Videos" : "Biblioteca"}
+        </span>
+        <div role="tablist" style={{ display: "grid", gridTemplateColumns: `repeat(${vm.lib.tabs.length}, 1fr)`, gap: 6, background: "#E6E1D9", borderRadius: 14, padding: 4 }}>
           {vm.lib.tabs.map((t) => (
             <button key={t.key} type="button" role="tab" aria-selected={t.on} onClick={() => vm.setLibTab(t.key)} style={{ ...btnFont(), fontSize: 15, fontWeight: t.fw, minHeight: 44, border: "none", borderRadius: 11, background: t.bg, color: "#161413", cursor: "pointer" }}>
               {t.label}
@@ -761,6 +816,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
         ) : null}
         {vm.lib.empty ? <span style={{ color: "#5E5750" }}>No hay resultados con ese filtro.</span> : null}
       </div>
+      ) : null}
       <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: "6px 16px" }}>
         {vm.route.map((r) => (
           <div key={r.name} style={{ padding: "12px 0", borderBottom: "1px solid #E6E1D9", display: "flex", flexDirection: "column", gap: 6 }}>

@@ -11,8 +11,33 @@ const OK_BG = "#FFF4CC";
 
 export function useExpertoScreen() {
   const store = useNaraStore();
-  const session = useRequireSession(["andres", "mj"]);
-  const ex = session?.id === "mj" ? "mj" : "andres";
+  const session = useRequireSession(["experto", "andres", "mj"]);
+  const ex = session?.id || "andres";
+  const expertName = session?.name || "Experto de campo";
+  const terrName = session?.terr && session.terr !== "—" ? session.terr : "Salento";
+
+  // Buckets operativos por id de experto (ya no solo andres/mj)
+  useEffect(() => {
+    if (!session?.id) return;
+    store.set((s: any) => {
+      s.worklists = s.worklists || {};
+      if (!Array.isArray(s.worklists[session.id])) s.worklists[session.id] = [];
+      s.revisits = s.revisits || {};
+      if (!Array.isArray(s.revisits[session.id])) s.revisits[session.id] = [];
+      s.groupSessions = s.groupSessions || {};
+      if (!Array.isArray(s.groupSessions[session.id])) s.groupSessions[session.id] = [];
+      s.notifs = s.notifs || {};
+      if (!Array.isArray(s.notifs[session.id])) s.notifs[session.id] = [];
+      s.weekBase = s.weekBase || {};
+      if (s.weekBase[session.id] == null) s.weekBase[session.id] = 0;
+      s.rejected = s.rejected || {};
+      if (s.rejected[session.id] == null) s.rejected[session.id] = 0;
+      s.pendingSync = s.pendingSync || {};
+      if (s.pendingSync[session.id] == null) s.pendingSync[session.id] = 0;
+      s.notices = s.notices || {};
+      if (!Array.isArray(s.notices[session.id])) s.notices[session.id] = [];
+    });
+  }, [session?.id, store]);
 
   const [st, setStateRaw] = useState({
     screen: "list",
@@ -123,7 +148,8 @@ const SCRIPT = [
   function flash(t) { setState({ toast: t }); clearTimeout(toastTimerRef.current); toastTimerRef.current = setTimeout(() => setState({ toast: '' }), 4200); }
   function person() {
     const S = store.get();
-    return S.worklists[ex].find(w => w.id === st.pid) || { name: '', age: 0, place: '' };
+    if (store.ensureExpertBuckets) store.ensureExpertBuckets(S, ex);
+    return (S.worklists[ex] || []).find(w => w.id === st.pid) || { name: '', age: 0, place: '' };
   }
   function honor(p) { const first = p.name.split(' ')[0]; return p.age >= 60 ? (/a$/.test(first) ? 'doña ' : 'don ') + first : (ex === 'mj' ? 'don ' : '') + first; }
   function startVisit(w) {
@@ -202,34 +228,38 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     const res = calcResult();
     if (!st.crisis && st.override !== 'keep' && !st.reason.trim()) { setState({ reasonErr: 'Escriba el motivo del cambio de ruta.' }); return; }
     const p = person(); const crisis = st.crisis; const cons = st.consent;
+    const terr = terrName;
+    const expName = expertName;
+    const mins = Math.max(1, Math.round((Date.now() - (visitStartRef.current || Date.now())) / 60000));
+    const short = !crisis && mins < 20;
+    const wlStatus = crisis ? 'crisis' : short ? 'revision' : 'validada';
+    const personCode = p.code || ((store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase()) + '-' + String(1000 + (store.get().people || []).length + 1);
+    let flagPayload: Record<string, unknown> | null = null;
+
     store.set(s => {
-      const w = s.worklists[ex].find(x => x.id === p.id);
-      const mins = Math.max(1, Math.round((Date.now() - (visitStartRef.current || Date.now())) / 60000));
-      const short = !crisis && mins < 20;
-      if (w) { w.status = crisis ? 'crisis' : short ? 'revision' : 'validada'; w.profile = crisis ? 'Ruta de crisis' : res.code; }
+      if (store.ensureExpertBuckets) store.ensureExpertBuckets(s, ex);
+      const w = (s.worklists[ex] || []).find(x => x.id === p.id);
+      if (w) { w.status = wlStatus; w.profile = crisis ? 'Ruta de crisis' : res.code; }
       if (short) {
         const now = new Date(), hh = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
-        s.flags = s.flags.filter(f => f.wid !== p.id);
-        s.flags.unshift({ id: 'fv-' + p.id + Date.now(), wid: p.id, fromVisit: true, expert: ex, expertName: ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo', territory: ex === 'mj' ? 'Armenia' : 'Salento', person: p.name, when: 'Hoy · ' + hh, reasons: ['Entrevista de ' + mins + (mins === 1 ? ' minuto' : ' minutos') + ' (mínimo 20)'], status: 'pending' });
-        store.pushNotif(s, 'admin', 'Visita marcada: ' + p.name + ' · entrevista de ' + mins + ' min (' + (ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo') + ')', '/equipos');
+        s.flags = (s.flags || []).filter(f => f.wid !== p.id);
+        flagPayload = { id: 'fv-' + p.id + Date.now(), wid: p.id, fromVisit: true, expert: ex, expertName: expName, territory: terr, person: p.name, when: 'Hoy · ' + hh, reasons: ['Entrevista de ' + mins + (mins === 1 ? ' minuto' : ' minutos') + ' (mínimo 20)'], status: 'pending' };
+        s.flags.unshift(flagPayload);
+        store.pushNotif(s, 'admin', 'Visita marcada: ' + p.name + ' · entrevista de ' + mins + ' min (' + expName + ')', '/equipos');
         shortRef.current = mins;
       } else shortRef.current = 0;
-      if (ex === 'andres') s.pendingSync.andres += 1;
       if (s.consents[p.id]) s.consents[p.id] = { contacto: !!cons.o0, remision: !!cons.o2, investigacion: false };
       s.visits[p.id] = { code: res.code, phq: res.phqT, dig: res.digT, crisis, override: st.override, reason: st.reason };
-      const terr = ex === 'mj' ? 'Armenia' : 'Salento';
-      const expName = ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo';
       s.people = s.people || [];
       const existing = s.people.find(x => x.id === p.id || x.code === p.code);
       if (existing) {
-        Object.assign(existing, { profile: crisis ? existing.profile : res.code, status: crisis ? 'Crisis' : 'Activa', expert: expName, terr: existing.terr || terr, week: existing.week || 0, weeks: existing.weeks || (res.r <= 1 ? 13 : res.r === 2 ? 26 : 52) });
+        Object.assign(existing, { profile: crisis ? existing.profile : res.code, status: crisis ? 'Crisis' : 'Activa', expert: expName, expertId: ex, terr: existing.terr || terr, week: existing.week || 0, weeks: existing.weeks || (res.r <= 1 ? 13 : res.r === 2 ? 26 : 52) });
       } else if (!crisis) {
-        const pre = (store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase();
-        s.people.push({ id: p.id, code: p.code || (pre + '-' + String(1000 + s.people.length + 1)), name: p.name, age: p.age, place: p.place, rural: p.rural, terr, profile: res.code, week: 0, weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52, expert: expName, status: 'Activa', clin: res.r >= 2 ? 'Dra. Lucía Marín' : null });
+        s.people.push({ id: p.id, code: personCode, name: p.name, age: p.age, place: p.place, rural: p.rural, terr, profile: res.code, week: 0, weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52, expert: expName, expertId: ex, status: 'Activa', clin: res.r >= 2 ? 'Dra. Lucía Marín' : null, phone: p.phone || '' });
       }
       if (!crisis) {
         s.patients = s.patients || {};
-        if (!s.patients[p.id]) s.patients[p.id] = store.emptyPatient ? store.emptyPatient(p.id, p.name, p.age) : { id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phone: '', phq: [res.phqT], phqDates: ['Hoy'], sleep: null, braceletStatus: '', adherence: null, next: 'Primera llamada dentro de 7 días', nextShort: 'Primera llamada', consent: true, consentKey: p.id, signal: 'Nueva', summary: null, audios: 0, timeline: [], ctx: { dano: 0, perdida: 0 }, lastCheckin: '', checkinDays: null };
+        if (!s.patients[p.id]) s.patients[p.id] = store.emptyPatient ? store.emptyPatient(p.id, p.name, p.age) : { id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phone: p.phone || '', phq: [res.phqT], phqDates: ['Hoy'], sleep: null, braceletStatus: '', adherence: null, next: 'Primera llamada dentro de 7 días', nextShort: 'Primera llamada', consent: true, consentKey: p.id, signal: 'Nueva', summary: null, audios: 0, timeline: [], ctx: { dano: 0, perdida: 0 }, lastCheckin: '', checkinDays: null };
         else { s.patients[p.id].profile = res.code; s.patients[p.id].phq = (s.patients[p.id].phq || []).concat([res.phqT]); s.patients[p.id].phqDates = (s.patients[p.id].phqDates || []).concat(['Hoy']); }
       }
       if (!crisis && s.recursos) { const cpk = coursePick(res); s.recursos.people = s.recursos.people || {}; if (!s.recursos.people[p.id]) s.recursos.people[p.id] = { course: cpk.id, week: 1, channel: ['impreso', 'whatsapp', 'app'][res.d], by: res.r <= 1 ? 'Curso guiado por TEO' : res.r === 2 ? 'Curso con el experto' : 'Asignado por la psicóloga', pending: res.r >= 3, read: {}, page: {}, tech: {}, tech4w: {}, doneMods: [], answers: [] }; }
@@ -237,29 +267,48 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         s.alerts = s.alerts.filter(a => a.id !== 'a-new-' + p.id);
         store.pushNotif(s, 'clin', 'Nueva paciente asignada: ' + p.name + ' (' + res.code + ')', '/clinico?pid=' + p.id);
         if (!store.PATIENTS[p.id]) s.caseload = (s.caseload || []).filter(x => x.id !== p.id).concat([{ id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phq: res.phqT, expert: expName }]);
-        if (p.id === 'rosalba') { const t0 = new Date(), hm = t0.getHours() + ':' + String(t0.getMinutes()).padStart(2, '0'); s.rosalbaWA.welcomeAt = hm; s.rosalbaWA.inbox = [{ k: 'in', time: hm, text: (t0.getHours() < 12 ? 'Buenos días' : t0.getHours() < 19 ? 'Buenas tardes' : 'Buenas noches') + ', doña Rosalba. Le escribe TEO, de NARA. Andrés Ocampo nos contó que la visitó hoy. Por aquí le vamos a escribir; puede responder con botones o con audios.', }]; s.rosalbaSummary = true; const rc = s.recursos && s.recursos.people.rosalba, c1 = rc && store.REC.cuento(store.REC.curso(rc.course).mods[0].cuento); if (c1) s.rosalbaWA.inbox.push({ k: 'story', slug: c1.slug, time: hm, text: 'Doña Rosalba, esta semana le toca el cuento «' + c1.title + '». Se lo mando en audio para que lo escuche con calma.' }, { k: 'audio', id: 'cuento1', title: 'Cuento narrado', dur: '5:12', secs: 312, caption: 'Cuento narrado · 5:12', time: hm }, { k: 'sys', text: 'Un día después' }, { k: 'ask', id: 'q-cuento1', time: '9:00', text: '¿Le gustó el cuento?', opts: ['Sí', 'Más o menos', 'No lo escuché'] }); }
-        s.alerts.push({ id: 'a-new-' + p.id, sev: 'info', pid: store.PATIENTS[p.id] ? p.id : null, name: p.name, age: p.age, place: p.place + (ex === 'mj' ? ', Armenia' : ', Salento'), profile: res.code, what: 'Nueva paciente asignada (' + res.code + '). Primera llamada dentro de 7 días.', source: 'Visita de campo · ' + (ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo'), at: Date.now(), status: 'open' });
+        s.alerts.push({ id: 'a-new-' + p.id, sev: 'info', pid: store.PATIENTS[p.id] ? p.id : null, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, what: 'Nueva paciente asignada (' + res.code + '). Primera llamada dentro de 7 días.', source: 'Visita de campo · ' + expName, at: Date.now(), status: 'open' });
       }
     });
+
+    // Persistencia Mongo (no bloquea la UI)
+    void Promise.all([
+      fetch('/api/people', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, code: personCode, name: p.name, age: p.age, place: p.place, rural: p.rural !== false, terr, profile: crisis ? 'P01' : res.code, expert: expName, expertId: ex, status: crisis ? 'Crisis' : 'Activa', phone: p.phone || '', weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52, clin: 'Dra. Lucía Marín' }) }),
+      fetch('/api/worklists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, expertId: ex, time: 'Ahora', name: p.name, age: p.age, place: p.place, rural: p.rural !== false, status: wlStatus, profile: crisis ? null : res.code, code: personCode, phone: p.phone || '' }) }),
+      !crisis ? fetch('/api/patients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phone: p.phone || '', phq: [res.phqT], phqDates: ['Hoy'], expert: expName, clin: 'Dra. Lucía Marín', signal: 'Nueva', timeline: [{ d: 'Hoy', t: 'Visita de campo · ' + expName, x: 'Evaluación inicial. PHQ-9 ' + res.phqT + '. Perfil ' + res.code + '.' }], ctx: { dano: (st.items.ctx[0] && st.items.ctx[0].v) || 0, perdida: (st.items.ctx[1] && st.items.ctx[1].v) || 0 } }) }) : Promise.resolve(),
+      flagPayload ? fetch('/api/flags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flagPayload) }) : Promise.resolve(),
+    ]).catch(() => {});
+
     setState({ screen: 'list', pid: null });
-    flash((shortRef.current ? 'La entrevista duró ' + shortRef.current + ' min (mínimo 20): la visita va a revisión y no cuenta para la cuota hasta que se apruebe. ' : '') + (ex === 'andres' ? 'Visita guardada en la tablet. Se sincroniza cuando haya señal.' : 'Visita guardada y sincronizada.'));
+    flash((shortRef.current ? 'La entrevista duró ' + shortRef.current + ' min (mínimo 20): la visita va a revisión y no cuenta para la cuota hasta que se apruebe. ' : '') + 'Visita guardada' + (short ? ' y enviada a control de calidad.' : '.'));
   }
   function rv() {
     const A = store;
     if (!A) return {};
     const S = A.get(); const C = A.C;
+    if (A.ensureExpertBuckets) A.ensureExpertBuckets(S, ex);
+    else {
+      S.worklists = S.worklists || {};
+      if (!Array.isArray(S.worklists[ex])) S.worklists[ex] = [];
+      S.pendingSync = S.pendingSync || {};
+      if (S.pendingSync[ex] == null) S.pendingSync[ex] = 0;
+      S.revisits = S.revisits || {};
+      if (!Array.isArray(S.revisits[ex])) S.revisits[ex] = [];
+      S.groupSessions = S.groupSessions || {};
+      if (!Array.isArray(S.groupSessions[ex])) S.groupSessions[ex] = [];
+    }
     const scr = st.screen;
     const q = A.quotas(S, ex);
     const pct = (a, b) => Math.min(100, Math.round(a / b * 100)) + '%';
-    const offline = ex === 'andres';
-    const pend = S.pendingSync[ex];
+    const offline = false;
+    const pend = S.pendingSync[ex] || 0;
     const STATUS = {
       validada: ['Validada', '#E3F1E8', C.tinta], siguiente: ['Siguiente', C.verde, '#fff'], curso: ['En curso · falta 1 pregunta', '#E6E1D9', C.azul],
       programada: ['Programada', C.niebla, C.texto2], revision: ['En revisión · no cuenta aún', '#F7E2D2', '#7A3A10'], rechazada: ['Rechazada en revisión', '#EFDCDA', '#9C2F25'], ausente: ['No estaba en casa · reprogramar', '#F9EBC8', '#161413'], crisis: ['Crisis · alerta enviada', C.rojoBg, '#8A1C14']
     };
-    const expName = ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo', inList = new Set(S.worklists[ex].map(w => w.name));
+    const expName = expertName, inList = new Set((S.worklists[ex] || []).map(w => w.name));
     const assignedNew = Object.keys(S.personOv || {}).filter(c => S.personOv[c].expert === expName).map(c => A.person(S, c)).filter(p => p && !inList.has(p.name));
-    const worklist = S.worklists[ex].concat(assignedNew.map(p => ({ id: 'as-' + p.code, time: '—', name: p.name, age: p.age, place: p.place, rural: p.rural, status: 'asignada', code: p.code }))).map(w => {
+    const worklist = (S.worklists[ex] || []).concat(assignedNew.map(p => ({ id: 'as-' + p.code, time: '—', name: p.name, age: p.age, place: p.place, rural: p.rural, status: 'asignada', code: p.code }))).map(w => {
       const [tag, tagBg, tagFg] = w.reassignedTo ? ['Reasignada a ' + w.reassignedTo, C.niebla, C.texto2] : w.status === 'asignada' ? ['Nueva asignada · por programar', '#E6E1D9', '#161413'] : (S.closedToday || []).some(x => (x.pid === w.id || x.id === 'a-' + w.id) && x.sev === 'crisis') ? ['Crisis atendida · revisita en 48 h', '#E3F1E8', '#161413'] : STATUS[w.status];
       const act = w.reassignedTo || (S.closedToday || []).some(x => (x.pid === w.id || x.id === 'a-' + w.id) && x.sev === 'crisis') ? '' : w.status === 'asignada' ? 'Programar' : w.status === 'siguiente' ? 'Empezar visita' : w.status === 'curso' ? 'Continuar visita' : w.status === 'ausente' ? 'Reprogramar' : w.status === 'programada' ? 'Empezar' : '';
       const primary = w.status === 'siguiente' || w.status === 'curso';
@@ -293,9 +342,9 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     });
     const reqOk = st.consent.r0 && st.consent.r1 && st.consent.r2;
     const sigOk = st.signed && (!st.ruego || st.witness.trim());
-    const territory = ex === 'mj' ? 'Armenia · Barrios seleccionados' : 'Salento · Veredas seleccionadas';
+    const territory = terrName + (terrName === 'Armenia' ? ' · Barrios seleccionados' : ' · Veredas seleccionadas');
     const evidence = [
-      { k: 'GPS al inicio', v: ex === 'mj' ? '4,5339° N · 75,6811° O' : '4,6378° N · 75,5703° O' },
+      { k: 'GPS al inicio', v: terrName === 'Armenia' ? '4,5339° N · 75,6811° O' : '4,6378° N · 75,5703° O' },
       { k: 'Territorio', v: 'Dentro del territorio asignado' },
       { k: 'Hora de inicio', v: st.startTime || '—' }
     ];
@@ -340,7 +389,6 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     if (st.override === 'down' && res.r >= 2 && !path.find(x => x.id === 'clin')) path.unshift({ id: 'clin', name: 'Psicólogo clínico', freq: 'Mensual', channel: A.CLIN_CH[res.d], main: true });
       path = path.map(x => {
         if (x.id !== 'bracelet') return { name: x.name, freq: x.freq, main: x.main, sub: x.channel };
-        const terrName = ex === 'mj' ? 'Armenia' : 'Salento';
         const tInfo = A.terrInfo(S, terrName) || { brAv: 0 };
         const avail = tInfo.brAv || 0;
         return { name: x.name, freq: x.freq, main: x.main, sub: x.channel + (avail ? ' · ' + avail + ' disponibles en ' + terrName : ' · sin stock registrado') };
@@ -361,7 +409,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     const codes = { list: 'ExpertWorklist', new: 'NewPersonForm', consent: 'VisitConsent', eval: st.mode === 'chat' ? 'AssessmentConversation' : 'AssessmentForm', result: crisis ? 'AssessmentResult · crisis' : 'AssessmentResult' };
 
     return {
-      ex, dev: A.devMode(), agentRole: 'expert:' + ex, agentOpen: !!st.agentOpen, drawerW: window.innerWidth < 720 ? '100%' : '460px', briefLine: window.AlientoAgent ? AlientoAgent.briefing(ex, S).text : '', briefSub: (offline ? 'Con los datos de la última sincronización · hoy 7:05' : 'Datos al momento') + ((S.revisits[ex] || []).length ? ' · ' + S.revisits[ex].length + ' revisitas pendientes' : ''), openAgent: () => setState({ agentOpen: true }), closeAgent: () => setState({ agentOpen: false, pendingAsk: '' }), pendingAsk: '', agentCtx: offline ? 'Sin señal · datos de la última sincronización (7:05)' : 'Datos al momento', screenCode: st.newForm ? codes.new : codes[scr], expertName: ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo', territory,
+      ex, dev: A.devMode(), agentRole: 'expert:' + ex, agentOpen: !!st.agentOpen, drawerW: window.innerWidth < 720 ? '100%' : '460px', briefLine: window.AlientoAgent ? AlientoAgent.briefing(ex, S).text : '', briefSub: (offline ? 'Con los datos de la última sincronización · hoy 7:05' : 'Datos al momento') + ((S.revisits[ex] || []).length ? ' · ' + S.revisits[ex].length + ' revisitas pendientes' : ''), openAgent: () => setState({ agentOpen: true }), closeAgent: () => setState({ agentOpen: false, pendingAsk: '' }), pendingAsk: '', agentCtx: offline ? 'Sin señal · datos de la última sincronización (7:05)' : 'Datos al momento', screenCode: st.newForm ? codes.new : codes[scr], expertName, territory,
       connText: offline ? 'Sin señal · ' + pend + ' visitas por sincronizar' : 'Sincronizado', connBg: offline ? '#F9EBC8' : '#FFF4CC', connDot: offline ? '#E0A526' : '#4E9A6B',
       scrollRef: scrollRef, chatRef: chatRef, sigRef: sigInit,
       goList: () => setState({ screen: 'list', newForm: false }), goNew: () => setState({ newForm: true, nf: { name: '', age: '', phone: '', place: '' }, dupOk: false, newMsg: '' }),

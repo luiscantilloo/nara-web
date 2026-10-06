@@ -244,10 +244,12 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
             />
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-            Correo o celular
+            Correo
             <input
+              type="email"
               value={v.f.contact ?? ""}
               onChange={v.fSet.contact}
+              placeholder="nombre@nara.com"
               style={{
                 height: 42,
                 borderRadius: 9,
@@ -256,6 +258,28 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 fontSize: 15,
               }}
             />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
+            Contraseña
+            <input
+              type="password"
+              value={v.f.password ?? ""}
+              onChange={v.fSet.password}
+              placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
+              autoComplete="new-password"
+              style={{
+                height: 42,
+                borderRadius: 9,
+                border: "1.5px solid #DCD6CD",
+                padding: "0 12px",
+                fontSize: 15,
+              }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#5E5750" }}>
+              {v.isEdit
+                ? "Solo complete si quiere cambiar la contraseña."
+                : "Esta contraseña se usa en Ingreso (correo + clave)."}
+            </span>
           </label>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>

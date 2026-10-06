@@ -12,6 +12,7 @@ type FormState = {
   id: string | null;
   name: string;
   contact: string;
+  password?: string;
   role: string;
   terr: string;
   org: string;
@@ -85,7 +86,7 @@ export function useAdminUsuariosScreen() {
 
   useEffect(() => {
     const u = A.session();
-    if (!u || u.id !== "paula") {
+    if (!u || !/Admin/i.test(u.role || "")) {
       router.replace("/ingreso");
     }
   }, [A, router]);
@@ -116,7 +117,8 @@ export function useAdminUsuariosScreen() {
         f: {
           id: u.id,
           name: u.name,
-          contact: u.contact || "",
+          contact: u.email || u.contact || "",
+          password: "",
           role: u.role,
           terr: u.terr,
           org: u.org,
@@ -141,68 +143,78 @@ export function useAdminUsuariosScreen() {
       ),
     );
 
-    const save = () => {
+    const save = async () => {
       if (!f) return;
-      if (!f.name.trim() || !f.contact.trim()) return setState({ err: "Escriba el nombre y un correo o celular." });
-      if (!/@/.test(f.contact) && f.contact.replace(/\D/g, "").length < 10)
-        return setState({ err: "El correo no es válido o el celular no tiene 10 dígitos." });
+      if (!f.name.trim() || !f.contact.trim()) return setState({ err: "Escriba el nombre y el correo." });
+      if (!/@/.test(f.contact))
+        return setState({ err: "Use un correo válido (ej. nombre@nara.com) para el acceso." });
+      if (!isEdit && !(f.password || "").trim())
+        return setState({ err: "Defina una contraseña para el nuevo usuario." });
+      if ((f.password || "").trim() && (f.password || "").trim().length < 8)
+        return setState({ err: "La contraseña debe tener al menos 8 caracteres." });
       if (f.role === "Observador" && !mods.length)
         return setState({ err: "Active al menos un módulo para el observador." });
       if (f.role === "Observador" && !f.org.trim())
         return setState({ err: "Escriba la organización del observador." });
       if (needEthics && f.role === "Observador" && !/\w{2,}-?\d/.test(f.ethics || ""))
         return setState({ err: "Datos seudonimizados exige el número de aprobación ética." });
-      const rec: any = {
+
+      const payload: any = {
+        id: f.id || undefined,
         name: f.name.trim(),
         contact: f.contact.trim(),
+        email: f.contact.trim(),
+        password: (f.password || "").trim() || undefined,
         role: f.role,
         terr: f.terr,
         org: f.role === "Observador" ? f.org.trim() : "Programa NARA",
         orgType: f.role === "Observador" ? f.orgType : undefined,
         modules: f.role === "Observador" ? mods.slice() : undefined,
         ethics: needEthics ? f.ethics : undefined,
+        status: f.status || "Activo",
       };
-      let id = f.id;
-      A.set((s: any) => {
-        if (id) {
-          let a = s.accounts.find((x: any) => x.id === id);
-          if (!a) {
-            a = { id, status: "Activo" };
-            s.accounts.push(a);
-          }
-          Object.assign(a, rec);
-          if (rec.role === "Experto de campo")
-            s.expertOv[rec.name] = Object.assign({}, s.expertOv[rec.name], {
-              terr: rec.terr,
-              phone: rec.contact,
+
+      try {
+        const res = await fetch("/api/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) return setState({ err: data.error || "No se pudo guardar el usuario." });
+
+        const acc = data.account;
+        A.set((s: any) => {
+          const list = Array.isArray(s.accounts) ? s.accounts.slice() : [];
+          const i = list.findIndex((x: any) => x.id === acc.id);
+          if (i >= 0) list[i] = { ...list[i], ...acc };
+          else list.push({ ...acc, created: true });
+          s.accounts = list;
+          if (acc.role === "Experto de campo") {
+            s.expertOv = s.expertOv || {};
+            s.expertOv[acc.name] = Object.assign({}, s.expertOv[acc.name], {
+              terr: acc.terr,
+              phone: acc.contact,
             });
-          A.logActivity(s, "paula", "Editó el usuario " + rec.name);
-          if (rec.role === "Observador" && s.notifs[id])
-            A.pushNotif(
-              s,
-              id,
-              "Sus permisos cambiaron: " + mods.map((m: string) => MN[m]).join(", "),
-              "/observador",
-            );
-        } else {
-          id = "u" + Date.now();
-          s.accounts.push(Object.assign({ id, status: "Activo", created: true }, rec));
-          s.notifs[id] = [];
-          A.logActivity(s, "paula", "Creó el usuario " + rec.name + " (" + rec.role + ")");
-          A.logActivity(s, id, "Cuenta creada · acceso enviado");
-        }
-      });
-      setState({
-        f: null,
-        sel: null,
-        msg: isEdit
-          ? "Cambios guardados para " + rec.name + "."
-          : "Usuario creado. Se envió el acceso a " +
-            rec.contact +
-            (rec.role === "Observador"
-              ? ". Verá solo: " + mods.map((m: string) => MN[m]).join(", ") + "."
-              : "."),
-      });
+          }
+          A.logActivity(s, "admin", (isEdit ? "Editó" : "Creó") + " el usuario " + acc.name);
+        });
+
+        setState({
+          f: null,
+          sel: null,
+          err: "",
+          msg: isEdit
+            ? "Cambios guardados para " + acc.name + " en MongoDB."
+            : "Usuario " +
+              acc.name +
+              " creado en MongoDB. Puede ingresar con " +
+              acc.email +
+              (payload.password ? " y la contraseña que definió." : "."),
+        });
+      } catch {
+        setState({ err: "No se pudo conectar con la base de datos." });
+      }
     };
 
     const act = f && isEdit ? S.activity.filter((a: any) => a.uid === f.id) : [];
@@ -257,6 +269,7 @@ export function useAdminUsuariosScreen() {
             id: null,
             name: "",
             contact: "",
+            password: "",
             role: "Observador",
             terr: "Todos",
             org: "",
@@ -273,6 +286,7 @@ export function useAdminUsuariosScreen() {
       fSet: {
         name: setF("name"),
         contact: setF("contact"),
+        password: setF("password"),
         role: setF("role"),
         terr: setF("terr"),
         org: setF("org"),

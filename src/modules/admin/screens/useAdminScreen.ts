@@ -31,7 +31,7 @@ export function useAdminScreen() {
 
   useEffect(() => {
     const u = store.session();
-    if (!u || u.id !== "paula") {
+    if (!u || !/Admin/i.test(u.role || "")) {
       router.replace("/ingreso");
       return;
     }

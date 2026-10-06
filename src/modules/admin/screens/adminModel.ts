@@ -88,8 +88,23 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     };
   }
   function rulesVals(A, S, C, st) {
+    A.ensure(S);
     const base = S.rules.pending ? S.rules.pending.draft : { risk: S.rules.risk, dig: S.rules.dig };
     const rd = st.rd || JSON.parse(JSON.stringify(base));
+    if (!rd.dig) rd.dig = {};
+    if (!Array.isArray(rd.dig.q) || !rd.dig.q.length) {
+      rd.dig.q = A.DIGQ.map((x: { q: string; o: string[] }) => ({
+        q: x.q,
+        o: x.o.map((o: string, i: number) => ({ o, p: i })),
+      }));
+    }
+    if (!Array.isArray(rd.dig.cuts) || !rd.dig.cuts.length) {
+      rd.dig.cuts = A.DIG.map((d: { k: string; min: number; max: number }) => ({
+        k: d.k,
+        min: d.min,
+        max: d.max,
+      }));
+    }
     const upd = fn => { const d = JSON.parse(JSON.stringify(rd)); fn(d); api.setState({ rd: d, rulesMsg: '' }); };
     const num = v => v === '' || isNaN(+v) ? NaN : +v;
     let err = '';
@@ -151,7 +166,21 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         open: () => api.setState({ assetTerr: t.name, assetKind: 'manilla' }),
         active: st.assetTerr === t.name && st.assetKind === 'manilla',
         name: t.name, a, d, s, n: Math.max(0, d - s), av, low: av > 0 && av < 50, canAssign: a === 0,
-        assign: e2 => { e2 && e2.stopPropagation && e2.stopPropagation(); A.set(s0 => { const x = s0.territories.find(y => y.name === t.name); if (x) { x.br = 100; x.brA = 100; x.brAv = 100; } }); },
+        assign: async e2 => {
+          e2 && e2.stopPropagation && e2.stopPropagation();
+          try {
+            const res = await fetch('/api/assets/bracelets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terr: t.name, count: 100 }) });
+            const data = await res.json();
+            if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudieron asignar manillas.', msgActions: [] });
+            A.set(s0 => {
+              const x = s0.territories.find(y => y.name === t.name);
+              if (x) { x.br = 100; x.brA = 100; x.brAv = 100; }
+            });
+            api.setState({ msg: '100 manillas asignadas a ' + t.name + ' (guardado en MongoDB).', msgActions: [] });
+          } catch (err) {
+            api.setState({ msg: 'No se pudo conectar con la base de datos.', msgActions: [] });
+          }
+        },
       };
     });
     const manillasAsig = brRows.reduce((a, r) => a + r.a, 0);
@@ -179,7 +208,28 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     }))
       .concat(A.experts(S).filter(e => !e.tablet).map(e => ({
         name: e.terr + ' · ' + e.name, n: 0, ns: 0, r: 0, last: '—', fw: 400, canAssign: true, assignLabel: 'Asignar tablet',
-        assign: e2 => { e2 && e2.stopPropagation && e2.stopPropagation(); A.set(s0 => { const x = s0.experts.find(y => y.name === e.name); if (x) x.tablet = 'TB-' + String((s0.experts.filter(z => z.tablet).length) + 1).padStart(3, '0'); }); },
+        assign: async e2 => {
+          e2 && e2.stopPropagation && e2.stopPropagation();
+          try {
+            const res = await fetch('/api/assets/tablet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expertId: e.id, expertName: e.name }) });
+            const data = await res.json();
+            if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudo asignar la tablet.', msgActions: [] });
+            A.set(s0 => {
+              const x = s0.experts.find(y => y.id === e.id || y.name === e.name);
+              if (x) x.tablet = data.expert.tablet;
+              s0.assets = s0.assets || [];
+              if (data.asset && !s0.assets.find(a => a.code === data.asset.code)) {
+                s0.assets.push({ code: data.asset.code, kind: 'tablet', status: 'Asignada', assignedTo: e.id || e.name, terr: e.terr });
+              }
+            });
+            api.setState({
+              msg: 'Tablet ' + data.expert.tablet + ' asignada a ' + e.name + ' (guardado en MongoDB).',
+              msgActions: [{ label: 'Asignar manillas a Salento', go: () => api.go('assets', { msg: '', assetKind: 'manilla', assetTerr: e.terr }) }],
+            });
+          } catch (err) {
+            api.setState({ msg: 'No se pudo conectar con la base de datos.', msgActions: [] });
+          }
+        },
         open: () => {}, cur: 'default', active: false,
       })));
 
@@ -323,8 +373,26 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     });
     const ef = st.ef; const setEf = k => e => api.setState({ ef: Object.assign({}, ef, { [k]: e.target.value }) });
     const flags = S.flags.map(f => ({ expertName: f.expertName, territory: f.territory, when: f.when, person: f.person, reasons: f.reasons, pending: f.status === 'pending', done: f.status !== 'pending', doneText: f.status === 'approved' ? 'Aprobada · cuenta para la cuota' : f.fromVisit ? 'Rechazada · no cuenta para la cuota' : 'Rechazada · se restó de la cuota',
-      approve: () => A.set(s => { s.flags.find(x => x.id === f.id).status = 'approved'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'validada'; } if (s.notifs[f.expert]) A.pushNotif(s, f.expert, 'Visita aprobada en control de calidad: ' + f.person, '/experto'); }),
-      reject: () => { A.set(s => { s.flags.find(x => x.id === f.id).status = 'rejected'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'rechazada'; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · no cuenta para la cuota', '/experto'); } else if (s.rejected[f.expert] !== undefined) { s.rejected[f.expert] += 1; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · se restó de su cuota', '/experto'); s.notices[f.expert].unshift({ kind: 'qc', tag: 'Control de calidad', text: 'Su visita a ' + f.person + ' (' + f.when.toLowerCase() + ') fue rechazada: ' + f.reasons.join(' · ').toLowerCase() + '. Se restó de su cuota semanal.' }); } }); api.setState({ msg: f.fromVisit ? 'Visita rechazada. No cuenta para la cuota de ' + f.expertName + ' y se le avisó.' : 'Visita rechazada. Se restó de la cuota de ' + f.expertName + ' y se le avisó.', msgActions: [] }); } }));
+      approve: async () => {
+        try {
+          await fetch('/api/flags', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'approved' }) });
+          if (f.fromVisit && f.wid) {
+            await fetch('/api/worklists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'validada' }) });
+          }
+        } catch (e) { /* local fallback */ }
+        A.set(s => { const fl = s.flags.find(x => x.id === f.id); if (fl) fl.status = 'approved'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'validada'; } if (s.notifs[f.expert]) A.pushNotif(s, f.expert, 'Visita aprobada en control de calidad: ' + f.person, '/experto'); });
+        api.setState({ msg: 'Visita de ' + f.person + ' aprobada. Ya cuenta para la cuota.', msgActions: [] });
+      },
+      reject: async () => {
+        try {
+          await fetch('/api/flags', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'rejected' }) });
+          if (f.fromVisit && f.wid) {
+            await fetch('/api/worklists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'rechazada' }) });
+          }
+        } catch (e) { /* local fallback */ }
+        A.set(s => { const fl = s.flags.find(x => x.id === f.id); if (fl) fl.status = 'rejected'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'rechazada'; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · no cuenta para la cuota', '/experto'); } else if (s.rejected[f.expert] !== undefined) { s.rejected[f.expert] += 1; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · se restó de su cuota', '/experto'); s.notices[f.expert] = s.notices[f.expert] || []; s.notices[f.expert].unshift({ kind: 'qc', tag: 'Control de calidad', text: 'Su visita a ' + f.person + ' (' + f.when.toLowerCase() + ') fue rechazada: ' + f.reasons.join(' · ').toLowerCase() + '. Se restó de su cuota semanal.' }); } });
+        api.setState({ msg: f.fromVisit ? 'Visita rechazada. No cuenta para la cuota de ' + f.expertName + ' y se le avisó.' : 'Visita rechazada. Se restó de la cuota de ' + f.expertName + ' y se le avisó.', msgActions: [] });
+      } }));
 
     const cellFor = (ri, di) => { const code = A.code(ri, di); const dr = api.draft(code); return { code, n: Object.keys(dr.s).length }; };
     const pm = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const x = cellFor(ri, di); const on = st.sel === x.code; return Object.assign(x, { bg: on ? C.verde : r.bg, fg: on ? '#fff' : C.tinta, bd: on ? C.amarillo : 'transparent', pick: () => api.setState({ sel: x.code }) }); }) }));
@@ -369,23 +437,93 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       levels: ['Municipio completo', 'Veredas seleccionadas', 'Barrios seleccionados'].map(label => ({ label, bd: tf.level === label ? C.verde : C.texto2, dot: tf.level === label ? C.verde : '#fff', pick: () => api.setState({ tf: Object.assign({}, tf, { level: label }) }) })),
       modules: [chk('mods', 'base', 'PHQ-9 + capacidad digital (base)'), chk('mods', 'ctx', 'Contexto del sismo'), chk('mods', 'videos', 'Videos adaptados a la región')],
       tinsts: [chk('insts', 'hl', 'Hospital público local'), chk('insts', 'cu', 'Clínica universitaria · teleconsulta'), chk('insts', 'cf', 'Comisaría de familia')],
-      saveTerr: () => {
+      saveTerr: async () => {
         if (!tf.mun.trim() || !(parseInt(tf.goal, 10) > 0)) return api.setState({ tfErr: 'Escriba el municipio y una meta de captación mayor que cero.' });
         if (allTerr.find(t => t.name === tf.mun.trim())) return api.setState({ tfErr: 'Ese territorio ya existe.' });
-        A.set(s => { s.territories.push({ name: tf.mun.trim(), dep: tf.dep, level: tf.level, experts: 0, cap: 0, goal: parseInt(tf.goal, 10), rural: 0, ruralG: parseInt(tf.rural, 10) || 0, sixtyG: parseInt(tf.sixty, 10) || 0, br: 0, insts: Object.values(tf.insts).filter(Boolean).length, isNew: true }); s.terrOv = s.terrOv || {}; s.terrOv[tf.mun.trim()] = Object.assign({}, s.terrOv[tf.mun.trim()], { content: ['PHQ-9 + capacidad digital (base)'].concat(tf.mods.ctx ? ['Contexto del sismo'] : [], tf.mods.videos ? ['Videos adaptados a la región'] : []) }); });
-        api.setState({ terrForm: false, ef: Object.assign({}, st.ef, { terr: tf.mun.trim() }), msg: 'Territorio ' + tf.mun.trim() + ' creado. Siguientes pasos:', msgActions: [{ label: 'Asignar expertos', go: () => api.go('team', { expForm: true, msg: '' }) }, { label: 'Asignar manillas', go: () => api.go('assets', { msg: '' }) }] });
+        const name = tf.mun.trim();
+        const content = ['PHQ-9 + capacidad digital (base)'].concat(tf.mods.ctx ? ['Contexto del sismo'] : [], tf.mods.videos ? ['Videos adaptados a la región'] : []);
+        const payload = {
+          name, dep: tf.dep, level: tf.level, goal: parseInt(tf.goal, 10),
+          ruralG: parseInt(tf.rural, 10) || 0, sixtyG: parseInt(tf.sixty, 10) || 0,
+          insts: Object.values(tf.insts).filter(Boolean).length, content,
+        };
+        try {
+          const res = await fetch('/api/territories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const data = await res.json();
+          if (!res.ok || !data.ok) return api.setState({ tfErr: data.error || 'No se pudo guardar el territorio.' });
+          const t = data.territory;
+          A.set(s => {
+            s.territories = (s.territories || []).filter(x => x.name !== t.name).concat([t]);
+            s.terrOv = s.terrOv || {};
+            s.terrOv[t.name] = Object.assign({}, s.terrOv[t.name], { content: t.content || content });
+          });
+          api.setState({ terrForm: false, ef: Object.assign({}, st.ef, { terr: name }), msg: 'Territorio ' + name + ' creado y guardado en MongoDB. Siguientes pasos:', msgActions: [{ label: 'Asignar expertos', go: () => api.go('team', { expForm: true, msg: '' }) }, { label: 'Asignar manillas', go: () => api.go('assets', { msg: '' }) }] });
+        } catch (e) {
+          api.setState({ tfErr: 'No se pudo conectar con la base de datos.' });
+        }
       },
       expForm: st.expForm, expFormBtn: '+ Crear experto', toggleExpForm: () => api.setState({ expForm: true }), closeExpForm: () => api.setState({ expForm: false }),
       ef, efSet: { name: setEf('name'), phone: setEf('phone'), terr: setEf('terr'), target: setEf('target') }, terrNames: allTerr.map(t => t.name),
       terrChips: allTerr.map(t => ({ n: t.name, bd: ef.terr === t.name ? C.verde : C.lineas, bg: ef.terr === t.name ? '#FFF4CC' : '#fff', fw: ef.terr === t.name ? 500 : 400, pick: () => api.setState({ ef: Object.assign({}, ef, { terr: t.name }) }) })),
-      saveExp: () => {
+      saveExp: async () => {
         if (!ef.name.trim() || ef.phone.replace(/\D/g, '').length < 10) return api.setState({ msg: 'Faltan datos: escriba el nombre y un celular de 10 dígitos.', msgActions: [] });
-        A.set(s => { s.experts.push({ id: 'e' + Date.now().toString(36), name: ef.name.trim(), phone: ef.phone, terr: ef.terr, target: parseInt(ef.target, 10) || 9, today: 0, week: 0, training: 'Pendiente', isNew: true }); });
-        api.setState({ expForm: false, msg: 'Acceso enviado por SMS a ' + ef.name.trim() + ' (' + ef.phone + '). Asigne su tablet en Activos. Debe completar la capacitación antes de la primera visita.', msgActions: [{ label: 'Revisar la ruta P08', go: () => api.go('paths', { sel: 'P08', msg: '' }) }, { label: 'Asignar tablet', go: () => api.go('assets', { msg: '' }) }] });
+        if (!ef.terr) return api.setState({ msg: 'Seleccione un territorio para el experto.', msgActions: [] });
+        const payload = {
+          name: ef.name.trim(),
+          phone: ef.phone,
+          terr: ef.terr,
+          target: parseInt(ef.target, 10) || 9,
+        };
+        try {
+          const res = await fetch('/api/experts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const data = await res.json();
+          if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudo guardar el experto.', msgActions: [] });
+          const e = data.expert;
+          A.set(s => {
+            s.experts = (s.experts || []).filter(x => x.id !== e.id).concat([e]);
+            const t = (s.territories || []).find(x => x.name === e.terr);
+            if (t) t.experts = (t.experts || 0) + 1;
+          });
+          api.setState({
+            expForm: false,
+            msg: 'Experto ' + e.name + ' guardado en MongoDB (territorio ' + e.terr + '). Acceso SMS simulado a ' + e.phone + '. Siguiente: asignar tablet y capacitar antes de la primera visita.',
+            msgActions: [
+              { label: 'Asignar tablet', go: () => api.go('assets', { msg: '' }) },
+              { label: 'Revisar la ruta P08', go: () => api.go('paths', { sel: 'P08', msg: '' }) },
+            ],
+          });
+        } catch (err) {
+          api.setState({ msg: 'No se pudo conectar con la base de datos.', msgActions: [] });
+        }
       },
       experts, flags, flagCount: S.flags.filter(f => f.status === 'pending').length + ' por revisar', checks: CHECKS.map(([k, v]) => ({ k, v })),
       pm, pe, scope: st.scope, setScope: e => api.setState({ scope: e.target.value }),
-      sendPath: () => { if (sr >= 2 && !dr.s.clin) return; A.set(s => { s.pathRequests = s.pathRequests.filter(x => !(x.code === st.sel && x.scope === st.scope)); s.pathRequests.push({ code: st.sel, scope: st.scope, draft: dr }); A.pushNotif(s, 'admin', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/rutas'); }); api.setState({ msg: 'Ruta ' + st.sel + ' enviada a aprobación clínica.', msgActions: [] }); }
+      sendPath: () => {
+        if (sr >= 2 && !dr.s.clin) return;
+        // Copia profunda del borrador actual (incluye s:{} si apagaron todo, sin forzar mood)
+        const live = api.draft(st.sel);
+        const draft = JSON.parse(JSON.stringify(live));
+        if (!draft.s || typeof draft.s !== 'object') draft.s = {};
+        A.set(s => {
+          s.pathRequests = (s.pathRequests || []).filter(x => !(x.code === st.sel && x.scope === st.scope));
+          s.pathRequests.push({
+            id: st.sel + '-' + (st.scope || 'all'),
+            code: st.sel,
+            scope: st.scope,
+            draft,
+            at: Date.now(),
+            status: 'pending',
+          });
+          A.pushNotif(s, 'admin', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/rutas');
+        });
+        const n = Object.keys(draft.s).length;
+        api.setState({
+          msg: n
+            ? 'Ruta ' + st.sel + ' enviada a aprobación clínica (' + n + ' servicios).'
+            : 'Ruta ' + st.sel + ' enviada a aprobación clínica (sin módulos en la app).',
+          msgActions: [],
+        });
+      }
     }, extra);
   }
   return renderVals();
