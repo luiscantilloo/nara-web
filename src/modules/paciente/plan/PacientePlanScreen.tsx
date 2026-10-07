@@ -25,17 +25,27 @@ export function PacientePlanScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    const u = store.session();
-    if (!u || u.id !== "oscar") router.replace("/ingreso");
+    const u = store.session() as { id?: string; role?: string; roleId?: string } | null;
+    const ok =
+      !!u &&
+      (u.roleId === "paciente" || /Paciente/i.test(u.role || ""));
+    if (!ok) router.replace("/ingreso");
   }, [store, router]);
 
   const model = useMemo(() => {
     const A = store;
     const S = A.get();
-    const P = A.PATIENTS.oscar;
+    const u = A.session() as { id?: string } | null;
+    const pid = u?.id || "oscar";
+    const sessionUser = u as { id?: string; name?: string } | null;
+    const P = (A.PATIENTS && (A.PATIENTS[pid] || A.PATIENTS.oscar)) || {
+      name: sessionUser?.name || "Paciente",
+      plan: [],
+      ctx: { dano: 0, perdida: 0 },
+    };
     const day = 86400000;
     const t0 = A.today0().getTime();
-    const ocp = A.courseProgress(S, "oscar");
+    const ocp = A.courseProgress(S, pid);
     const ocM = ocp && ocp.mod;
     const story = ocM
       ? {

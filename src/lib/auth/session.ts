@@ -1,10 +1,14 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
-import { NARA_ROLES } from "@/lib/db/roles";
+import { hrefForRoleId, NARA_ROLES, resolveNotifKey } from "@/lib/db/roles";
+import {
+  SESSION_MAX_AGE_SEC,
+  signSessionToken,
+  verifySessionToken,
+} from "@/lib/auth/sessionToken";
 
 export const SESSION_COOKIE = "nara_sid";
-const MAX_AGE = 60 * 60 * 24 * 14; // 14 días
 
 export type SessionUser = {
   id: string;
@@ -18,15 +22,18 @@ export type SessionUser = {
   status: string;
   href: string;
   nk: string | null;
+  /** Ficha clínica vinculada (rol paciente). */
+  patientId?: string;
 };
 
 export function attachSessionCookie(res: NextResponse, accountId: string) {
-  res.cookies.set(SESSION_COOKIE, accountId, {
+  const token = signSessionToken(accountId, SESSION_MAX_AGE_SEC);
+  res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: MAX_AGE,
+    maxAge: SESSION_MAX_AGE_SEC,
   });
   return res;
 }
@@ -44,8 +51,8 @@ export function clearSessionCookie(res: NextResponse) {
 
 export async function readSessionAccountId(): Promise<string | null> {
   const jar = await cookies();
-  const id = jar.get(SESSION_COOKIE)?.value;
-  return id ? String(id) : null;
+  const raw = jar.get(SESSION_COOKIE)?.value;
+  return verifySessionToken(raw ? String(raw) : null);
 }
 
 export async function loadSessionUser(accountId?: string | null): Promise<SessionUser | null> {
@@ -56,9 +63,10 @@ export async function loadSessionUser(accountId?: string | null): Promise<Sessio
   const account = await db.collection("accounts").findOne({ id, status: "Activo" });
   if (!account) return null;
 
+  const roleId = String(account.roleId || "");
   const roleDoc =
-    (await db.collection("roles").findOne({ id: account.roleId })) ||
-    NARA_ROLES.find((r) => r.id === account.roleId) ||
+    (await db.collection("roles").findOne({ id: roleId })) ||
+    NARA_ROLES.find((r) => r.id === roleId) ||
     null;
 
   return {
@@ -66,12 +74,13 @@ export async function loadSessionUser(accountId?: string | null): Promise<Sessio
     name: String(account.name || ""),
     email: String(account.email || ""),
     role: String(account.role || ""),
-    roleId: String(account.roleId || ""),
+    roleId,
     terr: String(account.terr || ""),
     org: String(account.org || ""),
     contact: String(account.contact || account.email || ""),
     status: String(account.status || "Activo"),
-    href: roleDoc?.href || "/ingreso",
-    nk: roleDoc?.nk ?? null,
+    href: (roleDoc && "href" in roleDoc && roleDoc.href) || hrefForRoleId(roleId),
+    nk: resolveNotifKey(roleId, String(account.id)),
+    patientId: account.patientId ? String(account.patientId) : undefined,
   };
 }

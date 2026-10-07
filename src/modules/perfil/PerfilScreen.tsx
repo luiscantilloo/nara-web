@@ -11,20 +11,26 @@ import { PageHead } from "@/components/shared/page-head/PageHead";
 import { RoleNav } from "@/components/shared/role-nav/RoleNav";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import { useNaraStore } from "@/providers/nara-provider";
+import {
+  DEFAULT_PATIENT_MODULES,
+  PATIENT_APP_MODULES,
+  type PatientModuleId,
+} from "@/lib/db/patientModules";
 
 type Kind = "admin" | "clin" | "expert" | "obs" | "patient";
 
 function kindOf(session: {
   role?: string;
+  roleId?: string | null;
   nk?: string | null;
   href?: string;
 }): Kind {
   const role = session.role || "";
-  if (session.nk === "admin" || /Admin/.test(role)) return "admin";
-  if (session.nk === "clin" || /Clín/.test(role)) return "clin";
-  if (/Experto/.test(role)) return "expert";
-  if (role === "Observador") return "obs";
-  if (role === "Paciente") return "patient";
+  if (session.roleId === "admin" || session.nk === "admin" || /Admin/.test(role)) return "admin";
+  if (session.roleId === "clinico" || session.nk === "clin" || /Clín/.test(role)) return "clin";
+  if (session.roleId === "experto" || /Experto/.test(role)) return "expert";
+  if (session.roleId === "observador" || role === "Observador") return "obs";
+  if (session.roleId === "paciente" || role === "Paciente") return "patient";
   return "admin";
 }
 
@@ -148,6 +154,9 @@ export function PerfilScreen() {
   const [err, setErr] = useState("");
   const [baseline, setBaseline] = useState({ name: "", contact: "", org: "" });
   const [hydratedId, setHydratedId] = useState("");
+  const [enabledMods, setEnabledMods] = useState<PatientModuleId[]>(DEFAULT_PATIENT_MODULES.slice());
+  const [visibleMods, setVisibleMods] = useState<PatientModuleId[]>(DEFAULT_PATIENT_MODULES.slice());
+  const [modsDirty, setModsDirty] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -175,6 +184,16 @@ export function PerfilScreen() {
     setContact(next.contact);
     setOrg(next.org);
     setBaseline(next);
+    const patient =
+      (S.patients && (S.patients[sessionId] || Object.values(S.patients).find((p: { accountId?: string; email?: string }) => p.accountId === sessionId || p.email === (acc as { email?: string } | null)?.email))) ||
+      null;
+    if (patient) {
+      const en = (patient.modulesEnabled as PatientModuleId[]) || DEFAULT_PATIENT_MODULES;
+      const vis = (patient.modulesVisible as PatientModuleId[]) || en;
+      setEnabledMods(en);
+      setVisibleMods(vis.filter((id) => en.includes(id)));
+    }
+    setModsDirty(false);
     setHydratedId(sessionId);
   }, [sessionId, hydratedId, router, store]);
 
@@ -194,7 +213,7 @@ export function PerfilScreen() {
   const showAgent = kind === "admin" || kind === "clin" || kind === "expert";
   const aRole = agentRole(kind, session.nk);
 
-  const save = () => {
+  const save = async () => {
     const n = name.trim();
     const c = contact.trim();
     if (!n) {
@@ -205,31 +224,60 @@ export function PerfilScreen() {
       setErr("Escriba un correo o celular de contacto.");
       return;
     }
-    store.set((s: { accounts: Record<string, unknown>[] }) => {
-      const list = s.accounts || [];
-      const i = list.findIndex((a: { id?: string }) => a.id === session.id);
-      if (i > -1) {
-        list[i] = Object.assign({}, list[i], {
-          name: n,
-          contact: c,
-          org: org.trim() || (list[i] as { org?: string }).org || "",
-        });
-      } else {
-        list.push({
-          id: session.id,
-          name: n,
-          contact: c,
-          role: session.role,
-          org: org.trim() || "Programa NARA",
-          terr: session.terr || "—",
-          status: "Activo",
-        });
+    try {
+      const res = await fetch("/api/accounts/me", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: n, contact: c, org: org.trim() }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        user?: {
+          id: string;
+          name: string;
+          email: string;
+          role: string;
+          roleId: string;
+          terr: string;
+          org: string;
+          contact: string;
+          status: string;
+        };
+      };
+      if (!res.ok || !data.ok || !data.user) {
+        setErr(data.error || "No se pudo guardar el perfil.");
+        return;
       }
-      s.accounts = list;
-    });
-    setBaseline({ name: n, contact: c, org: org.trim() });
-    setErr("");
-    setMsg("Datos del perfil guardados.");
+      const u = data.user;
+      store.set((s: { accounts: Record<string, unknown>[] }) => {
+        const list = s.accounts || [];
+        const i = list.findIndex((a: { id?: string }) => a.id === u.id);
+        const acct = {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          contact: u.contact,
+          role: u.role,
+          roleId: u.roleId,
+          org: u.org,
+          terr: u.terr,
+          status: u.status,
+        };
+        if (i > -1) list[i] = Object.assign({}, list[i], acct);
+        else list.push(acct);
+        s.accounts = list;
+      });
+      setBaseline({ name: u.name, contact: u.contact, org: u.org || "" });
+      setName(u.name);
+      setContact(u.contact);
+      setOrg(u.org || "");
+      setErr("");
+      setMsg("Datos del perfil guardados.");
+    } catch {
+      setErr("No se pudo conectar con la base de datos.");
+    }
   };
 
   const body = (
@@ -362,6 +410,90 @@ export function PerfilScreen() {
                 </span>
               ) : null}
             </div>
+
+            {kind === "patient" ? (
+              <div className="mt-2 flex flex-col gap-3 border-t border-[#E6E1D9] pt-4">
+                <div className="flex flex-col gap-0.5">
+                  <h2 className="font-titulos text-lg font-semibold">Qué veo en mi app</h2>
+                  <p className="text-sm text-texto-secundario">
+                    Solo puede ocultar módulos que el programa ya le habilitó. No desactiva el
+                    cuidado; solo lo que aparece en su pantalla.
+                  </p>
+                </div>
+                {PATIENT_APP_MODULES.filter((m) => enabledMods.includes(m.id)).map((m) => {
+                  const on = visibleMods.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        setVisibleMods((prev) => {
+                          const next = on
+                            ? prev.filter((x) => x !== m.id)
+                            : prev.concat([m.id]);
+                          return next.length ? next : prev;
+                        });
+                        setModsDirty(true);
+                        setErr("");
+                      }}
+                      className="grid cursor-pointer grid-cols-[52px_minmax(0,1fr)] items-center gap-2.5 border-t border-[#F0ECE6] py-2 text-left"
+                    >
+                      <span
+                        className="relative h-[26px] w-11 rounded-full"
+                        style={{ background: on ? "#2F6F4E" : "#C4BDB3" }}
+                      >
+                        <span
+                          className="absolute top-[3px] h-5 w-5 rounded-full bg-white"
+                          style={{ left: on ? 21 : 3 }}
+                        />
+                      </span>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{m.name}</span>
+                        <span className="text-xs text-texto-secundario">{m.desc}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  disabled={!modsDirty}
+                  onClick={async () => {
+                    try {
+                      const res = await fetch("/api/patients/modules", {
+                        method: "PATCH",
+                        credentials: "same-origin",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          modulesVisible: visibleMods,
+                          // solo preferencias del paciente; el admin controla modulesEnabled en la ficha
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok || !data.ok) {
+                        setErr(data.error || "No se pudieron guardar las preferencias.");
+                        return;
+                      }
+                      store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+                        const pid = data.id as string;
+                        if (!s.patients) s.patients = {};
+                        s.patients[pid] = {
+                          ...(s.patients[pid] || {}),
+                          modulesEnabled: data.modulesEnabled,
+                          modulesVisible: data.modulesVisible,
+                        };
+                      });
+                      setModsDirty(false);
+                      setMsg("Preferencias de módulos guardadas.");
+                    } catch {
+                      setErr("No se pudo conectar con la base de datos.");
+                    }
+                  }}
+                  className="mt-1 h-11 cursor-pointer rounded-[14px] border-none bg-nara-tinta px-5 font-texto text-[15px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  Guardar lo que veo
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>

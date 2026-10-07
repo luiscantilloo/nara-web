@@ -196,7 +196,7 @@ export function useAdminInformesScreen() {
     const accs = S.accounts.filter((a: any) => a.status === "Activo");
     const shareTo = (r: any) =>
       accs
-        .filter((a: any) => a.id !== "paula")
+        .filter((a: any) => a.roleId !== "admin" && !/Admin/i.test(a.role || ""))
         .map((a: any) => {
           const isFin =
             a.role === "Observador" &&
@@ -214,7 +214,7 @@ export function useAdminInformesScreen() {
             go: () => {
               if (off) return;
               A.set((s: any) => {
-                A.logActivity(s, "paula", "Compartió «" + r.name + "» con " + a.name);
+                A.logActivity(s, (A.session()?.id || "admin"), "Compartió «" + r.name + "» con " + a.name);
                 const link = stripBack(r.href);
                 if (s.notifs[a.id]) A.pushNotif(s, a.id, "Paula Henao compartió un informe: " + r.name, link);
                 else if (a.id === "lucia")
@@ -334,7 +334,7 @@ export function useAdminInformesScreen() {
           .replace(/\s+/g, "-")
           .toLowerCase() + ".csv";
       a.click();
-      A.set((s: any) => A.logActivity(s, "paula", "Descargó en Excel «" + nf.name + "»"));
+      A.set((s: any) => A.logActivity(s, (A.session()?.id || "admin"), "Descargó en Excel «" + nf.name + "»"));
     };
 
     const nextOf = (f: string) => {
@@ -444,8 +444,7 @@ export function useAdminInformesScreen() {
             A.set((x: any) => {
               x.schedules.find((y: any) => y.id === s.id).freq = val;
               A.logActivity(
-                x,
-                "paula",
+                x, (A.session()?.id || "admin"),
                 "Cambió la frecuencia de «" + s.name + "» a " + val.toLowerCase(),
               );
             });
@@ -483,7 +482,7 @@ export function useAdminInformesScreen() {
             A.set((x: any) => {
               const y = x.schedules.find((q2: any) => q2.id === s.id);
               if (!y.to.includes(sel)) y.to.push(sel);
-              A.logActivity(x, "paula", "Agregó a " + sel + " como destinatario de «" + s.name + "»");
+              A.logActivity(x, (A.session()?.id || "admin"), "Agregó a " + sel + " como destinatario de «" + s.name + "»");
             });
             setState({ add: Object.assign({}, st.add, { [s.id]: "" }) });
           },
@@ -555,7 +554,7 @@ export function useAdminInformesScreen() {
               at: Date.now(),
             },
           ]);
-          A.logActivity(s, "paula", "Creó el informe «" + nf.name + "»");
+          A.logActivity(s, (A.session()?.id || "admin"), "Creó el informe «" + nf.name + "»");
         });
         setState({ tab: "lib", newForm: false, msg: "«" + nf.name + "» guardado en la biblioteca." });
       },

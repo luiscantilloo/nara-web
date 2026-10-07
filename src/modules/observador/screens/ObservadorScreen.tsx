@@ -128,7 +128,10 @@ function ObservadorInner() {
   const [tab, setTab] = useState<TabId | null>(null);
 
   useEffect(() => {
-    if (!u || u.role !== "Observador") router.replace("/ingreso");
+    const roleId = (u as { roleId?: string } | null)?.roleId;
+    if (!u || (roleId !== "observador" && u.role !== "Observador")) {
+      router.replace("/ingreso");
+    }
   }, [u, router]);
 
   const account = useMemo(() => {

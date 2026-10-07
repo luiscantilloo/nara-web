@@ -9,7 +9,8 @@
     "start": "next start --port 3002",
     "lint": "eslint",
     "db:init": "node scripts/init-db.mjs",
-    "db:seed-admin": "node scripts/seed-admin.mjs"
+    "db:seed-admin": "node scripts/seed-admin.mjs",
+    "db:migrate-patients": "node scripts/migrate-patients-xlsx.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -19,7 +20,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-icons": "^5.7.0",
-    "sweetalert2": "^11.26.25"
+    "sweetalert2": "^11.26.25",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

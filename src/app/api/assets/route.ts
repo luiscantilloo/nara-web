@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const db = await getDb();
     const rows = await db.collection("assets").find({}).toArray();

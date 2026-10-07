@@ -11,6 +11,8 @@ import { usePacienteScreen } from "./usePacienteScreen";
 const globalCss = `
 @keyframes naraTab{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes naraDrop{from{opacity:0;transform:translateY(-120%)}to{opacity:1;transform:none}}
+@keyframes naraMoodIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes naraMoodPop{0%{transform:scale(.94)}60%{transform:scale(1.05)}100%{transform:scale(1.03)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 `;
 
@@ -318,36 +320,120 @@ function DianaApp({ vm }: { vm: Vm }) {
               </div>
             ) : null}
             {vm.mods?.mood ? (
-            <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-              <span style={{ fontWeight: 500 }}>¿Cómo se siente hoy?</span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+            <div className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-titulos text-[17px] font-semibold text-nara-tinta">
+                    ¿Cómo se siente hoy?
+                  </span>
+                  <span className="font-texto text-[13px] text-texto-secundario">
+                    {vm.moodDone
+                      ? "TEO le acompaña en este check-in"
+                      : "Toque un número para empezar"}
+                  </span>
+                </div>
+                <img
+                  src={vm.moodDone ? vm.moodFace : naraAsset("marca/logo/teo-isotipo.svg")}
+                  alt=""
+                  className={`h-10 w-10 shrink-0 ${vm.moodDone ? "" : "opacity-80"}`}
+                  style={vm.moodDone ? { animation: "naraMoodIn .35s ease-out" } : undefined}
+                />
+              </div>
+              {!vm.moodDone || vm.moodStep === "why" ? (
+              <div className="grid grid-cols-5 gap-1.5">
                 {vm.moods.map((m) => (
                   <button
                     key={m.n}
                     type="button"
                     onClick={m.pick}
+                    aria-pressed={m.on}
+                    disabled={vm.moodDone && vm.moodStep !== "why"}
+                    className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-2.5 font-texto transition-transform active:scale-95 disabled:opacity-70"
                     style={{
                       ...btnFont(),
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "10px 2px",
-                      borderRadius: 12,
                       border: `1.5px solid ${m.bd}`,
                       background: m.bg,
                       color: m.fg,
-                      cursor: "pointer",
-                      minHeight: 64,
+                      transform: `scale(${m.scale})`,
+                      animation: m.on ? "naraMoodPop .4s ease-out" : undefined,
+                      boxShadow: m.on ? "0 2px 0 rgba(22,20,19,.08)" : "none",
                     }}
                   >
-                    <span style={{ fontSize: 20, fontWeight: 500 }}>{m.n}</span>
-                    <span style={{ fontSize: 12, lineHeight: 1.2 }}>{m.label}</span>
+                    <span className="text-xl font-semibold leading-none">{m.n}</span>
+                    <span className="text-[11px] leading-tight">{m.label}</span>
                   </button>
                 ))}
               </div>
+              ) : vm.moodDone ? (
+                <div className="flex items-center gap-2 rounded-xl border border-linea bg-superficie-2 px-3 py-2">
+                  <span className="font-titulos text-[15px] font-semibold text-nara-tinta">
+                    Hoy: {vm.moods.find((m) => m.on)?.label}
+                  </span>
+                  {vm.moodLow ? (
+                    <span className="rounded-full bg-crisis-suave px-2 py-0.5 font-texto text-[12px] text-crisis-texto">
+                      Con cuidado
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {vm.moodDone ? (
-                <span style={{ fontSize: 16, color: "#161413" }}>Gracias. Quedó registrado en su seguimiento.</span>
+                <div
+                  className="flex flex-col gap-3 rounded-2xl bg-superficie-2 px-3 py-3"
+                  style={{ animation: "naraMoodIn .35s ease-out" }}
+                >
+                  <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto">
+                    {vm.moodThread.map((b, i) =>
+                      b.me ? (
+                        <div key={i} className="flex justify-end">
+                          <span className="max-w-[90%] rounded-2xl rounded-br-md bg-nara-amarillo px-3 py-2 font-texto text-[14px] leading-snug text-nara-tinta">
+                            {b.text}
+                          </span>
+                        </div>
+                      ) : (
+                        <div key={i} className="flex items-start gap-2">
+                          <img src={vm.moodFace} alt="" className="mt-0.5 h-7 w-7 shrink-0" />
+                          <span className="max-w-[90%] rounded-2xl rounded-bl-md border border-linea bg-nara-blanco px-3 py-2 font-texto text-[14px] leading-snug text-nara-tinta">
+                            {b.text}
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                  {vm.moodBreathing ? (
+                    <div className="rounded-2xl border border-linea bg-nara-blanco py-3">
+                      <BreathExercise onDone={vm.onMoodBreathDone} />
+                    </div>
+                  ) : null}
+                  {vm.moodActions?.length ? (
+                    <div className="flex flex-col gap-2">
+                      {vm.moodActions.map((a) => (
+                        <button
+                          key={a.label}
+                          type="button"
+                          onClick={a.go}
+                          className={
+                            a.danger
+                              ? "rounded-full bg-crisis px-4 py-2.5 text-center font-texto text-[15px] font-semibold text-nara-blanco"
+                              : a.primary
+                                ? "rounded-full bg-nara-amarillo px-4 py-2.5 text-center font-texto text-[15px] font-semibold text-nara-tinta"
+                                : "rounded-full border border-linea bg-nara-blanco px-4 py-2.5 text-center font-texto text-[15px] text-nara-tinta"
+                          }
+                          style={btnFont()}
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={vm.moodChange}
+                    className="pt-0.5 text-center font-texto text-[13px] text-texto-secundario underline-offset-2 hover:underline"
+                    style={btnFont()}
+                  >
+                    Empezar de nuevo
+                  </button>
+                </div>
               ) : null}
             </div>
             ) : null}
@@ -734,10 +820,13 @@ function DianaRoute({ vm }: { vm: Vm }) {
       {vm.showCourse && vm.dc ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-            <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>Mi curso</span>
+            <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>Su curso asignado</span>
             <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.dc.doneLabel}</span>
           </div>
           <span style={{ fontWeight: 500, lineHeight: 1.3 }}>{vm.dc.title}</span>
+          <span style={{ fontSize: 14, color: "#5E5750", lineHeight: 1.4 }}>
+            Solo ve la semana actual y las que ya hizo. Las próximas se abren cuando toque.
+          </span>
           {vm.dc.mods.map((m) => (
             <div key={m.n} style={{ background: "#fff", border: m.bd, borderRadius: 20, padding: 12, display: "flex", gap: 12 }}>
               <button type="button" aria-label="Abrir el cuento" onClick={() => vm.openReader(m.slug)} style={{ flex: "none", border: "none", padding: 0, background: "none", cursor: "pointer", alignSelf: "flex-start" }}>
@@ -764,11 +853,15 @@ function DianaRoute({ vm }: { vm: Vm }) {
           ))}
         </div>
       ) : null}
-      {vm.mods?.videos || vm.mods?.cursos || vm.mods?.tech ? (
+      {!vm.showCourse && vm.lib.tabs.length > 0 ? (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 21 }}>
-          {vm.mods?.videos && !vm.mods?.cursos ? "Videos" : "Biblioteca"}
+          Su contenido de esta semana
         </span>
+        <span style={{ fontSize: 14, color: "#5E5750", lineHeight: 1.4 }}>
+          Solo ve lo que su ruta le asignó. No es la biblioteca completa.
+        </span>
+        {vm.lib.tabs.length > 1 ? (
         <div role="tablist" style={{ display: "grid", gridTemplateColumns: `repeat(${vm.lib.tabs.length}, 1fr)`, gap: 6, background: "#E6E1D9", borderRadius: 14, padding: 4 }}>
           {vm.lib.tabs.map((t) => (
             <button key={t.key} type="button" role="tab" aria-selected={t.on} onClick={() => vm.setLibTab(t.key)} style={{ ...btnFont(), fontSize: 15, fontWeight: t.fw, minHeight: 44, border: "none", borderRadius: 11, background: t.bg, color: "#161413", cursor: "pointer" }}>
@@ -776,17 +869,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
             </button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input value={vm.libQ} onChange={(e) => vm.setLibQ(e.target.value)} placeholder="Buscar" aria-label="Buscar en la biblioteca" style={{ flex: 1, minWidth: 0, height: 48, borderRadius: 14, border: "1.5px solid #DCD6CD", padding: "0 14px", fontSize: 16, background: "#fff", fontFamily: "Figtree, system-ui, sans-serif" }} />
-          <select value={vm.libTema} onChange={(e) => vm.setLibTema(e.target.value)} aria-label="Filtrar por tema" style={{ flex: "none", width: 130, height: 48, borderRadius: 14, border: "1.5px solid #DCD6CD", padding: "0 8px", fontSize: 15, background: "#fff", color: "#161413" }}>
-            <option value="">Todos los temas</option>
-            {vm.lib.temas.map((o: string) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </div>
+        ) : null}
         {vm.lib.isCuentos ? (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             {vm.lib.cuentos.map((c) => (
@@ -814,7 +897,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
             ))}
           </div>
         ) : null}
-        {vm.lib.empty ? <span style={{ color: "#5E5750" }}>No hay resultados con ese filtro.</span> : null}
+        {vm.lib.empty ? <span style={{ color: "#5E5750" }}>Aún no hay contenido asignado para esta semana.</span> : null}
       </div>
       ) : null}
       <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: "6px 16px" }}>

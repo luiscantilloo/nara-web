@@ -292,6 +292,7 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 <option>Administrador</option>
                 <option>Experto de campo</option>
                 <option>Clínico</option>
+                <option>Paciente</option>
                 <option>Observador</option>
               </select>
             </label>
@@ -310,6 +311,50 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
               </select>
             </label>
           </div>
+
+          {v.isPaciente ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                borderTop: "1px solid #E6E1D9",
+                paddingTop: 12,
+              }}
+            >
+              <span style={{ fontWeight: 500, fontSize: 14 }}>Módulos de la app del paciente</span>
+              <span style={{ fontSize: 13, color: "#5E5750", lineHeight: 1.4 }}>
+                Active lo que el programa ofrece a esta persona. Ella podrá ocultar en su perfil lo que no quiera ver.
+              </span>
+              {v.patientMods?.map((m: any) => (
+                <div
+                  key={m.key}
+                  onClick={() => m.toggle()}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "52px minmax(0,1fr)",
+                    gap: 10,
+                    alignItems: "center",
+                    padding: "8px 0",
+                    borderTop: "1px solid #F0ECE6",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div
+                    style={ix`width:44px;height:26px;border-radius:13px;background:${m.swBg};position:relative`}
+                  >
+                    <div
+                      style={ix`position:absolute;top:3px;left:${m.x};width:20px;height:20px;border-radius:10px;background:#fff`}
+                    />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <span style={{ fontWeight: 500, fontSize: 14 }}>{m.name}</span>
+                    <span style={{ fontSize: 12, color: "#5E5750" }}>{m.desc}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {v.isObs ? (
             <div

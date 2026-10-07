@@ -3,20 +3,37 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNaraStore } from "@/providers/nara-provider";
+import { roleIdFromLabel, type NaraRoleId } from "@/lib/db/roles";
 
-function isAllowed(u: { id: string; role?: string } | null, allowedIds: string[]) {
+function resolveRoleId(u: { id: string; role?: string; roleId?: string | null }) {
+  return u.roleId || roleIdFromLabel(u.role || "") || null;
+}
+
+/** Acepta roleIds canónicos (`admin`, `experto`…) y aliases legacy de pantallas demo. */
+function isAllowed(
+  u: { id: string; role?: string; roleId?: string | null } | null,
+  allowed: string[],
+) {
   if (!u) return false;
-  if (allowedIds.includes(u.id)) return true;
-  const role = u.role || "";
-  if (allowedIds.includes("obs") && role === "Observador") return true;
-  if ((allowedIds.includes("paula") || allowedIds.includes("admin")) && /Admin/i.test(role)) return true;
-  if (allowedIds.includes("experto") && /Experto de campo/i.test(role)) return true;
-  if (allowedIds.includes("clinico") && /Cl[ií]nic/i.test(role)) return true;
-  // Compat pantallas demo: andres/mj = cualquier experto; lucia = cualquier clínico
-  if ((allowedIds.includes("andres") || allowedIds.includes("mj")) && /Experto de campo/i.test(role))
-    return true;
-  if (allowedIds.includes("lucia") && /Cl[ií]nic/i.test(role)) return true;
-  return false;
+  if (allowed.includes(u.id)) return true;
+
+  const roleId = resolveRoleId(u);
+  if (roleId && allowed.includes(roleId)) return true;
+
+  // Aliases legacy → roleId
+  const aliases: Record<string, NaraRoleId> = {
+    paula: "admin",
+    admin: "admin",
+    andres: "experto",
+    mj: "experto",
+    experto: "experto",
+    lucia: "clinico",
+    clinico: "clinico",
+    obs: "observador",
+    observador: "observador",
+    paciente: "paciente",
+  };
+  return allowed.some((a) => aliases[a] && aliases[a] === roleId);
 }
 
 export function useRequireSession(allowedIds: string[]) {

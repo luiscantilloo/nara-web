@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const expertId = new URL(req.url).searchParams.get("expertId");
     const db = await getDb();
@@ -32,6 +35,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as Record<string, unknown>;
     const expertId = String(body.expertId || "");
@@ -76,6 +81,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as { id?: string; expertId?: string; status?: string };
     const id = String(body.id || "").trim();

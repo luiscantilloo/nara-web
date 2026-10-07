@@ -121,6 +121,38 @@ export function AgentPanel({
     try {
       a = (await G?.ask(role, text)) as ConvItem;
       if (!a) throw new Error("vacía");
+      // Si no hay consulta fija, TEO pregunta a Gemini con contexto de la app/datos
+      if (a.none) {
+        try {
+          const res = await fetch("/api/teo/ask", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: text, role }),
+          });
+          const data = (await res.json()) as { ok?: boolean; text?: string; error?: string };
+          if (data.ok && data.text) {
+            a = {
+              id: "q" + Date.now(),
+              q: text,
+              text: data.text,
+              basis: "TEO · Gemini + datos del programa",
+              method: "Respuesta generada con Gemini a partir del contexto autorizado para su rol.",
+              none: false,
+            };
+          } else if (data.error || data.text) {
+            a = {
+              id: "q" + Date.now(),
+              q: text,
+              text: data.text || data.error || "No pude consultar a Gemini. Intente de nuevo en unos segundos.",
+              basis: "TEO · Gemini",
+              none: false,
+            };
+          }
+        } catch {
+          /* deja la respuesta none del motor local */
+        }
+      }
     } catch {
       a = { id: "q" + Date.now(), q: text, err: true, text: "No pude consultar los datos en este momento. Revise la conexión e intente de nuevo." };
     }

@@ -5,8 +5,12 @@ import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "rea
 import { useRouter } from "next/navigation";
 import { adminPathForView } from "@/modules/admin/routes";
 import { useNaraStore } from "@/providers/nara-provider";
+import {
+  DEFAULT_PATIENT_MODULES,
+  PATIENT_APP_MODULES,
+} from "@/lib/db/patientModules";
 
-const ROLES = ["Administrador", "Experto de campo", "Clínico", "Observador"];
+const ROLES = ["Administrador", "Experto de campo", "Clínico", "Paciente", "Observador"];
 
 type FormState = {
   id: string | null;
@@ -18,6 +22,7 @@ type FormState = {
   org: string;
   orgType: string;
   modules: string[];
+  patientModules: string[];
   ethics: string;
   status?: string;
   derived?: boolean;
@@ -85,8 +90,8 @@ export function useAdminUsuariosScreen() {
   }, []);
 
   useEffect(() => {
-    const u = A.session();
-    if (!u || !/Admin/i.test(u.role || "")) {
+    const u = A.session() as { role?: string; roleId?: string } | null;
+    if (!u || (u.roleId !== "admin" && !/Admin/i.test(u.role || ""))) {
       router.replace("/ingreso");
     }
   }, [A, router]);
@@ -124,6 +129,7 @@ export function useAdminUsuariosScreen() {
           org: u.org,
           orgType: u.orgType || "Financiador",
           modules: (u.modules || []).slice(),
+          patientModules: (u.patientModules || u.modulesEnabled || DEFAULT_PATIENT_MODULES).slice(),
           ethics: u.ethics || "",
           status: u.status,
           derived: u.derived,
@@ -158,6 +164,8 @@ export function useAdminUsuariosScreen() {
         return setState({ err: "Escriba la organización del observador." });
       if (needEthics && f.role === "Observador" && !/\w{2,}-?\d/.test(f.ethics || ""))
         return setState({ err: "Datos seudonimizados exige el número de aprobación ética." });
+      if (f.role === "Paciente" && !(f.patientModules || []).length)
+        return setState({ err: "Active al menos un módulo para la app del paciente." });
 
       const payload: any = {
         id: f.id || undefined,
@@ -170,6 +178,7 @@ export function useAdminUsuariosScreen() {
         org: f.role === "Observador" ? f.org.trim() : "Programa NARA",
         orgType: f.role === "Observador" ? f.orgType : undefined,
         modules: f.role === "Observador" ? mods.slice() : undefined,
+        patientModules: f.role === "Paciente" ? (f.patientModules || []).slice() : undefined,
         ethics: needEthics ? f.ethics : undefined,
         status: f.status || "Activo",
       };
@@ -177,6 +186,7 @@ export function useAdminUsuariosScreen() {
       try {
         const res = await fetch("/api/accounts", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
@@ -197,7 +207,7 @@ export function useAdminUsuariosScreen() {
               phone: acc.contact,
             });
           }
-          A.logActivity(s, "admin", (isEdit ? "Editó" : "Creó") + " el usuario " + acc.name);
+          A.logActivity(s, A.session()?.id || "admin", (isEdit ? "Editó" : "Creó") + " el usuario " + acc.name);
         });
 
         setState({
@@ -275,6 +285,7 @@ export function useAdminUsuariosScreen() {
             org: "",
             orgType: "Financiador",
             modules: A.OBS_TEMPLATES["Financiador"].slice(),
+            patientModules: DEFAULT_PATIENT_MODULES.slice(),
             ethics: "",
           },
         }),
@@ -287,7 +298,21 @@ export function useAdminUsuariosScreen() {
         name: setF("name"),
         contact: setF("contact"),
         password: setF("password"),
-        role: setF("role"),
+        role: (e: ChangeEvent<HTMLSelectElement>) => {
+          const role = e.target.value;
+          setState({
+            f: Object.assign({}, f, {
+              role,
+              patientModules:
+                role === "Paciente"
+                  ? f?.patientModules?.length
+                    ? f.patientModules
+                    : DEFAULT_PATIENT_MODULES.slice()
+                  : f?.patientModules || DEFAULT_PATIENT_MODULES.slice(),
+            }),
+            err: "",
+          });
+        },
         terr: setF("terr"),
         org: setF("org"),
         orgType: (e: ChangeEvent<HTMLSelectElement>) => {
@@ -303,6 +328,7 @@ export function useAdminUsuariosScreen() {
       },
       terrOpts,
       isObs: !!f && f.role === "Observador",
+      isPaciente: !!f && f.role === "Paciente",
       tpls: Object.keys(A.OBS_TEMPLATES).map((k) => ({
         key: k,
         label: k,
@@ -331,6 +357,24 @@ export function useAdminUsuariosScreen() {
             }),
         };
       }),
+      patientMods: PATIENT_APP_MODULES.map((m) => {
+        const list = (f && f.patientModules) || DEFAULT_PATIENT_MODULES;
+        const on = list.includes(m.id);
+        return {
+          key: m.id,
+          name: m.name,
+          desc: m.desc,
+          swBg: on ? C.verde : "#C4BDB3",
+          x: on ? "21px" : "3px",
+          toggle: () =>
+            setState({
+              f: Object.assign({}, f, {
+                patientModules: on ? list.filter((x) => x !== m.id) : list.concat([m.id]),
+              }),
+              err: "",
+            }),
+        };
+      }),
       needEthics,
       ethicsBd: needEthics && !(f && f.ethics) ? C.revisar : C.lineas,
       hasErr: !!st.err,
@@ -340,31 +384,60 @@ export function useAdminUsuariosScreen() {
       saveLabel: isEdit ? "Guardar cambios" : "Crear y enviar acceso",
       isEdit,
       statusLabel: f && f.status === "Activo" ? "Desactivar usuario" : "Activar usuario",
-      toggleStatus: () => {
+      toggleStatus: async () => {
         if (!f || !f.id) return;
         const nv = f.status === "Activo" ? "Inactivo" : "Activo";
-        A.set((s: any) => {
-          let a = s.accounts.find((x: any) => x.id === f.id);
-          if (!a) {
-            a = {
+        try {
+          const res = await fetch("/api/accounts", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
               id: f.id,
               name: f.name,
               contact: f.contact,
+              email: f.contact,
               role: f.role,
-              org: f.org,
               terr: f.terr,
-            };
-            s.accounts.push(a);
+              org: f.org,
+              orgType: f.orgType,
+              modules: f.modules,
+              ethics: f.ethics,
+              status: nv,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            setState({ err: data.error || "No se pudo cambiar el estado." });
+            return;
           }
-          a.status = nv;
-          if (f.role === "Experto de campo")
-            s.expertOv[f.name] = Object.assign({}, s.expertOv[f.name], { active: nv === "Activo" });
-          A.logActivity(s, "paula", (nv === "Activo" ? "Activó" : "Desactivó") + " a " + f.name);
-        });
-        setState({
-          f: Object.assign({}, f, { status: nv }),
-          msg: f.name + (nv === "Activo" ? " puede ingresar." : " ya no puede ingresar."),
-        });
+          const acc = data.account;
+          A.set((s: any) => {
+            const list = Array.isArray(s.accounts) ? s.accounts.slice() : [];
+            const i = list.findIndex((x: any) => x.id === acc.id);
+            if (i >= 0) list[i] = { ...list[i], ...acc };
+            else list.push(acc);
+            s.accounts = list;
+            if (acc.role === "Experto de campo" || acc.roleId === "experto") {
+              s.expertOv = s.expertOv || {};
+              s.expertOv[acc.name] = Object.assign({}, s.expertOv[acc.name], {
+                active: nv === "Activo",
+              });
+            }
+            A.logActivity(
+              s,
+              A.session()?.id || "admin",
+              (nv === "Activo" ? "Activó" : "Desactivó") + " a " + acc.name,
+            );
+          });
+          setState({
+            f: Object.assign({}, f, { status: nv }),
+            err: "",
+            msg: f.name + (nv === "Activo" ? " puede ingresar." : " ya no puede ingresar."),
+          });
+        } catch {
+          setState({ err: "No se pudo conectar con la base de datos." });
+        }
       },
       activity: act.map((a: any, i: number) => ({
         key: a.at + "-" + i,

@@ -20,7 +20,7 @@ const OUTCOMES = [
 
 export function useClinicoScreen() {
   const store = useNaraStore();
-  const session = useRequireSession(["clinico", "lucia"]);
+  const session = useRequireSession(["clinico"]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [st, setStateRaw] = useState({

@@ -61,15 +61,15 @@ const ROLES = [
 
 const ADMIN = {
   id: "admin",
-  email: "admin@nara.com",
-  password: "AdminNara2026",
+  email: process.env.SEED_ADMIN_EMAIL || "admin@nara.com",
+  password: process.env.SEED_ADMIN_PASSWORD || "AdminNara2026",
   name: "Administrador NARA",
   roleId: "admin",
   role: "Administrador",
   org: "Programa NARA",
   terr: "Todos",
   status: "Activo",
-  contact: "admin@nara.com",
+  contact: process.env.SEED_ADMIN_EMAIL || "admin@nara.com",
 };
 
 async function main() {
@@ -127,7 +127,7 @@ async function main() {
   console.log("  colección: accounts");
   console.log("  id:       ", ADMIN.id);
   console.log("  correo:   ", ADMIN.email);
-  console.log("  clave:    ", ADMIN.password);
+  console.log("  clave:    ", process.env.SEED_ADMIN_PASSWORD ? "(definida en SEED_ADMIN_PASSWORD)" : "(por defecto; defina SEED_ADMIN_PASSWORD)");
   console.log("  roleId:   ", ADMIN.roleId, "(colección roles)");
   console.log("  roles:    ", ROLES.length, "documentos en colección roles");
 

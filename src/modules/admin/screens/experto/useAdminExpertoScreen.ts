@@ -16,7 +16,7 @@ export function useAdminExpertoScreen() {
   useEffect(() => store.subscribe(() => setTick((n) => n + 1)), [store]);
 
   useEffect(() => {
-    store.requireSession(["paula"]);
+    store.requireSession(["admin"]);
   }, [store]);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export function useAdminExpertoScreen() {
           if (x) x.terr = terrName;
           s.expertOv = s.expertOv || {};
           s.expertOv[name] = Object.assign({}, s.expertOv[name], { terr: terrName });
-          store.logActivity(s, "paula", "Cambió el territorio de " + name + " a " + terrName);
+          store.logActivity(s, (store.session()?.id || "admin"), "Cambió el territorio de " + name + " a " + terrName);
         });
         setMsg("Territorio actualizado a " + terrName + ".");
       },
@@ -129,7 +129,7 @@ export function useAdminExpertoScreen() {
           s.expertOv[name] = Object.assign({}, s.expertOv[name], { active: nextActive });
           const x = (s.experts || []).find((y: { name: string }) => y.name === name);
           if (x) x.active = nextActive;
-          store.logActivity(s, "paula", (nextActive ? "Activó" : "Desactivó") + " a " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), (nextActive ? "Activó" : "Desactivó") + " a " + name);
         });
         setMsg(nextActive ? "Experto activado." : "Experto desactivado.");
       },
@@ -140,7 +140,7 @@ export function useAdminExpertoScreen() {
             x.training = "Completa · 16 h";
             x.isNew = false;
           }
-          store.logActivity(s, "paula", "Marcó capacitación completa de " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), "Marcó capacitación completa de " + name);
         });
         setMsg("Capacitación marcada como completa.");
       },
@@ -151,7 +151,7 @@ export function useAdminExpertoScreen() {
             const n = (s.experts || []).filter((z: { tablet?: string | boolean }) => z.tablet).length + 1;
             x.tablet = "TB-" + String(n).padStart(3, "0");
           }
-          store.logActivity(s, "paula", "Asignó tablet a " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), "Asignó tablet a " + name);
         });
         setMsg("Tablet asignada.");
       },

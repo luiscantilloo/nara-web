@@ -212,6 +212,7 @@ const KEY = 'nara-memory-v1';
       next: '', nextShort: '', consent: false, consentKey: id, signal: '',
       lastCheckin: '', checkinDays: null, summary: null, audios: 0, timeline: [],
       ctx: { dano: 0, perdida: 0 }, practice: [], lastSession: null,
+      // sin modulesEnabled → la app usa la ruta clínica hasta que el admin configure
     };
   }
 
@@ -463,9 +464,20 @@ const KEY = 'nara-memory-v1';
     Clínico: '/clinico', Clínica: '/clinico',
     Paciente: '/paciente', Observador: '/observador',
   };
+  const ROLE_ID_HREF = {
+    admin: '/inicio', experto: '/experto', clinico: '/clinico',
+    paciente: '/paciente', observador: '/observador',
+  };
   const ROLE_NK = {
     Administrador: 'admin', Administradora: 'admin',
     Clínico: 'clin', Clínica: 'clin',
+  };
+  const ROLE_ID_NK = { admin: 'admin', clinico: 'clin' };
+  const ROLE_LABEL_TO_ID = {
+    Administrador: 'admin', Administradora: 'admin',
+    'Experto de campo': 'experto', 'Experta de campo': 'experto',
+    Clínico: 'clinico', Clínica: 'clinico',
+    Paciente: 'paciente', Observador: 'observador',
   };
   const OBS_MODULES = [
     { id: 'avance', name: 'Avance', desc: 'Captación, cuotas y ritmo (agregado)' },
@@ -479,13 +491,15 @@ const KEY = 'nara-memory-v1';
   function accountAsUser(a) {
     if (!a || a.status !== 'Activo') return null;
     const role = a.role || '';
-    const href = role === 'Paciente' && a.id === 'oscar' ? '/paciente/plan' : (ROLE_HREF[role] || '/ingreso');
-    const nk = ROLE_NK[role] || (role === 'Experto de campo' || role === 'Experta de campo' ? a.id : role === 'Observador' ? a.id : null);
+    const roleId = a.roleId || ROLE_LABEL_TO_ID[role] || null;
+    const href = ROLE_ID_HREF[roleId] || ROLE_HREF[role] || '/ingreso';
+    const nk = ROLE_ID_NK[roleId] || ROLE_NK[role] || (roleId === 'experto' || roleId === 'observador' || roleId === 'paciente' ? a.id : null);
     return {
-      id: a.id, name: a.name, role, roleId: a.roleId || null,
+      id: a.id, name: a.name, role, roleId,
       email: a.email || '',
       terr: (a.terr && a.terr !== '—') ? a.terr : (a.orgType || a.org || ''),
       href, nk, contact: a.contact || a.email || '', org: a.org || '',
+      patientId: a.patientId || undefined,
     };
   }
   function session() {
@@ -513,14 +527,19 @@ const KEY = 'nara-memory-v1';
     }
     if (!ids) return u;
     const role = u.role || '';
+    const roleId = u.roleId || ROLE_LABEL_TO_ID[role] || null;
+    const aliases = {
+      paula: 'admin', admin: 'admin',
+      andres: 'experto', mj: 'experto', experto: 'experto',
+      lucia: 'clinico', clinico: 'clinico',
+      obs: 'observador', observador: 'observador',
+      paciente: 'paciente',
+    };
     const ok =
       ids.includes(u.id) ||
-      (ids.includes('obs') && role === 'Observador') ||
-      ((ids.includes('paula') || ids.includes('admin')) && isAdminRole(role)) ||
-      (ids.includes('experto') && /Experto de campo/i.test(role)) ||
-      (ids.includes('clinico') && /Cl[ií]nic/i.test(role)) ||
-      ((ids.includes('andres') || ids.includes('mj')) && /Experto de campo/i.test(role)) ||
-      (ids.includes('lucia') && /Cl[ií]nic/i.test(role));
+      (roleId && ids.includes(roleId)) ||
+      ids.some((id) => aliases[id] && aliases[id] === roleId) ||
+      ((ids.includes('paula') || ids.includes('admin')) && isAdminRole(role));
     if (!ok) {
       if (typeof window !== 'undefined') location.replace('/ingreso');
       return null;

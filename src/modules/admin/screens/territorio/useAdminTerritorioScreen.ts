@@ -17,7 +17,7 @@ export function useAdminTerritorioScreen() {
   useEffect(() => store.subscribe(() => setTick((n) => n + 1)), [store]);
 
   useEffect(() => {
-    const u = store.requireSession(["paula"]);
+    const u = store.requireSession(["admin"]);
     if (!u) return;
   }, [store]);
 
@@ -110,7 +110,7 @@ export function useAdminTerritorioScreen() {
         store.set((s) => {
           s.terrOv = s.terrOv || {};
           s.terrOv[name] = Object.assign({}, s.terrOv[name], { paused: !paused });
-          store.logActivity(s, "paula", (paused ? "Reanudó" : "Pausó") + " el territorio " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), (paused ? "Reanudó" : "Pausó") + " el territorio " + name);
         });
         setMsg(paused ? "Territorio reanudado." : "Territorio en pausa.");
       },
@@ -118,7 +118,7 @@ export function useAdminTerritorioScreen() {
         store.set((s) => {
           s.terrOv = s.terrOv || {};
           s.terrOv[name] = Object.assign({}, s.terrOv[name], { crisisLine: crisisLine.trim() });
-          store.logActivity(s, "paula", "Actualizó la línea de crisis de " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), "Actualizó la línea de crisis de " + name);
         });
         setMsg("Línea de crisis guardada.");
       },
@@ -132,7 +132,7 @@ export function useAdminTerritorioScreen() {
           }
           s.terrOv = s.terrOv || {};
           s.terrOv[name] = Object.assign({}, s.terrOv[name], { extraBr: ((s.terrOv[name] || {}).extraBr || 0) });
-          store.logActivity(s, "paula", "Asignó 100 manillas a " + name);
+          store.logActivity(s, (store.session()?.id || "admin"), "Asignó 100 manillas a " + name);
         });
         setMsg("Se asignaron 100 manillas a " + name + ".");
       },

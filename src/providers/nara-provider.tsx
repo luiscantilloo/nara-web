@@ -17,6 +17,7 @@ export type NaraUser = {
   id: string;
   name: string;
   role: string;
+  roleId?: string | null;
   terr: string;
   href: string;
   nk: string | null;
@@ -34,6 +35,8 @@ function getSnapshot() {
   return AlientoStore.get();
 }
 
+const fetchOpts: RequestInit = { credentials: "same-origin" };
+
 export function NaraProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
@@ -44,7 +47,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateSession() {
       try {
-        const res = await fetch("/api/auth/me", { credentials: "same-origin" });
+        const res = await fetch("/api/auth/me", fetchOpts);
         const data = (await res.json()) as {
           ok?: boolean;
           user?: Parameters<typeof applySessionUser>[0];
@@ -57,7 +60,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateTerritories() {
       try {
-        const res = await fetch("/api/territories");
+        const res = await fetch("/api/territories", fetchOpts);
         const data = (await res.json()) as {
           ok?: boolean;
           territories?: Array<Record<string, unknown> & { name: string; content?: string[] }>;
@@ -77,13 +80,13 @@ export function NaraProvider({ children }: { children: ReactNode }) {
           });
         }
       } catch {
-        /* sin Mongo aún: store vacío */
+        /* sin Mongo aún */
       }
     }
 
     async function hydrateExperts() {
       try {
-        const res = await fetch("/api/experts");
+        const res = await fetch("/api/experts", fetchOpts);
         const data = (await res.json()) as {
           ok?: boolean;
           experts?: Record<string, unknown>[];
@@ -100,7 +103,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateAccounts() {
       try {
-        const res = await fetch("/api/accounts");
+        const res = await fetch("/api/accounts", fetchOpts);
         const data = (await res.json()) as {
           ok?: boolean;
           accounts?: Record<string, unknown>[];
@@ -111,18 +114,18 @@ export function NaraProvider({ children }: { children: ReactNode }) {
           });
         }
       } catch {
-        /* sin cuentas aún */
+        /* sin cuentas o sin permiso */
       }
     }
 
     async function hydratePeopleFlagsWorklists() {
       try {
         const [peopleRes, flagsRes, wlRes, patientsRes, assetsRes] = await Promise.all([
-          fetch("/api/people"),
-          fetch("/api/flags"),
-          fetch("/api/worklists"),
-          fetch("/api/patients"),
-          fetch("/api/assets"),
+          fetch("/api/people", fetchOpts),
+          fetch("/api/flags", fetchOpts),
+          fetch("/api/worklists", fetchOpts),
+          fetch("/api/patients", fetchOpts),
+          fetch("/api/assets", fetchOpts),
         ]);
         const peopleData = (await peopleRes.json()) as { ok?: boolean; people?: Record<string, unknown>[] };
         const flagsData = (await flagsRes.json()) as { ok?: boolean; flags?: Record<string, unknown>[] };
@@ -132,7 +135,17 @@ export function NaraProvider({ children }: { children: ReactNode }) {
         };
         const patientsData = (await patientsRes.json()) as {
           ok?: boolean;
-          patients?: Array<Record<string, unknown> & { id: string; name: string; profile?: string; phq?: number[]; expert?: string; place?: string; age?: number }>;
+          patients?: Array<
+            Record<string, unknown> & {
+              id: string;
+              name: string;
+              profile?: string;
+              phq?: number[];
+              expert?: string;
+              place?: string;
+              age?: number;
+            }
+          >;
         };
         const assetsData = (await assetsRes.json()) as { ok?: boolean; assets?: Record<string, unknown>[] };
 
@@ -188,18 +201,78 @@ export function NaraProvider({ children }: { children: ReactNode }) {
     }
 
     pausePersist(true);
-    void Promise.all([
-      import("@/lib/agent/agent.js"),
-      import("@/lib/agent/agent-chart.js"),
-      hydrateSession(),
-      hydrateTerritories(),
-      hydrateExperts(),
-      hydrateAccounts(),
-      hydratePeopleFlagsWorklists(),
-      hydrateAppState(AlientoStore),
-    ])
-      .then(() => pausePersist(false))
-      .finally(() => setReady(true));
+    void (async () => {
+      try {
+        await import("@/lib/agent/agent.js");
+        await import("@/lib/agent/agent-chart.js");
+        await hydrateSession();
+
+        const session = AlientoStore.session() as NaraUser | null;
+        const roleId = session?.roleId || null;
+
+        if (!session) return;
+
+        // Paciente: ficha propia (módulos del admin) + app-state
+        if (roleId === "paciente") {
+          try {
+            const res = await fetch("/api/patients/me", fetchOpts);
+            const data = (await res.json()) as {
+              ok?: boolean;
+              patient?: Record<string, unknown> & { id: string };
+            };
+            if (res.ok && data.ok && data.patient?.id) {
+              AlientoStore.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+                s.patients = s.patients || {};
+                s.patients[data.patient!.id] = {
+                  ...(s.patients[data.patient!.id] || {}),
+                  ...data.patient!,
+                };
+              });
+            }
+          } catch {
+            /* sin ficha aún */
+          }
+          await hydrateAppState(AlientoStore);
+          return;
+        }
+
+        const programJobs: Promise<unknown>[] = [
+          hydrateTerritories(),
+          hydrateExperts(),
+          hydrateAppState(AlientoStore),
+        ];
+
+        if (roleId === "admin") {
+          programJobs.push(hydrateAccounts());
+        }
+
+        if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
+          programJobs.push(hydratePeopleFlagsWorklists());
+        } else if (roleId === "observador") {
+          // observador: territorios/expertos ya; people agregado vía territories+store
+          programJobs.push(
+            fetch("/api/people", fetchOpts)
+              .then(async (peopleRes) => {
+                const peopleData = (await peopleRes.json()) as {
+                  ok?: boolean;
+                  people?: Record<string, unknown>[];
+                };
+                if (peopleRes.ok && peopleData.ok && Array.isArray(peopleData.people)) {
+                  AlientoStore.set((s: { people: Record<string, unknown>[] }) => {
+                    s.people = peopleData.people!;
+                  });
+                }
+              })
+              .catch(() => {}),
+          );
+        }
+
+        await Promise.all(programJobs);
+      } finally {
+        pausePersist(false);
+        setReady(true);
+      }
+    })();
   }, []);
 
   if (!ready) {

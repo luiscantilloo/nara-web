@@ -24,6 +24,157 @@ type RdState = {
 type PlState = { id: string; prog: number; playing: boolean; done: boolean };
 
 const MOODS = ["Muy mal", "Mal", "Regular", "Bien", "Muy bien"];
+/** Colores suaves por nivel (1=muy mal … 5=muy bien) */
+const MOOD_TINTS = [
+  { bd: "#E8A0A0", bg: "#FCE8E8", bgOn: "#F5C4C4" },
+  { bd: "#E0B080", bg: "#FCF0E4", bgOn: "#F5D9B8" },
+  { bd: "#C4BDB3", bg: "#F5F2EC", bgOn: "#FDCD22" },
+  { bd: "#7CB89A", bg: "#E8F6EE", bgOn: "#C8EBD6" },
+  { bd: "#D4B820", bg: "#FFF8D6", bgOn: "#FDCD22" },
+] as const;
+
+type MoodFace = "calma" | "curiosidad" | "energia" | "duda";
+type MoodStep = "idle" | "ack" | "why" | "care" | "breath" | "done";
+type MoodBubble = { who: "teo" | "me"; text: string };
+
+const MOOD_WHY_LOW = [
+  "El miedo o las réplicas",
+  "No pude dormir",
+  "Me siento sola o triste",
+  "Duele el cuerpo o la cabeza",
+  "Prefiero no decir",
+];
+const MOOD_WHY_MID = [
+  "Ando cansada",
+  "Hay preocupación en casa",
+  "Un día normal, sin más",
+  "Prefiero no decir",
+];
+const MOOD_WHY_HIGH = [
+  "Dormí un poco mejor",
+  "Me ayudó hablar con alguien",
+  "Hoy el cuerpo está más calmo",
+  "Solo quería marcarlo",
+];
+
+function moodAck(level: number, fname: string): { text: string; face: MoodFace; whyPrompt: string; whys: string[] } {
+  const name = fname || "usted";
+  if (level <= 0) {
+    return {
+      text: `${name}, gracias por decirlo con sinceridad. Estar muy mal no es un fallo: es una señal de que necesita cuidado. No tiene que cargar con esto sola.`,
+      face: "calma",
+      whyPrompt: "Si quiere, digame qué le pesa más ahora. Una sola cosa basta.",
+      whys: MOOD_WHY_LOW,
+    };
+  }
+  if (level === 1) {
+    return {
+      text: `Gracias por marcarlo, ${name}. Un día «mal» también cuenta. El cuerpo a veces se queda en alerta después de un susto o una noche difícil.`,
+      face: "calma",
+      whyPrompt: "¿Qué le está costando más hoy?",
+      whys: MOOD_WHY_LOW,
+    };
+  }
+  if (level === 2) {
+    return {
+      text: `Quedó registrado: regular. Un día así también merece una mirada amable, ${name}.`,
+      face: "curiosidad",
+      whyPrompt: "¿Qué describe mejor cómo va el día?",
+      whys: MOOD_WHY_MID,
+    };
+  }
+  if (level === 3) {
+    return {
+      text: `Qué bien que hoy esté bien, ${name}. Eso también es parte del camino.`,
+      face: "energia",
+      whyPrompt: "Si quiere, cuénteme qué le está ayudando.",
+      whys: MOOD_WHY_HIGH,
+    };
+  }
+  return {
+    text: `Hoy se siente muy bien. Me alegra registrarlo con usted, ${name}.`,
+    face: "energia",
+    whyPrompt: "¿Qué le está funcionando hoy?",
+    whys: MOOD_WHY_HIGH,
+  };
+}
+
+function moodCareReply(level: number, why: string): { text: string; face: MoodFace } {
+  if (/Prefiero no decir|Solo quería/i.test(why)) {
+    return {
+      text: "Está bien no decir más. Ya quedó en su seguimiento. Si quiere, podemos hacer una respiración corta de 2 minutos para bajar un poco la carga.",
+      face: "calma",
+    };
+  }
+  if (/miedo|réplica/i.test(why)) {
+    return {
+      text: "Después de un sismo el miedo puede volver con una réplica pequeña. No quiere decir que esté retrocediendo. Una respiración lenta ayuda al cuerpo a bajar la alerta.",
+      face: "calma",
+    };
+  }
+  if (/dormir|cansad/i.test(why)) {
+    return {
+      text: "Dormir mal cansa el ánimo y el cuerpo. Una pausa de respiración ahora no arregla la noche, pero puede dar un respiro pequeño.",
+      face: "curiosidad",
+    };
+  }
+  if (/sola|triste/i.test(why)) {
+    return {
+      text: "Sentirse sola o triste pesa. No tiene que resolverlo todo hoy. Si la angustia es muy fuerte, use Ayuda arriba. Si prefiere, respiramos juntas un momento.",
+      face: "calma",
+    };
+  }
+  if (/Duele|cuerpo|cabeza/i.test(why)) {
+    return {
+      text: "Cuando el cuerpo duele, el ánimo también se apaga. Vamos despacio: una respiración corta puede aflojar un poco la tensión.",
+      face: "calma",
+    };
+  }
+  if (/preocup|casa/i.test(why)) {
+    return {
+      text: "La casa y lo de todos los días pesan. Está bien nombrarlo. ¿Probamos una respiración de 2 minutos para no cargar todo a la vez?",
+      face: "duda",
+    };
+  }
+  if (/normal|sin más/i.test(why)) {
+    return {
+      text: "Un día normal también cuenta. Si quiere cuidar ese equilibrio, una respiración corta puede ayudar.",
+      face: "curiosidad",
+    };
+  }
+  if (/Dormí|hablar|calmo|funcionando/i.test(why)) {
+    return {
+      text: "Gracias por compartirlo. Vale la pena notar lo que ayuda. Si quiere, cerramos con una respiración suave para cuidar ese buen momento.",
+      face: level >= 3 ? "energia" : "curiosidad",
+    };
+  }
+  if (level <= 1) {
+    return {
+      text: "Gracias por contármelo. Estoy con usted en esto. Podemos respirar un momento, o si lo necesita ya, use el botón Ayuda.",
+      face: "calma",
+    };
+  }
+  return {
+    text: "Gracias por contármelo. ¿Quiere una respiración corta o dejamos el check-in hasta aquí?",
+    face: "curiosidad",
+  };
+}
+
+function moodChatSeed(level: number, fname: string, why?: string) {
+  const ack = moodAck(level, fname);
+  const care = why ? moodCareReply(level, why).text : ack.text;
+  return {
+    chat: why
+      ? `Registró «${MOODS[level]}» y me contó: ${why}. ${care}`
+      : ack.text + " " + ack.whyPrompt,
+    chatChips:
+      level <= 1
+        ? ["Sí, respiremos", "Quiero escribirle", "Ahora no"]
+        : ["Sí, respiremos", "Contarle un poco más", "Por ahora está bien"],
+    face: ack.face,
+  };
+}
+
 const WA_BAR_H = [40, 70, 55, 90, 60, 35, 80, 65, 45, 95, 70, 50, 30, 75, 85, 55, 40, 65, 90, 50, 35, 60];
 const CL = [
   ["contacto", "Contacto por teléfono o WhatsApp"],
@@ -61,6 +212,12 @@ export function usePacienteScreen() {
   ]);
   const [topicInput, setTopicInput] = useState("");
   const [mood, setMood] = useState<number | null>(null);
+  const [moodStep, setMoodStep] = useState<MoodStep>("idle");
+  const [moodThread, setMoodThread] = useState<MoodBubble[]>([]);
+  const [moodChoices, setMoodChoices] = useState<string[]>([]);
+  const [moodFace, setMoodFace] = useState<MoodFace>("curiosidad");
+  const [moodPulse, setMoodPulse] = useState(false);
+  const [moodWhy, setMoodWhy] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [quick, setQuick] = useState<string[]>([]);
   const [stage, setStage] = useState("open");
@@ -105,9 +262,31 @@ export function usePacienteScreen() {
   const isDiana = !isRosalba; // UI app TEO (Diana o Rosa); Rosalba = WhatsApp
   const pid = who;
   pidRef.current = pid;
+  const sessionNow = store.session() as {
+    id?: string;
+    name?: string;
+    email?: string;
+    roleId?: string;
+  } | null;
+  const patientsMap = (store.get().patients || store.PATIENTS || {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const resolvedPatient =
+    patientsMap[pid] ||
+    Object.values(patientsMap).find(
+      (p) =>
+        p &&
+        (p.accountId === pid ||
+          p.accountId === sessionNow?.id ||
+          (sessionNow?.email && p.email === sessionNow.email) ||
+          p.id === pid),
+    ) ||
+    null;
   const DP =
+    resolvedPatient ||
     store.PATIENTS[pid] ||
-    store.emptyPatient(pid, store.session()?.name || "Paciente", 0);
+    store.emptyPatient(pid, sessionNow?.name || "Paciente", 0);
   const firstName = String(DP.name || "Paciente").split(/\s+/)[0] || "Paciente";
   const cons = (S.consents && S.consents[pid]) || {};
 
@@ -339,25 +518,72 @@ export function usePacienteScreen() {
   }, [store]);
 
   useEffect(() => {
-    const su0 = store.session();
-    if (su0?.id === "oscar") {
-      router.replace("/paciente/plan");
-      return;
-    }
-    const su = store.session();
-    const isPaciente = !!su && (/Paciente/i.test(su.role || "") || ["diana", "rosalba", "p-rosa-elena"].includes(su.id));
+    let cancelled = false;
+    const su = store.session() as {
+      id?: string;
+      role?: string;
+      roleId?: string;
+      href?: string;
+      email?: string;
+      name?: string;
+      patientId?: string;
+    } | null;
+    const isPaciente =
+      !!su && (su.roleId === "paciente" || /Paciente/i.test(su.role || ""));
     if (!su || !isPaciente) {
       router.replace("/ingreso");
       return;
     }
-    setWho(su.id);
-    pidRef.current = su.id;
-    if (!appInitedRef.current) {
-      appInitedRef.current = true;
-      if (su.id === "rosalba") initWA();
-      else initDiana();
+
+    async function boot() {
+      // Traer ficha (módulos del admin) — fuente de verdad en Mongo
+      try {
+        const res = await fetch("/api/patients/me", { credentials: "same-origin" });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          patient?: Record<string, unknown> & { id: string; plan?: unknown };
+        };
+        if (!cancelled && res.ok && data.ok && data.patient?.id) {
+          store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+            s.patients = s.patients || {};
+            s.patients[data.patient!.id] = {
+              ...(s.patients[data.patient!.id] || {}),
+              ...data.patient!,
+            };
+          });
+        }
+      } catch {
+        /* sin ficha */
+      }
+      if (cancelled) return;
+
+      const map = (store.get().patients || {}) as Record<
+        string,
+        { id?: string; accountId?: string; email?: string; plan?: unknown }
+      >;
+      const linked =
+        (su!.patientId && map[su!.patientId]) ||
+        map[su!.id!] ||
+        Object.values(map).find(
+          (p) => p?.accountId === su!.id || (su!.email && p?.email === su!.email),
+        ) ||
+        null;
+      const patientId = String(linked?.id || su!.patientId || su!.id);
+      if (su!.href === "/paciente/plan" || linked?.plan || store.PATIENTS?.[patientId]?.plan) {
+        router.replace("/paciente/plan");
+        return;
+      }
+      setWho(patientId);
+      pidRef.current = patientId;
+      if (!appInitedRef.current) {
+        appInitedRef.current = true;
+        if (patientId === "rosalba" || su!.id === "rosalba") initWA();
+        else initDiana();
+      }
+      setReady(true);
     }
-    setReady(true);
+
+    void boot();
     const spl = setTimeout(() => setSplash(false), 1500);
     const clk = setInterval(() => setNow(Date.now()), 20000);
     const onR = () => {
@@ -367,6 +593,7 @@ export function usePacienteScreen() {
     onR();
     window.addEventListener("resize", onR);
     return () => {
+      cancelled = true;
       clearTimeout(spl);
       clearInterval(clk);
       window.removeEventListener("resize", onR);
@@ -625,6 +852,194 @@ export function usePacienteScreen() {
     ai("¿Cómo está ahora, del 1 al 10?", ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
   }, [ai]);
 
+  const moduleOn = useCallback(
+    (id: string) => {
+      const p = (store.get().patients || {})[pidRef.current] as { modulesEnabled?: string[] } | undefined;
+      const en = p?.modulesEnabled;
+      if (Array.isArray(en)) return en.includes(id);
+      return id === "ia" || id === "mood" || id === "hist";
+    },
+    [store],
+  );
+
+  const resetMoodFlow = useCallback(() => {
+    setMood(null);
+    setMoodStep("idle");
+    setMoodThread([]);
+    setMoodChoices([]);
+    setMoodWhy(null);
+    setMoodFace("curiosidad");
+  }, []);
+
+  const pushMoodTeo = useCallback((text: string, face?: MoodFace, choices?: string[]) => {
+    setMoodThread((t) => t.concat([{ who: "teo", text }]));
+    if (face) setMoodFace(face);
+    setMoodChoices(choices || []);
+  }, []);
+
+  const pickMood = useCallback(
+    (i: number) => {
+      if (paused) return;
+      setMood(i);
+      setMoodWhy(null);
+      setMoodPulse(true);
+      setTimeout(() => setMoodPulse(false), 450);
+      const id = pidRef.current;
+      const label = MOODS[i];
+      const fname = firstName;
+      const ack = moodAck(i, fname);
+      setMoodStep("why");
+      setMoodFace(ack.face);
+      setMoodThread([
+        { who: "me", text: `Hoy me siento: ${label}` },
+        { who: "teo", text: ack.text },
+        { who: "teo", text: ack.whyPrompt },
+      ]);
+      setMoodChoices(ack.whys);
+      store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+        s.patients = s.patients || {};
+        const prev = s.patients[id] || store.emptyPatient(id, fname, 0);
+        const timeline = Array.isArray(prev.timeline) ? prev.timeline.slice() : [];
+        timeline.push({
+          type: "mood",
+          label,
+          value: i + 1,
+          at: Date.now(),
+          d: "Hoy",
+        });
+        s.patients[id] = {
+          ...prev,
+          lastCheckin: new Date().toISOString(),
+          lastMood: i + 1,
+          lastMoodLabel: label,
+          timeline,
+        };
+      });
+      store.logAi(id, "Check-in de ánimo", `${label} (${i + 1}/5)`);
+    },
+    [firstName, paused, store],
+  );
+
+  const answerMoodWhy = useCallback(
+    (why: string) => {
+      if (mood === null) return;
+      setMoodWhy(why);
+      setMoodThread((t) => t.concat([{ who: "me", text: why }]));
+      const care = moodCareReply(mood, why);
+      setMoodStep("care");
+      setMoodFace(care.face);
+      const choices = [
+        "Respirar 2 minutos",
+        ...(moduleOn("ia") ? ["Seguir hablando con TEO"] : []),
+        ...(mood <= 1 ? ["Necesito ayuda ahora"] : []),
+        "Cerrar por hoy",
+      ];
+      setTimeout(() => {
+        pushMoodTeo(care.text, care.face, choices);
+      }, 280);
+      store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+        const p = s.patients?.[pidRef.current];
+        if (p) p.lastMoodWhy = why;
+      });
+      store.logAi(pidRef.current, "Check-in de ánimo", `Motivo: ${why}`);
+    },
+    [moduleOn, mood, pushMoodTeo, store],
+  );
+
+  const continueMoodWithTeo = useCallback(
+    (level: number, mode: "talk" | "breath" | "done" = "talk") => {
+      const label = MOODS[level];
+      const seed = moodChatSeed(level, firstName, moodWhy || undefined);
+      if (!moduleOn("ia")) {
+        if (mode === "breath") {
+          setMoodStep("breath");
+          setMoodChoices([]);
+          pushMoodTeo("Vamos despacio. Siga el círculo: inspire 4, suelte 6.", "calma");
+          return;
+        }
+        setMoodStep("done");
+        pushMoodTeo("Listo. Su check-in quedó en el seguimiento de hoy. Aquí estaré en el próximo.", "calma", []);
+        return;
+      }
+      setTab("chat");
+      if (mode === "breath") {
+        me(
+          moodWhy
+            ? `Hoy me siento: ${label}. Me pesa: ${moodWhy}. Quiero respirar.`
+            : `Hoy me siento: ${label}. Quiero respirar un momento.`,
+        );
+        startBreath();
+        return;
+      }
+      if (mode === "done") {
+        me(`Hoy me siento: ${label}. Por ahora cierro el check-in.`);
+        setStage("free");
+        ai("Listo. Quedó en su seguimiento. Aquí estoy cuando quiera hablar.");
+        return;
+      }
+      me(
+        moodWhy
+          ? `Hoy me siento: ${label} (${level + 1} de 5). Me pesa: ${moodWhy}.`
+          : `Hoy me siento: ${label} (${level + 1} de 5).`,
+      );
+      setStage("mood");
+      ai(seed.chat, seed.chatChips);
+    },
+    [ai, firstName, me, moduleOn, moodWhy, pushMoodTeo, startBreath],
+  );
+
+  const onMoodCareChoice = useCallback(
+    (label: string) => {
+      if (mood === null) return;
+      if (/Cerrar/i.test(label) && moodStep === "done") {
+        setMoodChoices([]);
+        return;
+      }
+      setMoodThread((t) => t.concat([{ who: "me", text: label }]));
+      if (/ayuda/i.test(label)) {
+        setHelp(true);
+        setMoodStep("care");
+        pushMoodTeo(
+          "Abrí Ayuda para usted. Si está en peligro o con ideas de hacerse daño, use esas líneas ahora. Si no, podemos respirar un momento.",
+          "calma",
+          ["Respirar 2 minutos", "Cerrar por hoy"],
+        );
+        return;
+      }
+      if (/Respirar/i.test(label)) {
+        if (moduleOn("ia")) return continueMoodWithTeo(mood, "breath");
+        setMoodStep("breath");
+        setMoodChoices([]);
+        pushMoodTeo("Vamos despacio. Siga el círculo conmigo.", "calma");
+        return;
+      }
+      if (/Seguir hablando|TEO/i.test(label)) {
+        return continueMoodWithTeo(mood, "talk");
+      }
+      setMoodStep("done");
+      setMoodChoices([]);
+      pushMoodTeo(
+        mood <= 1
+          ? "Quedó registrado. Si el malestar crece, use Ayuda cuando lo necesite. Cuídese."
+          : "Gracias por el check-in de hoy. Quedó en su seguimiento.",
+        mood <= 1 ? "calma" : "energia",
+      );
+    },
+    [continueMoodWithTeo, moduleOn, mood, moodStep, pushMoodTeo],
+  );
+
+  const onMoodBreathDone = useCallback(() => {
+    setMoodStep("done");
+    const next = moduleOn("ia")
+      ? ["Seguir hablando con TEO", "Cerrar por hoy"]
+      : ["Cerrar por hoy"];
+    pushMoodTeo(
+      "Bien. Tres ciclos ya cuentan. Su ánimo quedó registrado. Si quiere, mañana volvemos a mirarlo.",
+      "energia",
+      next,
+    );
+  }, [moduleOn, pushMoodTeo]);
+
   const quickDiana = useCallback(
     (label: string) => {
       me(label);
@@ -634,6 +1049,17 @@ export function usePacienteScreen() {
         setStage("open");
         if (m && label !== "Más tarde") openReader(m.cuento, label === "Escucharlo");
         return ai("Está bien. ¿Cómo se siente hoy?", ["Bien", "Con algo de miedo", "Cansada"]);
+      }
+      if (stage === "mood") {
+        if (/respir/i.test(label)) return startBreath();
+        if (/ahora no|por ahora|está bien/i.test(label)) {
+          setStage("free");
+          return ai("Está bien. Aquí estoy cuando lo necesite. Su check-in ya quedó registrado.");
+        }
+        setStage("free");
+        return ai(
+          "La escucho. Cuénteme con sus palabras qué le está pasando, o use el teclado cuando quiera. Una sola cosa a la vez está bien.",
+        );
       }
       if (stage === "open") {
         if (label === "Con algo de miedo") {
@@ -684,29 +1110,58 @@ export function usePacienteScreen() {
     setTyping(true);
     const hit = store.crisisCheck(text);
     if (hit) return setTimeout(() => crisisDiana(hit, text), 500);
-    let reply = "Gracias por contármelo. ¿Quiere contarme un poco más de cómo se ha sentido?";
+    const id = pidRef.current;
+    const P = store.PATIENTS[id] || store.emptyPatient(id, firstName, 0);
+    const fname = String(P.name || firstName || "Paciente").split(/\s+/)[0];
+    const place = String(P.place || "Quindío").split(",")[0];
+    const hist = msgs
+      .filter((m) => m.t === "ai" || m.t === "me")
+      .slice(-8)
+      .map((m) => `${m.t === "ai" ? "TEO: " : fname + ": "}${m.text}`)
+      .join("\n");
+
+    let reply = "";
     try {
-      const id = pidRef.current;
-      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
-      const fname = String(P.name || "Paciente").split(/\s+/)[0];
-      const place = String(P.place || "Quindío").split(",")[0];
-      const hist = msgs
-        .filter((m) => m.t === "ai" || m.t === "me")
-        .slice(-6)
-        .map((m) => `${m.t === "ai" ? "TEO: " : fname + ": "}${m.text}`)
-        .join("\n");
-      const out = await AlientoAI.complete(
-        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con ${P.name}, ${P.age || "—"} años, de ${place}. Perfil ${P.profile || "P05"}. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\n${fname}: ${text}\nTEO:`,
-      );
-      if (/^\s*CRISIS/.test(out)) return crisisDiana("clasificador IA", text);
-      reply = out.trim();
+      const res = await fetch("/api/teo/chat", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: hist,
+          patientName: P.name || firstName,
+          place,
+          profile: P.profile || "P01",
+          age: P.age || "",
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean };
+      if (res.ok && data.ok && data.text && data.text.trim()) {
+        reply = data.text.trim();
+      }
     } catch {
-      /* local fallback */
+      /* Gemini no disponible → motor local */
+    }
+
+    if (!reply) {
+      try {
+        const out = await AlientoAI.complete(
+          `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con ${P.name || firstName}, ${P.age || "—"} años, de ${place}. Perfil ${P.profile || "P05"}. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\n${fname}: ${text}\nTEO:`,
+        );
+        reply = String(out || "").trim();
+      } catch {
+        reply = AlientoAI.companion(text, false);
+      }
+    }
+
+    if (/^\s*CRISIS/.test(reply)) return crisisDiana("clasificador IA", text);
+    if (!reply) {
+      reply = "Gracias por escribir. ¿Quiere contarme un poco más de cómo se ha sentido?";
     }
     store.logAi(pidRef.current, "Chat con TEO", reply);
     setTyping(false);
     setMsgs((m) => m.concat([{ t: "ai", text: reply }]));
-  }, [crisisDiana, input, me, msgs, paused, store]);
+  }, [crisisDiana, firstName, input, me, msgs, paused, store]);
 
   const chipAnswer = useCallback(
     (label: string) => {
@@ -1061,90 +1516,159 @@ export function usePacienteScreen() {
       pctW: `${(done / c.weeks) * 100}%`,
       doneLabel: `${done} de ${c.weeks} semanas hechas`,
       cover: naraAsset(R.cover(cur.cuento)),
-      mods: c.mods.map((m, i) => {
-        const n = i + 1;
-        const state = pr.doneMods.includes(n)
-          ? "Hecho"
-          : n === pr.week
-            ? "Esta semana"
-            : n < pr.week
-              ? "Pendiente"
-              : "Próximo";
-        const t = R.tecnica(m.tecnica);
-        const v = R.video(m.video);
-        return {
-          n,
-          slug: m.cuento,
-          cuento: R.cuento(m.cuento).title,
-          tecnicaId: m.tecnica,
-          videoId: m.video,
-          cover: naraAsset(R.cover(m.cuento)),
-          state,
-          chipBg: state === "Hecho" ? "#E3F1E8" : state === "Esta semana" ? "#FDCD22" : "#F0ECE6",
-          bd: state === "Esta semana" ? "2px solid #161413" : "1px solid #DCD6CD",
-          tech: `${t.title} · ${t.min} min`,
-          techCount:
-            n === pr.week
-              ? (pr.tech[m.tecnica] || 0) >= 3
-                ? `✓ ${pr.tech[m.tecnica]} veces`
-                : `${pr.tech[m.tecnica] || 0} de 3`
-              : "Escuchar",
-          video: `${v.title} · ${v.min} min`,
-        };
-      }),
+      // Solo semanas asignadas (hechas + actual). No mostrar la biblioteca futura.
+      mods: c.mods
+        .map((m, i) => {
+          const n = i + 1;
+          const state = (pr.doneMods || []).includes(n)
+            ? "Hecho"
+            : n === (pr.week || 1)
+              ? "Esta semana"
+              : n < (pr.week || 1)
+                ? "Pendiente"
+                : "Próximo";
+          const t = R.tecnica(m.tecnica);
+          const v = R.video(m.video);
+          return {
+            n,
+            slug: m.cuento,
+            cuento: R.cuento(m.cuento).title,
+            tecnicaId: m.tecnica,
+            videoId: m.video,
+            cover: naraAsset(R.cover(m.cuento)),
+            state,
+            chipBg: state === "Hecho" ? "#E3F1E8" : state === "Esta semana" ? "#FDCD22" : "#F0ECE6",
+            bd: state === "Esta semana" ? "2px solid #161413" : "1px solid #DCD6CD",
+            tech: `${t.title} · ${t.min} min`,
+            techCount:
+              n === pr.week
+                ? (pr.tech[m.tecnica] || 0) >= 3
+                  ? `✓ ${pr.tech[m.tecnica]} veces`
+                  : `${pr.tech[m.tecnica] || 0} de 3`
+                : state === "Hecho"
+                  ? "Hecho"
+                  : "Escuchar",
+            video: `${v.title} · ${v.min} min`,
+            assigned: state !== "Próximo",
+          };
+        })
+        .filter((m) => m.assigned),
     };
   }, [R, pr]);
 
+  // Biblioteca = solo lo asignado esta semana (no el catálogo completo)
+  const libModFlags = useMemo(() => {
+    const en = (DP as { modulesEnabled?: string[] }).modulesEnabled;
+    const vis = (DP as { modulesVisible?: string[] }).modulesVisible;
+    const hasEn = Array.isArray(en);
+    const ok = (id: string) => {
+      if (!hasEn) return true;
+      if (!en!.includes(id)) return false;
+      if (Array.isArray(vis) && vis.length) return vis.includes(id);
+      return true;
+    };
+    return { cursos: ok("cursos"), videos: ok("videos"), tech: ok("tech") };
+  }, [DP]);
+
   const lib = useMemo(() => {
-    const tab = libTab;
+    const week = pr?.week || 1;
+    const course = pr?.course ? R.curso(pr.course) : null;
+    const mod = course?.mods?.[Math.max(0, week - 1)];
+    const assigned: Array<{
+      kind: "cuento" | "video" | "tecnica";
+      id: string;
+      title: string;
+      meta: string;
+      slug?: string;
+      emo: keyof typeof EB;
+    }> = [];
+    if (mod) {
+      if (libModFlags.cursos) {
+        const c = R.cuento(mod.cuento);
+        assigned.push({
+          kind: "cuento",
+          id: mod.cuento,
+          slug: mod.cuento,
+          title: c.title,
+          meta: `Cuento · semana ${week}`,
+          emo: "curiosidad",
+        });
+      }
+      if (libModFlags.tech) {
+        const t = R.tecnica(mod.tecnica);
+        assigned.push({
+          kind: "tecnica",
+          id: mod.tecnica,
+          title: t.title,
+          meta: `Técnica · ${t.min} min · semana ${week}`,
+          emo: "calma",
+        });
+      }
+      if (libModFlags.videos) {
+        const v = R.video(mod.video);
+        assigned.push({
+          kind: "video",
+          id: mod.video,
+          title: v.title,
+          meta: `Video · ${v.min} min · semana ${week}`,
+          emo: "curiosidad",
+        });
+      }
+    }
     const q = libQ.toLowerCase();
-    const tema = libTema;
-    const pool =
-      tab === "cuentos" ? R.CUENTOS.filter(R.openLib) : tab === "videos" ? R.VIDEOS : R.TECNICAS;
-    const match = (x: { title: string; temas?: string; tema?: string }) =>
-      (!q || x.title.toLowerCase().includes(q) || (x.temas || x.tema || "").toLowerCase().includes(q)) &&
-      (!tema || R.temaMatch(x, tema));
-    const list = pool.filter(match);
+    const filtered = assigned.filter(
+      (x) => !q || x.title.toLowerCase().includes(q) || x.meta.toLowerCase().includes(q),
+    );
+    const tab = libTab;
+    const byTab =
+      tab === "cuentos"
+        ? filtered.filter((x) => x.kind === "cuento")
+        : tab === "videos"
+          ? filtered.filter((x) => x.kind === "video")
+          : filtered.filter((x) => x.kind === "tecnica");
+    const tabs = (
+      [
+        libModFlags.cursos ? (["cuentos", "Cuentos"] as const) : null,
+        libModFlags.videos ? (["videos", "Videos"] as const) : null,
+        libModFlags.tech ? (["tecnicas", "Técnicas"] as const) : null,
+      ] as Array<readonly [string, string] | null>
+    ).filter(Boolean) as Array<readonly [string, string]>;
+
     return {
-      tabs: [
-        ["cuentos", "Cuentos"],
-        ["videos", "Videos"],
-        ["tecnicas", "Técnicas"],
-      ].map(([k, label]) => ({
+      tabs: tabs.map(([k, label]) => ({
         label,
         on: tab === k,
         bg: tab === k ? "#fff" : "transparent",
         fw: tab === k ? 600 : 500,
         key: k,
       })),
-      temas: R.TEMAS,
+      temas: [] as string[],
       isCuentos: tab === "cuentos",
       isList: tab !== "cuentos",
-      empty: !list.length,
+      empty: !byTab.length,
+      assignedOnly: true,
       cuentos:
         tab === "cuentos"
-          ? list.map((c: { title: string; slug: string; lect: number; audio: number; restr?: string }) => ({
+          ? byTab.map((c) => ({
               title: c.title,
-              cover: naraAsset(R.cover(c.slug)),
-              meta: `${c.lect} min · audio ${c.audio} min${c.restr === "pandemia" ? ` · ${R.TAG.pandemia}` : ""}`,
-              slug: c.slug,
+              cover: naraAsset(R.cover(c.slug || c.id)),
+              meta: c.meta,
+              slug: c.slug || c.id,
             }))
           : [],
       items:
         tab !== "cuentos"
-          ? list.map(
-              (v: { title: string; min: number; tema: string; emo: keyof typeof EB; kind: string; id: string }) => ({
-                title: v.title,
-                meta: `${v.min} min · ${v.tema}`,
-                bg: EB[v.emo],
-                char: naraAsset(`marca/personajes/nara-${v.emo}.svg`),
-                cta: v.kind === "video" ? "Ver" : "Escuchar",
-                id: v.id,
-              }),
-            )
+          ? byTab.map((v) => ({
+              title: v.title,
+              meta: v.meta,
+              bg: EB[v.emo],
+              char: naraAsset(`marca/personajes/nara-${v.emo}.svg`),
+              cta: v.kind === "video" ? "Ver" : "Escuchar",
+              id: v.id,
+            }))
           : [],
     };
-  }, [EB, R, libQ, libTab, libTema]);
+  }, [EB, R, libModFlags, libQ, libTab, pr]);
 
   const rdView = useMemo(() => {
     if (!rd) return null;
@@ -1244,21 +1768,44 @@ export function usePacienteScreen() {
 
   const { r: pathR, d: pathD } = store.parseCode(DP.profile || "P05");
   const pathServices = store.pathList(pathR, pathD, null, store.ctxFor(pid));
-  const pathById = Object.fromEntries(pathServices.map((s: { id: string; freq: string; channel: string; name: string }) => [s.id, s]));
+  const pathById = Object.fromEntries(
+    pathServices.map((s: { id: string; freq: string; channel: string; name: string }) => [s.id, s]),
+  ) as Record<string, { id: string; freq: string; channel: string; name: string }>;
+  // Admin habilita (modulesEnabled); paciente elige qué ver (modulesVisible).
+  // Si la ficha trae modulesEnabled (aunque sea un solo ítem), manda sobre la ruta.
+  const hasModuleOverride = Array.isArray((DP as { modulesEnabled?: string[] }).modulesEnabled);
+  const enabledList: string[] = hasModuleOverride
+    ? ((DP as { modulesEnabled: string[] }).modulesEnabled || []).slice()
+    : [...Object.keys(pathById), "hist"];
+  const rawVisible = (DP as { modulesVisible?: string[] }).modulesVisible;
+  const visibleList: string[] =
+    hasModuleOverride && Array.isArray(rawVisible)
+      ? rawVisible.filter((id: string) => enabledList.includes(id))
+      : enabledList.slice();
+  const effectiveVisible =
+    hasModuleOverride && Array.isArray(rawVisible) && rawVisible.length === 0
+      ? []
+      : visibleList.length
+        ? visibleList
+        : hasModuleOverride
+          ? enabledList.slice()
+          : enabledList;
+  const on = (id: string) => enabledList.includes(id) && effectiveVisible.includes(id);
   const mods = {
-    mood: !!pathById.mood,
-    clin: !!pathById.clin,
-    ia: !!pathById.ia,
-    wa: !!pathById.wa,
-    call: !!pathById.call,
-    bracelet: !!pathById.bracelet,
-    videos: !!pathById.videos,
-    tech: !!pathById.tech,
-    cursos: !!pathById.cursos,
-    group: !!pathById.group,
-    pmplus: !!pathById.pmplus,
-    social: !!pathById.social,
-    revisit: !!pathById.revisit,
+    mood: on("mood"),
+    clin: on("clin"),
+    ia: on("ia"),
+    wa: on("wa"),
+    call: on("call"),
+    bracelet: on("bracelet"),
+    videos: on("videos"),
+    tech: on("tech"),
+    cursos: on("cursos"),
+    group: on("group"),
+    pmplus: on("pmplus"),
+    social: on("social"),
+    revisit: on("revisit"),
+    hist: on("hist"),
   };
   const showRouteTab = !!(
     mods.cursos ||
@@ -1270,7 +1817,7 @@ export function usePacienteScreen() {
     mods.revisit ||
     mods.social
   );
-  const hasAnyModule = !!(
+  const hasHomeContent = !!(
     mods.mood ||
     mods.ia ||
     mods.wa ||
@@ -1284,47 +1831,54 @@ export function usePacienteScreen() {
     mods.clin ||
     mods.bracelet
   );
-  const showHomeTab = hasAnyModule;
-  const showHistTab = hasAnyModule;
+  const showHistTab = !!mods.hist;
+  const showHomeTab = hasHomeContent || (!showHistTab && !mods.ia && !showRouteTab);
+  const hasAnyModule = hasHomeContent || showHistTab || mods.ia || showRouteTab;
 
   useEffect(() => {
     if (!hasAnyModule) {
       setTab("home");
       return;
     }
-    if (tab === "chat" && !mods.ia) setTab("home");
-    if (tab === "route" && !showRouteTab) setTab("home");
-    if (tab === "hist" && !showHistTab) setTab("home");
-  }, [tab, mods.ia, showRouteTab, hasAnyModule, showHistTab]);
+    if (tab === "chat" && !mods.ia) setTab(showHomeTab ? "home" : showHistTab ? "hist" : "home");
+    if (tab === "route" && !showRouteTab) setTab(showHomeTab ? "home" : showHistTab ? "hist" : "home");
+    if (tab === "hist" && !showHistTab) setTab(showHomeTab ? "home" : "home");
+    if (tab === "home" && !showHomeTab && showHistTab) setTab("hist");
+  }, [tab, mods.ia, showRouteTab, hasAnyModule, showHistTab, showHomeTab]);
+
+  const svc = (id: string, freqFallback = "Según su ruta", channelFallback = "") => ({
+    freq: pathById[id]?.freq || freqFallback,
+    channel: pathById[id]?.channel || channelFallback,
+  });
 
   const waCard = mods.wa
     ? {
-        freq: pathById.wa.freq,
-        channel: pathById.wa.channel || "Audio primero",
+        freq: svc("wa", "Semanal").freq,
+        channel: svc("wa", "Semanal", "Audio primero").channel || "Audio primero",
         title: "Check-in por WhatsApp",
-        body: `Le escribimos ${String(pathById.wa.freq).toLowerCase()} por WhatsApp (${pathById.wa.channel || "audio primero"}). Puede responder con un audio corto de cómo se siente.`,
+        body: `Le escribimos ${String(svc("wa", "semanal").freq).toLowerCase()} por WhatsApp (${svc("wa", "Semanal", "audio primero").channel || "audio primero"}). Puede responder con un audio corto de cómo se siente.`,
         tip: "Cuando llegue el mensaje, respóndalo desde WhatsApp. Aquí solo ve el recordatorio.",
       }
     : null;
 
   const callCard = mods.call
     ? {
-        freq: pathById.call.freq,
+        freq: svc("call", "Mensual").freq,
         title: "Llamada de seguimiento",
-        when: DP.next || `Llamada ${String(pathById.call.freq).toLowerCase()}`,
+        when: DP.next || `Llamada ${String(svc("call", "mensual").freq).toLowerCase()}`,
         phone: DP.phone || "—",
         clin: DP.clin || "Su equipo clínico",
-        body: `Según su ruta: llamada ${String(pathById.call.freq).toLowerCase()}. Conteste desde su número registrado.`,
+        body: `Según su ruta: llamada ${String(svc("call", "mensual").freq).toLowerCase()}. Conteste desde su número registrado.`,
       }
     : null;
 
   const revisitCard = mods.revisit
     ? {
         title: "Revisita del experto",
-        freq: pathById.revisit.freq,
+        freq: svc("revisit", "Mensual").freq,
         expert: DP.expert || "Su experta de campo",
         place: (DP.place || "").split(",")[0] || "su vereda",
-        body: `${DP.expert || "Su experta de campo"} la visitará en casa (${pathById.revisit.channel || "visita en casa"}). Frecuencia: ${String(pathById.revisit.freq).toLowerCase()}.`,
+        body: `${DP.expert || "Su experta de campo"} la visitará en casa (${svc("revisit", "Mensual", "Visita en casa").channel || "visita en casa"}). Frecuencia: ${String(svc("revisit", "mensual").freq).toLowerCase()}.`,
         tip: "Prepare un lugar tranquilo. Si no puede atender, avise con tiempo.",
       }
     : null;
@@ -1332,9 +1886,9 @@ export function usePacienteScreen() {
   const groupCard = mods.group
     ? {
         title: "Grupo de apoyo en la vereda",
-        freq: pathById.group.freq,
-        channel: pathById.group.channel || "En la vereda · con facilitador",
-        body: `Encuentro ${String(pathById.group.freq).toLowerCase()} en ${pathById.group.channel || "la vereda, con facilitador"}.`,
+        freq: svc("group", "Quincenal").freq,
+        channel: svc("group", "Quincenal", "En la vereda · con facilitador").channel || "En la vereda · con facilitador",
+        body: `Encuentro ${String(svc("group", "quincenal").freq).toLowerCase()} en ${svc("group", "Quincenal", "la vereda, con facilitador").channel || "la vereda, con facilitador"}.`,
         tip: "No tiene que hablar si no quiere. Ir ya cuenta como cuidar su salud.",
       }
     : null;
@@ -1342,8 +1896,8 @@ export function usePacienteScreen() {
   const socialCard = mods.social
     ? {
         title: "Ayudas sociales",
-        channel: pathById.social.channel || "Según el caso",
-        body: `Su ruta incluye vinculación a ayudas: ${pathById.social.channel || "según su situación"}.`,
+        channel: svc("social", "Según el caso", "Según el caso").channel || "Según el caso",
+        body: `Su ruta incluye vinculación a ayudas: ${svc("social", "Según el caso", "según su situación").channel || "según su situación"}.`,
         tip: "Su experta de campo le ayuda con los trámites. Aquí solo ve el estado de ese apoyo.",
         status: "En trámite con el equipo de campo",
       }
@@ -1513,15 +2067,42 @@ export function usePacienteScreen() {
     showHomeTab,
     showHistTab,
     res,
-    moods: MOODS.map((label, i) => ({
-      n: i + 1,
-      label,
-      bd: mood === i ? C.verde : C.lineas,
-      bg: mood === i ? C.amarillo : "#fff",
-      fg: C.tinta,
-      pick: () => setMood(i),
+    moods: MOODS.map((label, i) => {
+      const on = mood === i;
+      const tint = MOOD_TINTS[i];
+      return {
+        n: i + 1,
+        label,
+        on,
+        bd: on ? "#161413" : tint.bd,
+        bg: on ? tint.bgOn : tint.bg,
+        fg: C.tinta,
+        scale: on && moodPulse ? "1.06" : on ? "1.03" : "1",
+        pick: () => pickMood(i),
+      };
+    }),
+    moodDone: mood !== null && moodStep !== "idle",
+    moodStep,
+    moodBreathing: moodStep === "breath",
+    moodThread: moodThread.map((b) => ({
+      me: b.who === "me",
+      teo: b.who === "teo",
+      text: b.text,
     })),
-    moodDone: mood !== null,
+    moodFace: naraAsset(`marca/personajes/teo-${moodFace}.svg`),
+    moodCanTeo: mods.ia,
+    moodLow: mood !== null && mood <= 1,
+    moodActions: moodChoices.map((label) => ({
+      label,
+      primary: /Respirar|TEO|hablar/i.test(label) && !/Cerrar|Prefiero/i.test(label),
+      danger: /ayuda/i.test(label),
+      go: () => {
+        if (moodStep === "why") answerMoodWhy(label);
+        else onMoodCareChoice(label);
+      },
+    })),
+    onMoodBreathDone,
+    moodChange: resetMoodFlow,
     hasCourse,
     dc,
     startTechnique: () => {
