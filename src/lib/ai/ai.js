@@ -108,6 +108,10 @@ var norm = function (t) { return String(t || '').toLowerCase().normalize('NFD').
   // Voz de TEO (nara-voz-teo.md): usted, frases cortas, una idea y una sola pregunta por mensaje,
   // sin diagnósticos, promesas ni exclamaciones. App: hasta 3 frases. WhatsApp: hasta 2.
   var TOPICS = [
+    [['hola', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'hey'], [
+      'Hola. Aquí estoy con usted. ¿Cómo se siente hoy?',
+      'Hola. Gracias por escribir. ¿Quiere contarme cómo va el día, o preferimos una respiración corta?'
+    ]],
     [['replica', 'temblo', 'sismo', 'terremoto', 'susto', 'miedo', 'asust'], [
       'Tiene sentido que el cuerpo se asuste con cada réplica. ¿Hacemos juntos la respiración 4-6 por dos minutos?',
       'Después del sismo, el miedo puede volver sin aviso. Le pasa a mucha gente. ¿Quiere que lo anotemos para hablarlo con su psicóloga?'
@@ -174,8 +178,9 @@ var norm = function (t) { return String(t || '').toLowerCase().normalize('NFD').
       return companion((p.match(/Doña Rosalba: ([\s\S]*?)\nTEO:/) || [])[1] || '', true);
     }
     if (p.indexOf('Eres TEO, acompañante con IA') > -1) {
-      var m = p.match(/\nDiana: ([^\n]*)\nTEO:\s*$/);
-      return companion(m ? m[1] : '', false);
+      // Última línea del paciente: «Nombre: mensaje» antes de «TEO:»
+      var m = p.match(/\n([^:\n]+):\s*([^\n]*)\nTEO:\s*$/);
+      return companion(m ? m[2] : '', false);
     }
     throw new Error('sin respuesta local');
   }

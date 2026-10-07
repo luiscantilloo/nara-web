@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,8 @@ function publicTerritory(doc: TerritoryDoc & { _id?: unknown }) {
 }
 
 export async function GET() {
+  const auth = await requireUser(["admin", "experto", "clinico", "observador"]);
+  if (auth.error) return auth.error;
   try {
     const db = await getDb();
     const rows = await db
@@ -70,6 +73,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser(["admin"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as Partial<TerritoryDoc>;
     const name = String(body.name || "").trim();

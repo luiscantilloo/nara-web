@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getDb, pingDb } from "@/lib/db/mongodb";
 import { NARA_COLLECTIONS } from "@/lib/db/schema";
+import { requireUser } from "@/lib/auth/requireUser";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const auth = await requireUser(["admin"]);
+  if (auth.error) return auth.error;
   try {
     const ping = await pingDb();
     const db = await getDb();

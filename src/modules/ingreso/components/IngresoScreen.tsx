@@ -43,6 +43,7 @@ export function IngresoScreen() {
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password: pass }),
       });
@@ -190,13 +191,24 @@ export function IngresoScreen() {
           >
             {loading ? "Ingresando…" : "Ingresar"}
           </button>
-          <a
-            href="#"
-            onClick={(e) => e.preventDefault()}
-            style={{ alignSelf: "center", fontSize: 14, color: "#161413", textDecoration: "none" }}
+          <button
+            type="button"
+            onClick={() =>
+              setErr("Para restablecer su acceso, escriba al administrador del programa NARA.")
+            }
+            style={{
+              alignSelf: "center",
+              fontSize: 14,
+              color: "#161413",
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
           >
             ¿Olvidó su contraseña?
-          </a>
+          </button>
         </div>
 
         {panel ? (

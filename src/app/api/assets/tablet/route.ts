@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
 
 export const runtime = "nodejs";
 
 /** Asigna una tablet a un experto de campo. */
 export async function POST(req: Request) {
+  const auth = await requireUser(["admin"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as { expertId?: string; expertName?: string };
     const db = await getDb();

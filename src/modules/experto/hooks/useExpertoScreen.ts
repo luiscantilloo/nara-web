@@ -11,7 +11,7 @@ const OK_BG = "#FFF4CC";
 
 export function useExpertoScreen() {
   const store = useNaraStore();
-  const session = useRequireSession(["experto", "andres", "mj"]);
+  const session = useRequireSession(["experto"]);
   const ex = session?.id || "andres";
   const expertName = session?.name || "Experto de campo";
   const terrName = session?.terr && session.terr !== "—" ? session.terr : "Salento";

@@ -11,6 +11,9 @@ export function applySessionUser(user: {
   org: string;
   contact: string;
   status: string;
+  href?: string;
+  nk?: string | null;
+  patientId?: string;
 }) {
   AlientoStore.set((s: { accounts: Record<string, unknown>[] }) => {
     const list = Array.isArray(s.accounts) ? s.accounts.slice() : [];
@@ -25,6 +28,7 @@ export function applySessionUser(user: {
       org: user.org,
       contact: user.contact,
       status: user.status,
+      patientId: user.patientId,
     };
     if (i >= 0) list[i] = { ...list[i], ...acct };
     else list.push(acct);

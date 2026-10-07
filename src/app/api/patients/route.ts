@@ -1,16 +1,33 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
+import { DEFAULT_PATIENT_MODULES, normalizeModuleIds } from "@/lib/db/patientModules";
 
 export const runtime = "nodejs";
 
 function publicPatient(doc: Record<string, unknown>) {
+  const modulesEnabled = Array.isArray(doc.modulesEnabled)
+    ? normalizeModuleIds(doc.modulesEnabled, [])
+    : DEFAULT_PATIENT_MODULES.slice();
+  const modulesVisible = normalizeModuleIds(
+    doc.modulesVisible ?? modulesEnabled,
+    modulesEnabled,
+  ).filter((id) => modulesEnabled.includes(id));
   return {
     id: doc.id,
     name: doc.name,
+    email: doc.email || "",
     age: doc.age || 0,
     place: doc.place || "",
+    terr: doc.terr || "",
+    departamento: doc.departamento || "",
+    municipio: doc.municipio || "",
     profile: doc.profile || "P01",
     phone: doc.phone || "",
+    sexo: doc.sexo || "",
+    genero: doc.genero || "",
+    estadoCivil: doc.estadoCivil || "",
+    estrato: doc.estrato || "",
     phq: doc.phq || [],
     phqDates: doc.phqDates || [],
     expert: doc.expert || "",
@@ -26,10 +43,16 @@ function publicPatient(doc: Record<string, unknown>) {
     audios: doc.audios || 0,
     timeline: doc.timeline || [],
     ctx: doc.ctx || { dano: 0, perdida: 0 },
+    modulesEnabled,
+    modulesVisible: modulesVisible.length ? modulesVisible : modulesEnabled,
+    source: doc.source || "",
+    accountId: doc.accountId || null,
   };
 }
 
 export async function GET() {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const db = await getDb();
     const rows = await db.collection("patients").find({}).toArray();
@@ -41,6 +64,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser(["admin", "experto", "clinico"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as Record<string, unknown>;
     const id = String(body.id || "").trim();
@@ -51,13 +76,26 @@ export async function POST(req: Request) {
 
     const db = await getDb();
     const now = new Date();
+    const modulesEnabled = normalizeModuleIds(body.modulesEnabled);
+    const modulesVisible = normalizeModuleIds(body.modulesVisible ?? modulesEnabled).filter((id) =>
+      modulesEnabled.includes(id),
+    );
+
     const doc = {
       id,
       name,
+      email: String(body.email || "").trim().toLowerCase(),
       age: Number(body.age) || 0,
       place: String(body.place || ""),
+      terr: String(body.terr || body.place || ""),
+      departamento: String(body.departamento || ""),
+      municipio: String(body.municipio || ""),
       profile: String(body.profile || "P01"),
       phone: String(body.phone || ""),
+      sexo: String(body.sexo || ""),
+      genero: String(body.genero || ""),
+      estadoCivil: String(body.estadoCivil || ""),
+      estrato: String(body.estrato || ""),
       phq: Array.isArray(body.phq) ? body.phq : [],
       phqDates: Array.isArray(body.phqDates) ? body.phqDates : ["Hoy"],
       expert: String(body.expert || ""),
@@ -73,6 +111,9 @@ export async function POST(req: Request) {
       audios: body.audios || 0,
       timeline: Array.isArray(body.timeline) ? body.timeline : [],
       ctx: body.ctx || { dano: 0, perdida: 0 },
+      modulesEnabled,
+      modulesVisible: modulesVisible.length ? modulesVisible : modulesEnabled,
+      accountId: body.accountId || null,
       updatedAt: now,
     };
 

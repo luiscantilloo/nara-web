@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/mongodb";
+import { requireUser } from "@/lib/auth/requireUser";
 import {
   APP_STATE_KEY,
   APP_STATE_SLICES,
@@ -192,6 +193,8 @@ async function mirrorToCollections(
 }
 
 export async function GET() {
+  const auth = await requireUser(["admin", "experto", "clinico", "observador", "paciente"]);
+  if (auth.error) return auth.error;
   try {
     const db = await getDb();
     const doc = await db.collection("program_settings").findOne({ key: APP_STATE_KEY });
@@ -211,6 +214,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const auth = await requireUser(["admin", "experto", "clinico", "paciente"]);
+  if (auth.error) return auth.error;
   try {
     const body = (await req.json()) as { slices?: Record<string, unknown> };
     if (!body.slices || typeof body.slices !== "object") {
