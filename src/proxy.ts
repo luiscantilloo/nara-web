@@ -4,12 +4,12 @@ import type { NextRequest } from "next/server";
 const SESSION_COOKIE = "nara_sid";
 
 /** Rutas de página públicas (sin cookie). */
-const PUBLIC_PATHS = ["/ingreso"];
+const PUBLIC_PATHS = ["/", "/landing", "/ingreso"];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
-  if (pathname.startsWith("/api/auth/login")) return true;
-  if (pathname.startsWith("/api/auth/logout")) return true;
+  // La API vive en nara-api (rewrite). Auth y errores los resuelve el gateway Nest.
+  if (pathname.startsWith("/api/")) return true;
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
@@ -40,9 +40,6 @@ export function proxy(req: NextRequest) {
 
   const cookie = req.cookies.get(SESSION_COOKIE)?.value;
   if (!hasSignedCookie(cookie)) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ ok: false, error: "No autenticado." }, { status: 401 });
-    }
     const url = req.nextUrl.clone();
     url.pathname = "/ingreso";
     url.search = "";

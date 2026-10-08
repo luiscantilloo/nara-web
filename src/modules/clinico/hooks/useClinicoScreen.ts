@@ -459,7 +459,11 @@ export function useClinicoScreen() {
       if (!P) return null;
       const { r } = A.parseCode(P.profile);
       const mx = 27;
-      const pts = P.phq.length === 1 ? [P.phq[0], P.phq[0]] : P.phq;
+      const pts = Array.isArray(P.phq) && P.phq.length
+        ? P.phq.length === 1
+          ? [P.phq[0], P.phq[0]]
+          : P.phq
+        : [0, 0];
       const spark = pts
         .map((v, i) => (4 + i * (82 / (pts.length - 1))).toFixed(1) + "," + (26 - (v / mx) * 24).toFixed(1))
         .join(" ");
@@ -467,8 +471,8 @@ export function useClinicoScreen() {
         name: P.name,
         age: P.age,
         place: P.place,
-        profile: P.profile,
-        rc: A.RISK[r].c,
+        profile: P.profile || "Sin perfil",
+        rc: (r >= 0 && A.RISK[r] ? A.RISK[r].c : "#C4BDB3"),
         spark,
         last: P.phq[P.phq.length - 1],
         next: P.nextShort,
@@ -482,7 +486,7 @@ export function useClinicoScreen() {
     const fallbackId = ids.find((id) => A.PATIENTS[id]);
     const P = A.PATIENTS[st.pid] || (fallbackId ? A.PATIENTS[fallbackId] : null) || A.emptyPatient(st.pid || "—", "Sin paciente", 0);
     if (!Array.isArray(P.phq) || !P.phq.length) P.phq = [0];
-    const pc = A.parseCode(P.profile || 'P01');
+    const pc = A.parseCode(P.profile);
     const consent = P.consentKey && S.consents && S.consents[P.consentKey] ? S.consents[P.consentKey].remision : P.consent;
     const ref = S.referrals.find((x) => x.pid === P.id);
     const cur = P.phq[P.phq.length - 1],
@@ -554,13 +558,13 @@ export function useClinicoScreen() {
       name: P.name,
       age: P.age,
       place: P.place,
-      profile: P.profile,
-      risk: A.RISK[pc.r].k,
-      rc: A.RISK[pc.r].c,
-      rbg: A.RISK[pc.r].bg,
-      dig: A.DIG[pc.d].k,
-      dc: A.DIG[pc.d].c,
-      dbg: A.DIG[pc.d].bg,
+      profile: P.profile || "Sin perfil",
+      risk: pc.r >= 0 && A.RISK[pc.r] ? A.RISK[pc.r].k : "Sin perfil",
+      rc: pc.r >= 0 && A.RISK[pc.r] ? A.RISK[pc.r].c : "#C4BDB3",
+      rbg: pc.r >= 0 && A.RISK[pc.r] ? A.RISK[pc.r].bg : "#F0ECE6",
+      dig: pc.d >= 0 && A.DIG[pc.d] ? A.DIG[pc.d].k : "—",
+      dc: pc.d >= 0 && A.DIG[pc.d] ? A.DIG[pc.d].c : "#C4BDB3",
+      dbg: pc.d >= 0 && A.DIG[pc.d] ? A.DIG[pc.d].bg : "#F0ECE6",
       consText: consent ? "Autorizó remisión" : "No autorizó compartir su caso",
       consBg: consent ? "#FFF4CC" : "#F0ECE6",
       consFg: consent ? C.verde : C.tinta,
@@ -928,6 +932,7 @@ export function useClinicoScreen() {
       noApprovals: !approvals.length,
       fRoute: (() => {
         const pc2 = A.parseCode(P.profile);
+        if (pc2.r < 0 || pc2.d < 0) return [];
         return A.pathList(pc2.r, pc2.d, null, P.ctx).map((x) => ({
           name: x.name,
           freq: x.freq + (x.channel ? " · " + x.channel : ""),

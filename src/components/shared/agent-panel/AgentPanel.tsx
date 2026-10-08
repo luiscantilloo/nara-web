@@ -127,7 +127,7 @@ export function AgentPanel({
           const res = await fetch("/api/teo/ask", {
             method: "POST",
             credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
             body: JSON.stringify({ question: text, role }),
           });
           const data = (await res.json()) as { ok?: boolean; text?: string; error?: string };
@@ -170,7 +170,7 @@ export function AgentPanel({
   const G = (window as unknown as { AlientoAgent: typeof import("@/lib/agent/agent.js") extends infer T ? T : never }).AlientoAgent;
   const S = store.get();
   const R = G.ROLE[role.split(":")[0] as keyof typeof G.ROLE];
-  const L = G.list(role);
+  const L = G.list(role) || [];
   const pref = CTX[context] || [];
   const allChips = L.slice()
     .sort((x, y) => Number(pref.indexOf(y.id) > -1) - Number(pref.indexOf(x.id) > -1))
@@ -296,7 +296,20 @@ export function AgentPanel({
     };
   }
 
-  const exName = role === "expert:mj" ? "María José" : "Andrés";
+  const sessionUser = store.session() as { name?: string } | null;
+  const greetName = (() => {
+    const full = String(sessionUser?.name || "").trim();
+    if (!full) return "";
+    // Conserva título profesional + primer nombre (p. ej. "Dra. Lucía"); si no, el primer nombre del login.
+    const withTitle = full.match(/^(Dra?\.)\s+(\S+)/i);
+    if (withTitle) return `${withTitle[1]} ${withTitle[2]}`;
+    return full.split(/\s+/)[0] || "";
+  })();
+  const greetHour = (() => {
+    const h = new Date().getHours();
+    return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
+  })();
+  const greetLine = greetName ? `${greetHour}, ${greetName}.` : `${greetHour}.`;
   const bg = mode === "drawer" ? "#F0ECE6" : "transparent";
   const pad = mode === "drawer" ? "16px 18px" : "0";
 
@@ -364,7 +377,7 @@ export function AgentPanel({
                 lineHeight: 1.2,
               }}
             >
-              {role.indexOf("expert") === 0 ? "Buenos días, " + exName + "." : R.greet}
+              {greetLine}
             </span>
             <span
               style={{

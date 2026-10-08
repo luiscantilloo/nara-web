@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { useAdminTerritorioScreen } from "./useAdminTerritorioScreen";
 
@@ -11,7 +12,7 @@ function AdminTerritorioInner() {
   const { v } = useAdminTerritorioScreen();
 
   if (!v) {
-    return <div className="min-h-screen bg-nara-crema font-texto" />;
+    return <NaraLoadingScreen />;
   }
 
   return (
@@ -258,7 +259,7 @@ function AdminTerritorioInner() {
 
 export function AdminTerritorioScreen() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-nara-crema font-texto" />}>
+    <Suspense fallback={<NaraLoadingScreen />}>
       <AdminTerritorioInner />
     </Suspense>
   );

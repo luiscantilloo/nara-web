@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import { BreathExercise } from "./BreathExercise";
@@ -20,9 +21,7 @@ export function PacienteScreen() {
   const vm = usePacienteScreen();
 
   if (!vm.ready) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#F0ECE6", fontFamily: "Figtree, system-ui, sans-serif" }} />
-    );
+    return <NaraLoadingScreen />;
   }
 
   return (
@@ -118,32 +117,7 @@ export function PacienteScreen() {
               </div>
             ) : null}
 
-            {vm.splash ? (
-              <div
-                aria-label="NARA"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  zIndex: 70,
-                  background: "#FFA3D0",
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                <div
-                  style={{
-                    width: 148,
-                    height: 148,
-                    borderRadius: 40,
-                    background: "#F0ECE6",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <img src={naraAsset("marca/logo/nara-isotipo.svg")} alt="NARA" style={{ width: 112, height: 112, display: "block" }} />
-                </div>
-              </div>
-            ) : null}
+            {vm.splash ? <NaraLoadingScreen /> : null}
 
             {vm.framed ? (
               <div

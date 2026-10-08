@@ -7,7 +7,8 @@
  */
 import { config } from "dotenv";
 import { MongoClient } from "mongodb";
-import { resolve, dirname } from "path";
+import { resolve, dirname, join } from "path";
+import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { readFileSync, existsSync } from "fs";
 import XLSX from "xlsx";
@@ -19,10 +20,8 @@ config({ path: resolve(__dirname, "../.env") });
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB || "nara";
 
-const DEFAULT_XLSX =
-  process.argv[2] ||
-  resolve(__dirname, "../data/Base De Datos Web Salud Mental - 24 Junio 2022.xlsx") ||
-  "c:/Users/ll-lu/Downloads/Base De Datos Web Salud Mental - 24 Junio 2022.xlsx";
+const NARA_DATA =
+  process.env.NARA_DATA_DIR || join(homedir(), "Downloads", "nara-data");
 
 const DEFAULT_MODULES = ["mood", "ia", "cursos", "videos", "tech", "hist"];
 
@@ -99,8 +98,8 @@ async function main() {
 
   const candidates = [
     process.argv[2],
-    resolve(__dirname, "../data/Base De Datos Web Salud Mental - 24 Junio 2022.xlsx"),
-    "c:/Users/ll-lu/Downloads/Base De Datos Web Salud Mental - 24 Junio 2022.xlsx",
+    resolve(NARA_DATA, "Base De Datos Web Salud Mental - 24 Junio 2022.xlsx"),
+    join(homedir(), "Downloads", "Base De Datos Web Salud Mental - 24 Junio 2022.xlsx"),
   ].filter(Boolean);
 
   const filePath = candidates.find((p) => existsSync(p));

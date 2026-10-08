@@ -544,6 +544,11 @@ export function usePacienteScreen() {
           patient?: Record<string, unknown> & { id: string; plan?: unknown };
         };
         if (!cancelled && res.ok && data.ok && data.patient?.id) {
+          const profile = data.patient.profile != null ? String(data.patient.profile) : "";
+          if (!/^P\d+$/i.test(profile)) {
+            router.replace("/paciente/pendiente");
+            return;
+          }
           store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
             s.patients = s.patients || {};
             s.patients[data.patient!.id] = {
@@ -551,9 +556,15 @@ export function usePacienteScreen() {
               ...data.patient!,
             };
           });
+        } else if (!cancelled) {
+          router.replace("/paciente/pendiente");
+          return;
         }
       } catch {
-        /* sin ficha */
+        if (!cancelled) {
+          router.replace("/paciente/pendiente");
+          return;
+        }
       }
       if (cancelled) return;
 
@@ -1125,7 +1136,7 @@ export function usePacienteScreen() {
       const res = await fetch("/api/teo/chat", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
           history: hist,

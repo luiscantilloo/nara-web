@@ -1,24 +1,13 @@
 import { Suspense } from "react";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import AdminRedirectPage from "./AdminRedirect";
 import { pageTitle } from "@/lib/page-title";
 
 export const metadata = pageTitle("Administrador");
 
-function Fallback() {
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#F0ECE6",
-        fontFamily: "Figtree, system-ui, sans-serif",
-      }}
-    />
-  );
-}
-
 export default function AdminPage() {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<NaraLoadingScreen />}>
       <AdminRedirectPage />
     </Suspense>
   );

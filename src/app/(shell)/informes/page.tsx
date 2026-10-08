@@ -1,24 +1,13 @@
 import { Suspense } from "react";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { AdminInformesScreen } from "@/modules/admin";
 import { pageTitle } from "@/lib/page-title";
 
 export const metadata = pageTitle("Informes");
 
-function Fallback() {
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#F0ECE6",
-        fontFamily: "Figtree, system-ui, sans-serif",
-      }}
-    />
-  );
-}
-
 export default function InformesPage() {
   return (
-    <Suspense fallback={<Fallback />}>
+    <Suspense fallback={<NaraLoadingScreen />}>
       <AdminInformesScreen />
     </Suspense>
   );

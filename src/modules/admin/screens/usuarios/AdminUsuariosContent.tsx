@@ -74,8 +74,14 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
           >
             <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate font-medium text-nara-tinta">{u.name}</span>
-                <span className="truncate text-xs text-texto-secundario">{u.contact}</span>
+                <span className="truncate font-medium text-nara-tinta">
+                  {u.role === "Observador" ? u.org || u.name : u.name}
+                </span>
+                {u.role === "Observador" && u.mods ? (
+                  <span className="truncate text-xs text-texto-secundario">{u.mods}</span>
+                ) : (
+                  <span className="truncate text-xs text-texto-secundario">{u.contact}</span>
+                )}
               </div>
               <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-nara-tinta">
                 <span
@@ -85,16 +91,20 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 {u.status}
               </span>
             </div>
-            <div className="flex min-w-0 flex-col gap-0.5 text-sm">
-              <span className="text-nara-tinta">{u.role}</span>
-              {u.mods ? (
-                <span className="text-xs text-texto-secundario">{u.mods}</span>
-              ) : null}
-            </div>
-            <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-sm text-texto-secundario">
-              <span className="min-w-0 break-words">{u.org}</span>
-              {u.terr ? <span className="min-w-0 break-words">{u.terr}</span> : null}
-            </div>
+            {u.role !== "Observador" ? (
+              <div className="flex min-w-0 flex-col gap-0.5 text-sm">
+                <span className="text-nara-tinta">{u.role}</span>
+                {u.mods ? (
+                  <span className="text-xs text-texto-secundario">{u.mods}</span>
+                ) : null}
+              </div>
+            ) : null}
+            {u.role !== "Observador" ? (
+              <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-sm text-texto-secundario">
+                <span className="min-w-0 break-words">{u.org}</span>
+                {u.terr ? <span className="min-w-0 break-words">{u.terr}</span> : null}
+              </div>
+            ) : null}
           </button>
         ))}
         {v.noUsers ? (
@@ -133,14 +143,20 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 style={ix`display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) 100px;gap:12px;padding:11px 20px;border-top:1px solid #E6E1D9;align-items:center;font-size:14px;cursor:pointer;background:${u.bg}`}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 500 }}>{u.name}</span>
-                  <span style={{ fontSize: 12, color: "#5E5750" }}>{u.contact}</span>
+                  <span style={{ fontWeight: 500 }}>
+                    {u.role === "Observador" ? u.org || u.name : u.name}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#5E5750" }}>
+                    {u.role === "Observador" ? u.mods || u.contact : u.contact}
+                  </span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                   <span>{u.role}</span>
-                  <span style={{ fontSize: 12, color: "#5E5750" }}>{u.mods}</span>
+                  {u.role !== "Observador" && u.mods ? (
+                    <span style={{ fontSize: 12, color: "#5E5750" }}>{u.mods}</span>
+                  ) : null}
                 </div>
-                <span style={{ minWidth: 0 }}>{u.org}</span>
+                <span style={{ minWidth: 0 }}>{u.role === "Observador" ? u.terr : u.org}</span>
                 <span style={{ minWidth: 0 }}>{u.terr}</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 500 }}>
                   <span style={ix`width:8px;height:8px;border-radius:50%;background:${u.sc}`} />
@@ -392,52 +408,27 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                     <option>Financiador</option>
                     <option>Investigación</option>
                     <option>Institución de salud</option>
-                    <option>Otra</option>
                   </select>
                 </label>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontWeight: 500, fontSize: 14 }}>Plantilla rápida</span>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {v.tpls?.map((t: any) => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => t.go()}
-                      style={ix`font-family:Figtree,system-ui,sans-serif;font-size:13px;font-weight:500;height:34px;padding:0 10px;border-radius:8px;border:1.5px solid ${t.bd};background:${t.bg};color:#161413;cursor:pointer`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span style={{ fontWeight: 500, fontSize: 14, marginBottom: 4 }}>Módulos</span>
-                {v.mods?.map((m: any) => (
+                <span style={{ fontWeight: 500, fontSize: 14 }}>Vistas de este tipo</span>
+                <span style={{ fontSize: 13, color: "#5E5750", lineHeight: 1.4 }}>
+                  Se asignan al elegir el tipo. Por ahora la app del observador muestra topbar + TEO; estas vistas se armarán después.
+                </span>
+                {v.obsVistas?.map((m: { key: string; name: string; desc: string }) => (
                   <div
                     key={m.key}
-                    onClick={() => m.toggle()}
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "52px minmax(0,1fr)",
-                      gap: 10,
-                      alignItems: "center",
-                      padding: "8px 0",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                      padding: "10px 0",
                       borderTop: "1px solid #F0ECE6",
-                      cursor: "pointer",
                     }}
                   >
-                    <div
-                      style={ix`width:44px;height:26px;border-radius:13px;background:${m.swBg};position:relative`}
-                    >
-                      <div
-                        style={ix`position:absolute;top:3px;left:${m.x};width:20px;height:20px;border-radius:10px;background:#fff`}
-                      />
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontWeight: 500, fontSize: 14 }}>{m.name}</span>
-                      <span style={{ fontSize: 12, color: "#5E5750", lineHeight: 1.35 }}>{m.desc}</span>
-                    </div>
+                    <span style={{ fontWeight: 500, fontSize: 14 }}>{m.name}</span>
+                    <span style={{ fontSize: 12, color: "#5E5750", lineHeight: 1.35 }}>{m.desc}</span>
                   </div>
                 ))}
               </div>

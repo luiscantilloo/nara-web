@@ -11,6 +11,8 @@ import {
 import AlientoStore from "@/lib/store/store";
 import AlientoAI from "@/lib/ai/ai";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
+import { apiFetch } from "@/lib/api/client";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { hydrateAppState, pausePersist } from "@/lib/store/persist";
 
 export type NaraUser = {
@@ -35,8 +37,6 @@ function getSnapshot() {
   return AlientoStore.get();
 }
 
-const fetchOpts: RequestInit = { credentials: "same-origin" };
-
 export function NaraProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
@@ -47,7 +47,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateSession() {
       try {
-        const res = await fetch("/api/auth/me", fetchOpts);
+        const res = await apiFetch("/api/auth/me");
         const data = (await res.json()) as {
           ok?: boolean;
           user?: Parameters<typeof applySessionUser>[0];
@@ -60,19 +60,26 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateTerritories() {
       try {
-        const res = await fetch("/api/territories", fetchOpts);
+        const res = await apiFetch("/api/territories");
         const data = (await res.json()) as {
           ok?: boolean;
           territories?: Array<Record<string, unknown> & { name: string; content?: string[] }>;
         };
         if (res.ok && data.ok && Array.isArray(data.territories)) {
+          const seen = new Set<string>();
+          const territories = data.territories.filter((t) => {
+            const n = String(t.name || "").trim();
+            if (!n || seen.has(n)) return false;
+            seen.add(n);
+            return true;
+          });
           AlientoStore.set((s: {
             territories: Record<string, unknown>[];
             terrOv: Record<string, { content?: string[] }>;
           }) => {
-            s.territories = data.territories!;
+            s.territories = territories;
             s.terrOv = s.terrOv || {};
-            data.territories!.forEach((t) => {
+            territories.forEach((t) => {
               if (t.content?.length) {
                 s.terrOv[t.name] = Object.assign({}, s.terrOv[t.name], { content: t.content });
               }
@@ -86,7 +93,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateExperts() {
       try {
-        const res = await fetch("/api/experts", fetchOpts);
+        const res = await apiFetch("/api/experts");
         const data = (await res.json()) as {
           ok?: boolean;
           experts?: Record<string, unknown>[];
@@ -103,7 +110,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     async function hydrateAccounts() {
       try {
-        const res = await fetch("/api/accounts", fetchOpts);
+        const res = await apiFetch("/api/accounts");
         const data = (await res.json()) as {
           ok?: boolean;
           accounts?: Record<string, unknown>[];
@@ -121,11 +128,11 @@ export function NaraProvider({ children }: { children: ReactNode }) {
     async function hydratePeopleFlagsWorklists() {
       try {
         const [peopleRes, flagsRes, wlRes, patientsRes, assetsRes] = await Promise.all([
-          fetch("/api/people", fetchOpts),
-          fetch("/api/flags", fetchOpts),
-          fetch("/api/worklists", fetchOpts),
-          fetch("/api/patients", fetchOpts),
-          fetch("/api/assets", fetchOpts),
+          apiFetch("/api/people"),
+          apiFetch("/api/flags"),
+          apiFetch("/api/worklists"),
+          apiFetch("/api/patients"),
+          apiFetch("/api/assets"),
         ]);
         const peopleData = (await peopleRes.json()) as { ok?: boolean; people?: Record<string, unknown>[] };
         const flagsData = (await flagsRes.json()) as { ok?: boolean; flags?: Record<string, unknown>[] };
@@ -215,7 +222,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
         // Paciente: ficha propia (módulos del admin) + app-state
         if (roleId === "paciente") {
           try {
-            const res = await fetch("/api/patients/me", fetchOpts);
+            const res = await apiFetch("/api/patients/me");
             const data = (await res.json()) as {
               ok?: boolean;
               patient?: Record<string, unknown> & { id: string };
@@ -251,7 +258,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
         } else if (roleId === "observador") {
           // observador: territorios/expertos ya; people agregado vía territories+store
           programJobs.push(
-            fetch("/api/people", fetchOpts)
+            apiFetch("/api/people")
               .then(async (peopleRes) => {
                 const peopleData = (await peopleRes.json()) as {
                   ok?: boolean;
@@ -276,15 +283,7 @@ export function NaraProvider({ children }: { children: ReactNode }) {
   }, []);
 
   if (!ready) {
-    return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#F0ECE6",
-          fontFamily: "Figtree, system-ui, sans-serif",
-        }}
-      />
-    );
+    return <NaraLoadingScreen />;
   }
 
   return (

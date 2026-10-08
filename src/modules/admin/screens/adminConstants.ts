@@ -27,14 +27,7 @@ export const CHECKS: [string, string][] = [
 ];
 
 export const NOTES: Record<string, string> = {
-  pmplus: "OMS · 5 sesiones con experto capacitado · aún no en app paciente",
-  group: "Ventana de grupo en la app del paciente",
-  social: "Ventana de ayudas sociales en la app (si hay daño o pérdida)",
-  mood: "Check-in «¿Cómo se siente hoy?» en la app · por defecto en rutas nuevas; se puede apagar",
-  clin: "Canal según nivel digital",
-  ia: "Botón TEO en la app del paciente",
   wa: "Audio primero · ventana de check-in en la app",
-  call: "Ventana de próxima llamada en la app",
   bracelet: "Sueño y ritmo cardiaco",
   videos: "Biblioteca de videos en la app",
   tech: "Respiración, sueño, anclaje",
@@ -46,6 +39,8 @@ export type AdminUiState = {
   view: string;
   agentOpen: boolean;
   terrFilter: string;
+  /** Búsqueda en listado de territorios */
+  terrQ: string;
   msg: string;
   msgActions: { label: string; go: () => void }[];
   terrForm: boolean;
@@ -97,6 +92,7 @@ export const INITIAL_ADMIN_STATE: AdminUiState = {
   view: "home",
   agentOpen: false,
   terrFilter: "",
+  terrQ: "",
   msg: "",
   msgActions: [],
   terrForm: false,

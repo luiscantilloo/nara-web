@@ -1,6 +1,21 @@
 import type { NextConfig } from "next";
 
+/**
+ * Gateway Nest (nara-api). Obligatorio en runtime: sin esto `/api/*` no tiene backend
+ * (las route handlers locales se eliminaron).
+ * Dev: http://127.0.0.1:4000
+ */
+const NARA_API_URL = (process.env.NARA_API_URL || "").replace(/\/$/, "");
+
+if (!NARA_API_URL && process.env.NODE_ENV !== "test") {
+  console.warn(
+    "[nara-web] Falta NARA_API_URL — defínalo en .env.local (ej. http://127.0.0.1:4000).",
+  );
+}
+
 const nextConfig: NextConfig = {
+  // Acceso HMR desde la red local (p. ej. celular/otro PC en la LAN)
+  allowedDevOrigins: ["192.168.80.12"],
   // El código portado del prototipo aún tiene deuda de tipos; no bloquear el deploy.
   typescript: {
     ignoreBuildErrors: true,
@@ -9,8 +24,32 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/",
-        destination: "/ingreso",
+        destination: "/landing",
         permanent: false,
+      },
+      {
+        source: "/landing/privacidad.html",
+        destination: "/landing/privacidad",
+        permanent: true,
+      },
+      {
+        source: "/landing/tratamiento-de-datos.html",
+        destination: "/landing/tratamiento-de-datos",
+        permanent: true,
+      },
+      {
+        source: "/landing/index.html",
+        destination: "/landing",
+        permanent: true,
+      },
+    ];
+  },
+  async rewrites() {
+    if (!NARA_API_URL) return [];
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${NARA_API_URL}/api/:path*`,
       },
     ];
   },

@@ -1,6 +1,7 @@
-/** Persistencia automática del AlientoStore → Mongo (/api/app-state). */
+/** Persistencia automática del AlientoStore → Mongo (/api/app-state → nara-api). */
 
 import { APP_STATE_SLICES } from "@/lib/db/appState";
+import { apiFetch } from "@/lib/api/client";
 
 let paused = true;
 let timer = null;
@@ -30,7 +31,7 @@ function pickSlices(s) {
 
 export async function hydrateAppState(store) {
   try {
-    const res = await fetch("/api/app-state", { credentials: "same-origin" });
+    const res = await apiFetch("/api/app-state");
     const data = await res.json();
     if (!res.ok || !data.ok || !data.slices) return;
     const slices = data.slices;
@@ -57,10 +58,8 @@ export async function flushPersist(store) {
   if (paused || typeof window === "undefined") return;
   try {
     const slices = pickSlices(store.get());
-    const res = await fetch("/api/app-state", {
+    const res = await apiFetch("/api/app-state", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
       body: JSON.stringify({ slices }),
     });
     if (!res.ok) {

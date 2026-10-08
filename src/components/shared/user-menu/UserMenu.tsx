@@ -5,13 +5,13 @@ import { useEffect, useState } from "react";
 import { useNaraStore } from "@/providers/nara-provider";
 
 type Props = {
+  /** @deprecated Las notificaciones del topbar se quitaron; se ignora. */
   notifKey?: string;
   compact?: boolean;
 };
 
-export function UserMenu({ notifKey, compact }: Props) {
+export function UserMenu({ compact }: Props) {
   const store = useNaraStore();
-  const [bell, setBell] = useState(false);
   const [menu, setMenu] = useState(false);
   const [width, setWidth] = useState(1500);
 
@@ -19,16 +19,10 @@ export function UserMenu({ notifKey, compact }: Props) {
     const onR = () => setWidth(window.innerWidth);
     const onDoc = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
-      if ((bell || menu) && !t?.closest?.("[data-um]")) {
-        setBell(false);
-        setMenu(false);
-      }
+      if (menu && !t?.closest?.("[data-um]")) setMenu(false);
     };
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && (bell || menu)) {
-        setBell(false);
-        setMenu(false);
-      }
+      if (e.key === "Escape" && menu) setMenu(false);
     };
     onR();
     window.addEventListener("resize", onR);
@@ -39,13 +33,9 @@ export function UserMenu({ notifKey, compact }: Props) {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onEsc);
     };
-  }, [bell, menu]);
+  }, [menu]);
 
   const u = store.session() || { name: "", role: "", terr: "", nk: null };
-  const S = store.get();
-  const key = notifKey || u.nk;
-  const list = key ? S.notifs[key] || [] : [];
-  const unread = list.filter((n: { read: boolean }) => !n.read).length;
   const full = !compact && width >= 1100;
   const initials = u.name
     .replace(/^Dra?\. /, "")
@@ -60,125 +50,12 @@ export function UserMenu({ notifKey, compact }: Props) {
       data-um="1"
       className="relative flex items-center gap-3 font-texto text-nara-tinta sm:gap-3.5"
     >
-      {key ? (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setBell(!bell);
-              setMenu(false);
-            }}
-            aria-label="Notificaciones"
-            className="relative grid h-11 w-11 cursor-pointer place-items-center rounded-full border border-linea bg-nara-blanco text-nara-tinta"
-          >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-            </svg>
-            {unread > 0 ? (
-              <span className="absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-[10px] bg-nara-tinta px-1.5 text-xs font-medium text-white box-border">
-                {unread}
-              </span>
-            ) : null}
-          </button>
-
-          {bell ? (
-            <div className="absolute top-[calc(100%+8px)] right-0 z-50 flex max-h-[460px] w-[min(360px,calc(100vw-16px))] flex-col overflow-auto rounded-2xl border border-linea bg-nara-blanco shadow-[0_12px_30px_rgba(22,20,19,.15)]">
-              <div className="flex items-center justify-between border-b border-[#E6E1D9] px-4 py-3">
-                <span className="font-medium">Notificaciones</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    store.set((s: { notifs: Record<string, { read: boolean }[]> }) => {
-                      (s.notifs[key as string] || []).forEach((n) => {
-                        n.read = true;
-                      });
-                    })
-                  }
-                  className="cursor-pointer border-none bg-transparent font-texto text-[13px] text-nara-tinta"
-                >
-                  Marcar todas como leídas
-                </button>
-              </div>
-              {list.length === 0 ? (
-                <span className="px-4 py-5 text-sm text-texto-secundario">
-                  No hay notificaciones.
-                </span>
-              ) : (
-                list.slice(0, 30).map(
-                  (n: {
-                    id: string;
-                    text: string;
-                    link?: string;
-                    at: number;
-                    read: boolean;
-                  }) => (
-                    <a
-                      key={n.id}
-                      href={
-                        n.link?.startsWith("/")
-                          ? n.link
-                          : n.link?.replace(/\.dc\.html.*/, "")
-                            ? mapLegacy(n.link)
-                            : "#"
-                      }
-                      onClick={() =>
-                        store.set(
-                          (s: {
-                            notifs: Record<
-                              string,
-                              { id: string; read: boolean }[]
-                            >;
-                          }) => {
-                            const x = (s.notifs[key as string] || []).find(
-                              (y) => y.id === n.id,
-                            );
-                            if (x) x.read = true;
-                          },
-                        )
-                      }
-                      className="flex gap-2.5 border-b border-[#E6E1D9] px-4 py-3 text-nara-tinta no-underline"
-                      style={{ background: n.read ? "#fff" : "#FFF9E3" }}
-                    >
-                      <span
-                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                        style={{
-                          background: n.read ? "#DCD6CD" : "#161413",
-                        }}
-                      />
-                      <span className="flex flex-col gap-0.5">
-                        <span className="text-sm leading-snug">{n.text}</span>
-                        <span className="text-xs text-texto-secundario">
-                          {store.agoText(n.at)}
-                        </span>
-                      </span>
-                    </a>
-                  ),
-                )
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="relative">
         <button
           type="button"
           aria-expanded={menu}
           aria-haspopup="menu"
-          onClick={() => {
-            setMenu(!menu);
-            setBell(false);
-          }}
+          onClick={() => setMenu(!menu)}
           className={[
             "flex h-11 cursor-pointer items-center gap-2.5 rounded-full border bg-nara-blanco font-texto text-nara-tinta transition-colors",
             menu
@@ -218,7 +95,6 @@ export function UserMenu({ notifKey, compact }: Props) {
             role="menu"
             className="absolute top-[calc(100%+6px)] right-0 z-50 w-[260px] overflow-hidden rounded-2xl border border-linea bg-nara-blanco shadow-[0_12px_30px_rgba(22,20,19,.15)]"
           >
-            {/* Puente visual con el botón */}
             <div
               className="pointer-events-none absolute -top-[7px] right-5 h-3.5 w-3.5 rotate-45 border-t border-l border-linea bg-nara-blanco"
               aria-hidden
@@ -262,14 +138,4 @@ export function UserMenu({ notifKey, compact }: Props) {
       </div>
     </div>
   );
-}
-
-function mapLegacy(link: string) {
-  if (link.includes("Clinico")) return "/clinico";
-  if (link.includes("Experto")) return "/experto";
-  if (link.includes("Admin")) return "/inicio";
-  if (link.includes("Observador")) return "/observador";
-  if (link.includes("PacientePlan")) return "/paciente/plan";
-  if (link.includes("Paciente")) return "/paciente";
-  return link;
 }

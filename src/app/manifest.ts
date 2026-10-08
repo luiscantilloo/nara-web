@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: `${SITE_NAME} · ${SITE_TAGLINE}`,
     short_name: SITE_NAME,
     description: SITE_DESCRIPTION,
-    start_url: "/ingreso",
+    start_url: "/landing",
     display: "standalone",
     background_color: "#F0ECE6",
     theme_color: "#FDCD22",
