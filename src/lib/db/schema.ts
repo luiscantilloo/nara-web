@@ -330,8 +330,15 @@ export function defaultProgramSettings() {
         ],
       },
       auto: { expert: "vereda", clin: "carga", review: "Cada 4 semanas" },
+      goals: { daily: 9, weekly: 45 },
       pending: null,
       versions: [
+        {
+          v: 2,
+          by: "Daniel Galvis",
+          at: Date.parse("2026-10-08"),
+          what: "Matriz v2: sin teléfono ⇒ Baja; uso diario ≤ teléfono; ánimo en app solo con capacidad Alta; cursos con el experto en Baja; PM+ en Moderado y Moderado-severo; revisitas en Leve.",
+        },
         {
           v: 1,
           by: "Sistema",

@@ -5,6 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useNaraStore } from "@/providers/nara-provider";
+import {
+  INACTIVITY_DAYS,
+  PATIENT_STATES,
+  normalizePatientState,
+  patientStateMeta,
+  profileCatalog,
+} from "@/lib/clinical/patientStates";
 
 const INSTS = [
   { id: "hsal", label: "Hospital local de Salento · Psicología y psiquiatría" },
@@ -39,6 +46,10 @@ export function useClinicoScreen() {
     fileFrom: null,
     asg: null,
     tick: 0,
+    /** Filtro de la sección Aprobaciones: all | eval | path | rules */
+    apprFilter: "all",
+    /** Filtro de estados en Mis pacientes */
+    stateFilter: "all",
   });
   const setState = useCallback((u) => {
     setStateRaw((prev) => ({ ...prev, ...(typeof u === "function" ? u(prev) : u) }));
@@ -50,6 +61,65 @@ export function useClinicoScreen() {
     if (v0) setState({ view: v0 });
     if (p0) setState({ view: "file", pid: p0 });
   }, [searchParams, setState]);
+
+  // Inactividad de pacientes → alerta clínica + reactivar «Estoy en crisis».
+  useEffect(() => {
+    if (!session) return;
+    const S = store.get();
+    const patients = S.patients || {};
+    const toAdd = [];
+    Object.keys(patients).forEach((id) => {
+      const P = patients[id];
+      if (!P) return;
+      const days =
+        P.checkinDays != null
+          ? P.checkinDays
+          : P.lastCheckin
+            ? Math.floor((Date.now() - new Date(P.lastCheckin).getTime()) / 86400000)
+            : null;
+      if (days == null || days < INACTIVITY_DAYS) return;
+      const aid = "a-inactive-" + id;
+      if (S.alerts.find((a) => a.id === aid) || (S.closedToday || []).find((a) => a.id === aid))
+        return;
+      toAdd.push({ id, P, days, aid });
+    });
+    if (!toAdd.length) return;
+    store.set((s) => {
+      toAdd.forEach(({ id, P, days, aid }) => {
+        if (s.alerts.find((a) => a.id === aid)) return;
+        s.alerts.unshift({
+          id: aid,
+          sev: "revisar",
+          status: "open",
+          pid: id,
+          name: P.name,
+          age: P.age,
+          place: P.place,
+          profile: P.profile || "—",
+          what:
+            "Sin actividad en la app desde hace " +
+            days +
+            " días. Reactivar contacto y el botón «Estoy en crisis».",
+          source: "Inactividad de inicio de sesión",
+          phone: P.phone || "",
+          at: Date.now(),
+        });
+        if (s.patients[id]) {
+          s.patients[id].status = "Inactivo";
+          s.patients[id].signal = "Inactivo";
+          s.patients[id].crisisBtnReady = true;
+        }
+        const pe = (s.people || []).find((p) => p.id === id);
+        if (pe) pe.status = "Inactivo";
+        store.pushNotif(
+          s,
+          "clin",
+          "Inactividad: " + P.name + " · " + days + " días",
+          "/clinico?view=alerts",
+        );
+      });
+    });
+  }, [session, store, st.tick]);
 
   function openFile(pid, fromAgent) {
     const st0 = st;
@@ -333,6 +403,17 @@ export function useClinicoScreen() {
               x.outcome = OUTCOMES[pick];
               x.closedAt = Date.now();
               s.closedToday.unshift(x);
+              // Tras cerrar crisis: reactivar botón «Estoy en crisis» en la app del paciente.
+              if (x.pid && s.patients[x.pid]) {
+                s.patients[x.pid].crisisBtnReady = true;
+                s.patients[x.pid].crisisBtnReadyAt = Date.now();
+                if (/crisis/i.test(String(s.patients[x.pid].status || ""))) {
+                  s.patients[x.pid].status = "Activo";
+                  s.patients[x.pid].signal = "Activo";
+                }
+                const pe = (s.people || []).find((p) => p.id === x.pid);
+                if (pe && /crisis/i.test(String(pe.status || ""))) pe.status = "Activo";
+              }
               if (pick === 3)
                 s.falsePositives.push({
                   name: x.name,
@@ -454,34 +535,76 @@ export function useClinicoScreen() {
           : /Mejorando/.test(t)
             ? C.verde
             : C.tinta;
-    const patients = ids.map((id) => {
-      const P = A.PATIENTS[id];
-      if (!P) return null;
-      const { r } = A.parseCode(P.profile);
-      const mx = 27;
-      const pts = Array.isArray(P.phq) && P.phq.length
-        ? P.phq.length === 1
-          ? [P.phq[0], P.phq[0]]
-          : P.phq
-        : [0, 0];
-      const spark = pts
-        .map((v, i) => (4 + i * (82 / (pts.length - 1))).toFixed(1) + "," + (26 - (v / mx) * 24).toFixed(1))
-        .join(" ");
-      return {
-        name: P.name,
-        age: P.age,
-        place: P.place,
-        profile: P.profile || "Sin perfil",
-        rc: (r >= 0 && A.RISK[r] ? A.RISK[r].c : "#C4BDB3"),
-        spark,
-        last: P.phq[P.phq.length - 1],
-        next: P.nextShort,
-        adh: P.adherence == null ? "—" : P.adherence + " %",
-        signal: P.signal,
-        sigFg: sigColor(P.signal),
-        open: () => openFile(id),
-      };
-    }).filter(Boolean);
+    const peopleById = {};
+    (A.people ? A.people(S) : S.people || []).forEach((p) => {
+      if (p?.id) peopleById[p.id] = p;
+      if (p?.code) peopleById[p.code] = p;
+    });
+    const crisisPids = new Set(
+      S.alerts
+        .filter((a) => a.sev === "crisis" && a.status !== "closed")
+        .map((a) => a.pid)
+        .filter(Boolean),
+    );
+
+    const patients = ids
+      .map((id) => {
+        const P = A.PATIENTS[id];
+        if (!P) return null;
+        const pe = peopleById[id];
+        const { r } = A.parseCode(P.profile);
+        const mx = 27;
+        const pts =
+          Array.isArray(P.phq) && P.phq.length
+            ? P.phq.length === 1
+              ? [P.phq[0], P.phq[0]]
+              : P.phq
+            : [0, 0];
+        const spark = pts
+          .map(
+            (v, i) =>
+              (4 + i * (82 / (pts.length - 1))).toFixed(1) +
+              "," +
+              (26 - (v / mx) * 24).toFixed(1),
+          )
+          .join(" ");
+        const inactiveDays =
+          P.checkinDays != null
+            ? P.checkinDays
+            : P.lastCheckin
+              ? Math.floor((Date.now() - new Date(P.lastCheckin).getTime()) / 86400000)
+              : null;
+        const inCrisis = crisisPids.has(id) || /crisis/i.test(String(P.status || P.signal || ""));
+        const stateId = normalizePatientState(P.status || pe?.status, {
+          hasProfile: !!(P.profile && /^P\d+$/i.test(String(P.profile))),
+          inCrisis,
+          inactiveDays,
+        });
+        const stMeta = patientStateMeta(stateId);
+        return {
+          id,
+          name: P.name,
+          age: P.age,
+          place: P.place,
+          profile: P.profile || "Sin perfil",
+          rc: r >= 0 && A.RISK[r] ? A.RISK[r].c : "#C4BDB3",
+          spark,
+          last: P.phq[P.phq.length - 1],
+          next: P.nextShort,
+          adh: P.adherence == null ? "—" : P.adherence + " %",
+          signal: P.signal,
+          sigFg: sigColor(P.signal),
+          stateId,
+          stateLabel: stMeta.label,
+          stateBg: stMeta.bg,
+          stateFg: stMeta.fg,
+          inCrisis,
+          open: () => openFile(id),
+          openCrisis: () => setState({ view: "alerts", fileFrom: { view: "patients" } }),
+        };
+      })
+      .filter(Boolean)
+      .filter((p) => st.stateFilter === "all" || p.stateId === st.stateFilter);
 
     const fallbackId = ids.find((id) => A.PATIENTS[id]);
     const P = A.PATIENTS[st.pid] || (fallbackId ? A.PATIENTS[fallbackId] : null) || A.emptyPatient(st.pid || "—", "Sin paciente", 0);
@@ -673,6 +796,216 @@ export function useClinicoScreen() {
       return L.length ? L : ["Sin diferencias con las reglas vigentes."];
     };
     const approvals = [];
+    // Evaluaciones de campo pendientes de visto bueno clínico.
+    const pendingEvals = [];
+    const seenEval = new Set();
+    const pushEval = (row) => {
+      const id = row.id || row.code;
+      if (!id || seenEval.has(id)) return;
+      const pending =
+        row.pendingEval ||
+        /por\s*aprobar/i.test(String(row.status || "")) ||
+        /por\s*aprobar/i.test(String(row.signal || ""));
+      if (!pending) return;
+      if (!row.profile || !/^P\d+$/i.test(String(row.profile))) return;
+      seenEval.add(id);
+      pendingEvals.push(row);
+    };
+    (A.people ? A.people(S) : S.people || []).forEach(pushEval);
+    Object.values(S.patients || {}).forEach(pushEval);
+    (S.caseload || []).forEach(pushEval);
+    pendingEvals.forEach((ev) => {
+      const { r, d } = A.parseCode(ev.profile);
+      const prev = ev.previousProfile || null;
+      const expertName = ev.expert || ev.evalBy || "Experto de campo";
+      const expertKey =
+        ev.expertId ||
+        (/Armenia/i.test(String(ev.place || "")) ? "mj" : "andres");
+      approvals.push({
+        kind: "eval",
+        code: ev.profile,
+        pid: ev.id,
+        riskLabel: r >= 0 ? A.RISK[r]?.k : "",
+        digLabel: d >= 0 ? (A.DIG[d]?.k || "").toLowerCase() : "",
+        riskColor: r >= 0 ? A.RISK[r]?.c : "#161413",
+        title: "Evaluación · " + ev.name + " · " + ev.profile,
+        meta:
+          "Enviada por " +
+          expertName +
+          (ev.evalPhq != null ? " · PHQ-9 " + ev.evalPhq : "") +
+          (ev.evalDig != null ? " · digital " + ev.evalDig : "") +
+          (ev.evalAt ? " · " + A.agoText(ev.evalAt) : ""),
+        lines: [
+          "Perfil propuesto: " + ev.profile,
+          prev ? "Perfil anterior: " + prev : "Sin perfil anterior (primera evaluación)",
+          "Al rechazar se restaura el estado anterior y vuelve a la cola del experto.",
+        ],
+        approve: () => {
+          A.set((s) => {
+            const pe = (s.people || []).find((p) => p.id === ev.id || p.code === ev.id);
+            if (pe) {
+              pe.status = "Aprobado";
+              pe.pendingEval = false;
+              pe.clin = pe.clin || "Dra. Lucía Marín";
+            }
+            if (s.patients[ev.id]) {
+              s.patients[ev.id].status = "Aprobado";
+              s.patients[ev.id].pendingEval = false;
+              s.patients[ev.id].signal = "Aprobado";
+              const tl = s.patients[ev.id].timeline || [];
+              tl.unshift({
+                d: "Hoy",
+                t: "Aprobación clínica",
+                x:
+                  "Evaluación y ruta " +
+                  ev.profile +
+                  " aprobadas y formalizadas. Pasa a seguimiento continuo (Activo) con el primer contacto.",
+              });
+              s.patients[ev.id].timeline = tl;
+            }
+            s.caseload = (s.caseload || []).map((c) =>
+              c.id === ev.id ? { ...c, status: "Aprobado" } : c,
+            );
+            s.alerts = (s.alerts || []).filter((a) => a.id !== "a-new-" + ev.id);
+            A.pushNotif(
+              s,
+              expertKey,
+              "Evaluación aprobada: " + ev.name + " · " + ev.profile,
+              "/experto",
+            );
+            A.logActivity(s, "lucia", "Aprobó la evaluación de " + ev.name + " (" + ev.profile + ")");
+          });
+          void Promise.all([
+            fetch("/api/people", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: ev.id,
+                name: ev.name,
+                profile: ev.profile,
+                status: "Aprobado",
+                pendingEval: false,
+              }),
+            }),
+            fetch("/api/patients", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: ev.id,
+                name: ev.name,
+                profile: ev.profile,
+                status: "Aprobado",
+                signal: "Aprobado",
+                pendingEval: false,
+              }),
+            }),
+          ]).catch(() => {});
+          setState({
+            msg:
+              "Evaluación de " +
+              ev.name +
+              " aprobada. Ruta " +
+              ev.profile +
+              " formalizada · estado Aprobado.",
+            tick: Date.now(),
+          });
+        },
+        reject: () => {
+          A.set((s) => {
+            const restored = prev && /^P\d+$/i.test(String(prev)) ? prev : null;
+            const pe = (s.people || []).find((p) => p.id === ev.id || p.code === ev.id);
+            if (pe) {
+              pe.profile = restored;
+              pe.status = "Rechazado";
+              pe.pendingEval = false;
+            }
+            if (s.patients[ev.id]) {
+              s.patients[ev.id].profile = restored || null;
+              s.patients[ev.id].status = "Rechazado";
+              s.patients[ev.id].signal = "Rechazado";
+              s.patients[ev.id].pendingEval = false;
+              const tl = s.patients[ev.id].timeline || [];
+              tl.unshift({
+                d: "Hoy",
+                t: "Evaluación rechazada",
+                x: restored
+                  ? "Se restauró el perfil " + restored + ". El experto debe corregir la entrevista."
+                  : "Sin perfil previo. El experto debe repetir la evaluación.",
+              });
+              s.patients[ev.id].timeline = tl;
+              if (!restored) delete s.patients[ev.id];
+            }
+            s.caseload = (s.caseload || []).filter((c) => c.id !== ev.id);
+            // Worklist del experto: debe repetir o corregir la entrevista.
+            const wl = s.worklists[expertKey] || [];
+            const w = wl.find((x) => x.id === ev.id || x.name === ev.name);
+            if (w) {
+              w.status = "sin_evaluacion";
+              w.profile = restored;
+            } else {
+              s.worklists[expertKey] = s.worklists[expertKey] || [];
+              s.worklists[expertKey].unshift({
+                id: ev.id,
+                time: "—",
+                name: ev.name,
+                age: ev.age,
+                place: (ev.place || "").split(",")[0],
+                rural: true,
+                status: "sin_evaluacion",
+                code: ev.code || ev.id,
+                profile: restored,
+              });
+            }
+            s.alerts = (s.alerts || []).filter((a) => a.id !== "a-new-" + ev.id);
+            A.pushNotif(
+              s,
+              expertKey,
+              "Evaluación rechazada: " +
+                ev.name +
+                (restored ? " · se mantiene " + restored : " · debe reevaluar"),
+              "/experto",
+            );
+            A.logActivity(s, "lucia", "Rechazó la evaluación de " + ev.name);
+          });
+          void Promise.all([
+            fetch("/api/people", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: ev.id,
+                name: ev.name,
+                profile: prev && /^P\d+$/i.test(String(prev)) ? prev : null,
+                status: "Rechazado",
+                pendingEval: false,
+              }),
+            }),
+            fetch("/api/patients", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: ev.id,
+                name: ev.name,
+                status: "Rechazado",
+                signal: "Rechazado",
+                pendingEval: false,
+              }),
+            }),
+          ]).catch(() => {});
+          setState({
+            msg: prev
+              ? "Rechazado. Se restauró el perfil " +
+                prev +
+                ". El experto debe corregir la entrevista."
+              : "Rechazado. El experto debe repetir la evaluación.",
+            tick: Date.now(),
+          });
+        },
+      });
+    });
     if (S.rules.pending) {
       const pd = S.rules.pending;
       approvals.push({
@@ -831,6 +1164,30 @@ export function useClinicoScreen() {
       });
     });
     const apprN = approvals.length;
+    const filteredApprovals =
+      st.apprFilter === "all"
+        ? approvals
+        : approvals.filter((a) => a.kind === st.apprFilter);
+    const evalN = approvals.filter((a) => a.kind === "eval").length;
+    const pathN = approvals.filter((a) => a.kind === "path").length;
+    const rulesN = approvals.filter((a) => a.kind === "rules").length;
+    const fileInCrisis =
+      crisisPids.has(P.id) || /crisis/i.test(String(P.status || P.signal || ""));
+    const fileStateId = normalizePatientState(P.status || peopleById[P.id]?.status, {
+      hasProfile: !!(P.profile && /^P\d+$/i.test(String(P.profile))),
+      inCrisis: fileInCrisis,
+      inactiveDays: P.checkinDays,
+    });
+    const fileState = patientStateMeta(fileStateId);
+    Object.assign(f, {
+      inCrisis: fileInCrisis,
+      stateId: fileStateId,
+      stateLabel: fileState.label,
+      stateBg: fileState.bg,
+      stateFg: fileState.fg,
+      crisisAlert: S.alerts.find((a) => a.pid === P.id && a.sev === "crisis"),
+      goCrisis: () => setState({ view: "alerts" }),
+    });
     return {
       dev: A.devMode(),
       zoom: st.zoom || 1,
@@ -847,9 +1204,14 @@ export function useClinicoScreen() {
       drawerW: window.innerWidth < 720 ? window.innerWidth / (st.zoom || 1) + "px" : "480px",
       ctxLabel:
         "Sobre: " +
-        ({ alerts: "Alertas", patients: "Mis pacientes", file: "Ficha de " + P.name }[st.view] ||
-          "Inicio"),
+        ({
+          alerts: "Crisis",
+          patients: "Mis pacientes",
+          approvals: "Aprobaciones",
+          file: "Ficha de " + P.name,
+        }[st.view] || "Inicio"),
       goAlerts: () => setState({ view: "alerts" }),
+      goApprovals: () => setState({ view: "approvals" }),
       openCount: S.alerts.length,
       upcoming: ids
         .map((id) => A.PATIENTS[id])
@@ -888,30 +1250,34 @@ export function useClinicoScreen() {
       },
       screenCode: {
         home: "ClinicianHome",
-        alerts: "ClinicianAlerts",
+        alerts: "ClinicianCrisis",
         patients: "ClinicianCaseload",
+        approvals: "ClinicianApprovals",
         file: "CaseFile",
       }[st.view],
-      nav: [["home", "Inicio"], ["alerts", "Alertas"], ["patients", "Mis pacientes"]]
-        .concat(apprN ? [["approvals", "Aprobaciones · " + apprN]] : [])
-        .map(([k, label]) => {
-          const active =
-            (st.view === "file" ? (st.fileFrom || {}).view : st.view) === k;
-          return {
-            key: k,
-            label,
-            active,
-            bd: active ? C.amarillo : "transparent",
-            fg: active ? C.verde : C.tinta,
-            go: () => setState({ view: k }),
-          };
-        }),
+      nav: [
+        ["home", "Inicio"],
+        ["approvals", apprN ? "Aprobaciones · " + apprN : "Aprobaciones"],
+        ["patients", "Mis pacientes"],
+      ].map(([k, label]) => {
+        const active =
+          (st.view === "file" ? (st.fileFrom || {}).view : st.view) === k;
+        return {
+          key: k,
+          label,
+          active,
+          bd: active ? C.amarillo : "transparent",
+          fg: active ? C.verde : C.tinta,
+          go: () => setState({ view: k }),
+        };
+      }),
       critText: pending
         ? pending + (pending === 1 ? " crisis sin tomar" : " crisis sin tomar")
         : "Sin crisis pendientes",
       critBd: pending ? C.rojo : C.lineas,
       critBg: pending ? C.rojoBg : "#fff",
       critFg: pending ? "#8A1C14" : C.texto2,
+      hasCrisisPending: pending > 0,
       isAlerts: st.view === "alerts",
       isPatients: st.view === "patients",
       isFile: st.view === "file",
@@ -919,17 +1285,42 @@ export function useClinicoScreen() {
       goHome: () => setState({ view: "home" }),
       fileBackLabel:
         "← Volver a " +
-        ({ home: "Inicio", alerts: "Alertas", patients: "Mis pacientes", approvals: "Aprobaciones" }[
-          (st.fileFrom || {}).view
-        ] || "Mis pacientes") +
+        ({
+          home: "Inicio",
+          alerts: "Crisis",
+          patients: "Mis pacientes",
+          approvals: "Aprobaciones",
+        }[(st.fileFrom || {}).view] || "Mis pacientes") +
         ((st.fileFrom || {}).agent ? " y al asistente" : ""),
       fileBack: () => {
         const fr = st.fileFrom || { view: "patients" };
         setState({ view: fr.view || "patients", agentOpen: !!fr.agent && fr.view !== "home" });
         window.scrollTo(0, 0);
       },
-      approvals,
-      noApprovals: !approvals.length,
+      approvals: filteredApprovals,
+      approvalsAll: approvals,
+      noApprovals: !filteredApprovals.length,
+      apprFilter: st.apprFilter,
+      apprFilters: [
+        { id: "all", label: "Todas", n: apprN },
+        { id: "eval", label: "Evaluaciones", n: evalN },
+        { id: "path", label: "Rutas", n: pathN },
+        { id: "rules", label: "Reglas", n: rulesN },
+      ].map((x) => ({
+        ...x,
+        active: st.apprFilter === x.id,
+        pick: () => setState({ apprFilter: x.id }),
+      })),
+      patientStates: PATIENT_STATES,
+      stateFilter: st.stateFilter,
+      stateFilters: [{ id: "all", label: "Todos" }]
+        .concat(PATIENT_STATES.map((s) => ({ id: s.id, label: s.label })))
+        .map((x) => ({
+          ...x,
+          active: st.stateFilter === x.id,
+          pick: () => setState({ stateFilter: x.id }),
+        })),
+      profiles: profileCatalog(A.RISK, A.DIG),
       fRoute: (() => {
         const pc2 = A.parseCode(P.profile);
         if (pc2.r < 0 || pc2.d < 0) return [];

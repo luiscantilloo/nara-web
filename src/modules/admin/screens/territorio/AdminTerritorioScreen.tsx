@@ -26,6 +26,7 @@ function AdminTerritorioInner() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           initialAsk={String(v.pendingAsk || "")}
           context="terr"
           contextLabel={"Sobre: " + v.name}
@@ -78,7 +79,7 @@ function AdminTerritorioInner() {
         </header>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {v.kpis.map((k) => (
             <article
               key={k.label}
@@ -150,35 +151,14 @@ function AdminTerritorioInner() {
               >
                 {v.paused ? "Reanudar territorio" : "Pausar territorio"}
               </button>
-              <button
-                type="button"
-                onClick={() => v.assignBands()}
-                className="h-11 cursor-pointer rounded-[14px] border-none bg-nara-tinta px-4 font-texto text-[15px] font-medium text-nara-blanco"
-              >
-                Asignar 100 manillas
-              </button>
-              <button
-                type="button"
-                onClick={() => v.goExperts()}
-                className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta"
-              >
-                Asignar expertos
-              </button>
-              <button
-                type="button"
-                onClick={() => v.goPeople()}
-                className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta"
-              >
-                Ver personas
-              </button>
+              {/* Temporal: ocultos «Asignar 100 manillas», «Asignar expertos» y «Ver personas». */}
             </div>
           </article>
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-linea bg-nara-blanco">
           <div className="flex items-baseline justify-between gap-3 px-5 py-3.5">
-            <h2 className="font-titulos text-xl font-semibold">Expertos en {v.name}</h2>
-            <span className="text-sm text-texto-secundario">{v.experts.length}</span>
+            <h2 className="font-titulos text-xl font-semibold">Experto del territorio</h2>
           </div>
           {v.experts.length ? (
             <div className="nara-scroll-x">
@@ -190,7 +170,7 @@ function AdminTerritorioInner() {
                   <span>Semana</span>
                   <span>Capacitación</span>
                 </div>
-                {v.experts.map((e) => (
+                {v.experts.slice(0, 1).map((e) => (
                   <button
                     key={e.name}
                     type="button"
@@ -208,7 +188,7 @@ function AdminTerritorioInner() {
             </div>
           ) : (
             <p className="border-t border-[#E6E1D9] px-5 py-4 text-[15px] text-texto-secundario">
-              Aún no hay expertos asignados a este territorio.
+              Aún no hay experto asignado a este territorio.
             </p>
           )}
         </section>
@@ -220,23 +200,22 @@ function AdminTerritorioInner() {
           </div>
           {v.noPlaces ? (
             <p className="border-t border-[#E6E1D9] px-5 py-4 text-[15px] text-texto-secundario">
-              Sin veredas ni barrios. Aparecerán cuando se registren personas o lugares en el territorio.
+              Sin veredas ni barrios distintos del territorio. La captación está en el resumen de arriba.
             </p>
           ) : (
             <div className="nara-scroll-x">
-              <div className="min-w-[720px]">
-                <div className="grid grid-cols-[1.3fr_90px_1fr_80px_1.2fr_80px] gap-3 bg-nara-crema px-5 py-3 text-sm font-medium text-texto-secundario">
+              <div className="min-w-[640px]">
+                <div className="grid grid-cols-[1.4fr_90px_1fr_80px_80px] gap-3 bg-nara-crema px-5 py-3 text-sm font-medium text-texto-secundario">
                   <span>Lugar</span>
                   <span>Tipo</span>
                   <span>Captación</span>
                   <span>%</span>
-                  <span>Experto</span>
                   <span>Alertas</span>
                 </div>
                 {v.places.map((p) => (
                   <div
                     key={p.name}
-                    className="grid grid-cols-[1.3fr_90px_1fr_80px_1.2fr_80px] gap-3 border-t border-[#E6E1D9] px-5 py-3 text-[15px]"
+                    className="grid grid-cols-[1.4fr_90px_1fr_80px_80px] gap-3 border-t border-[#E6E1D9] px-5 py-3 text-[15px]"
                   >
                     <span className="font-medium">{p.name}</span>
                     <span>{p.zone}</span>
@@ -244,7 +223,6 @@ function AdminTerritorioInner() {
                       {p.n} / {p.goal}
                     </span>
                     <span>{p.pct}</span>
-                    <span>{p.expert}</span>
                     <span>{p.alerts}</span>
                   </div>
                 ))}

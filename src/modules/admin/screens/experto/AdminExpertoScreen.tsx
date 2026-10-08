@@ -26,6 +26,7 @@ function AdminExpertoInner() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           initialAsk={String(v.pendingAsk || "")}
           context="team"
           contextLabel={"Sobre: " + v.name}
@@ -89,53 +90,43 @@ function AdminExpertoInner() {
           ))}
         </section>
 
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <article className="flex flex-col gap-3 rounded-2xl border border-linea bg-nara-blanco p-5">
+        <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+          <article className="flex h-full flex-col gap-4 rounded-2xl border border-linea bg-nara-blanco p-5">
             <h2 className="font-titulos text-xl font-semibold">Datos</h2>
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-texto-secundario">Capacitación</span>
               <span className="text-[15px]">{v.training}</span>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-texto-secundario">Territorio</span>
-              <div className="flex flex-wrap gap-2">
-                {v.terrNames.length ? (
-                  v.terrNames.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => v.setTerr(t)}
-                      className={`h-10 cursor-pointer rounded-[9px] border-[1.5px] px-3.5 font-texto text-[15px] ${
-                        t === v.terr
-                          ? "border-nara-tinta bg-[#FFF4CC] font-medium"
-                          : "border-linea bg-nara-blanco"
-                      }`}
-                    >
+              <span className="text-sm font-medium text-texto-secundario">
+                Territorio (uno solo)
+              </span>
+              {v.terrNames.length ? (
+                <select
+                  value={String(v.terr || "")}
+                  onChange={(e) => v.setTerr(e.target.value)}
+                  className="box-border h-11 w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta"
+                >
+                  {v.terrNames.map((t: string) => (
+                    <option key={t} value={t}>
                       {t}
-                    </button>
-                  ))
-                ) : (
-                  <span className="text-[15px] text-texto-secundario">Sin territorios creados.</span>
-                )}
-              </div>
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-[15px] text-texto-secundario">Sin territorios creados.</span>
+              )}
             </div>
           </article>
 
-          <article className="flex flex-col gap-3 rounded-2xl border border-linea bg-nara-blanco p-5">
+          <article className="flex h-full flex-col gap-3 rounded-2xl border border-linea bg-nara-blanco p-5">
             <h2 className="font-titulos text-xl font-semibold">Acciones</h2>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => v.toggleActive()}
-                className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-nara-tinta bg-nara-blanco px-4 font-texto text-[15px] font-medium"
-              >
-                {v.active ? "Desactivar experto" : "Activar experto"}
-              </button>
+            <div className="flex flex-1 flex-col justify-center gap-2.5">
               {v.training === "Pendiente" ? (
                 <button
                   type="button"
                   onClick={() => v.completeTraining()}
-                  className="h-11 cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-4 font-texto text-[15px] font-medium"
+                  className="h-11 w-full cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-4 font-texto text-[15px] font-medium text-nara-tinta"
                 >
                   Marcar capacitación completa
                 </button>
@@ -144,19 +135,18 @@ function AdminExpertoInner() {
                 <button
                   type="button"
                   onClick={() => v.assignTablet()}
-                  className="h-11 cursor-pointer rounded-[14px] border-none bg-nara-tinta px-4 font-texto text-[15px] font-medium text-nara-blanco"
+                  className="h-11 w-full cursor-pointer rounded-[14px] border-none bg-nara-tinta px-4 font-texto text-[15px] font-medium text-nara-blanco"
                 >
                   Asignar tablet
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => v.goAssets()}
-                  className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] font-medium"
-                >
-                  Ver en Activos
-                </button>
-              )}
+              ) : null}
+              <button
+                type="button"
+                onClick={() => v.toggleActive()}
+                className="h-11 w-full cursor-pointer rounded-[14px] border-[1.5px] border-nara-tinta bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta"
+              >
+                {v.active ? "Desactivar experto" : "Activar experto"}
+              </button>
             </div>
           </article>
         </section>

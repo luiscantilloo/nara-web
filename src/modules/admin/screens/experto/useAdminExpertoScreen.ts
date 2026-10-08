@@ -45,7 +45,16 @@ export function useAdminExpertoScreen() {
         : e.id === "mj" || name === "María José Vélez"
           ? "mj"
           : null;
-    const q = exKey ? store.quotas(S, exKey) : { today: e.today || 0, todayT: e.target || 9, week: e.week || 0, weekT: 45 };
+    const goals = store.teamGoals(S);
+    const midWeek = Math.max(1, Math.round(goals.weekly * 34 / 45));
+    const q = exKey
+      ? store.quotas(S, exKey)
+      : {
+          today: e.today || 0,
+          todayT: e.target || goals.daily,
+          week: e.week || 0,
+          weekT: e.weekT || goals.weekly,
+        };
     const flags = (S.flags || []).filter((f: { expertName?: string; expert?: string }) => f.expertName === name || f.expert === e.id);
     const pending = flags.filter((f: { status: string }) => f.status === "pending").length;
     const people = store.people(S).filter((p: { expert?: string }) => p.expert === name);
@@ -64,7 +73,7 @@ export function useAdminExpertoScreen() {
     } else if (isNew) {
       status = "Capacitación pendiente";
       sc = "#8C857C";
-    } else if ((q.week || 0) < 34) {
+    } else if ((q.week || 0) < midWeek) {
       status = "Bajo meta";
       sc = C.bajoMeta;
     }
@@ -89,8 +98,8 @@ export function useAdminExpertoScreen() {
       msg,
       clearMsg: () => setMsg(""),
       kpis: [
-        { label: "Visitas hoy", val: String(q.today || 0) + " / " + (q.todayT || e.target || 9), sub: "Meta diaria" },
-        { label: "Semana", val: String(q.week || 0) + " / " + (q.weekT || 45), sub: "Visitas validadas" },
+        { label: "Visitas hoy", val: String(q.today || 0) + " / " + (q.todayT || e.target || goals.daily), sub: "Meta diaria" },
+        { label: "Semana", val: String(q.week || 0) + " / " + (q.weekT || goals.weekly), sub: "Visitas validadas" },
         { label: "Alertas QC", val: String(pending), sub: flags.length ? flags.length + " en total" : "Sin marcas" },
         { label: "Personas", val: String(people.length), sub: "Asignadas a este experto" },
       ],
@@ -112,15 +121,45 @@ export function useAdminExpertoScreen() {
       })),
       noFlags: flags.length === 0,
       terrNames,
-      setTerr: (terrName: string) => {
-        store.set((s) => {
-          const x = (s.experts || []).find((y: { name: string }) => y.name === name);
-          if (x) x.terr = terrName;
-          s.expertOv = s.expertOv || {};
-          s.expertOv[name] = Object.assign({}, s.expertOv[name], { terr: terrName });
-          store.logActivity(s, (store.session()?.id || "admin"), "Cambió el territorio de " + name + " a " + terrName);
-        });
-        setMsg("Territorio actualizado a " + terrName + ".");
+      setTerr: async (terrName: string) => {
+        const next = String(terrName || "")
+          .split(/\s*[,;/|]\s*|\s+y\s+/i)
+          .map((x) => x.trim())
+          .filter(Boolean)[0];
+        if (!next || /^todos$/i.test(next)) {
+          setMsg("El experto debe tener un único territorio asignado.");
+          return;
+        }
+        if (next === terr) return;
+        try {
+          const res = await fetch("/api/experts", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: e.id,
+              name: e.name,
+              phone: e.phone,
+              terr: next,
+              target: e.target || goals.daily,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            setMsg(data.error || "No se pudo actualizar el territorio.");
+            return;
+          }
+          store.set((s) => {
+            const x = (s.experts || []).find((y: { name: string }) => y.name === name);
+            if (x) x.terr = next;
+            s.expertOv = s.expertOv || {};
+            s.expertOv[name] = Object.assign({}, s.expertOv[name], { terr: next });
+            store.logActivity(s, (store.session()?.id || "admin"), "Cambió el territorio de " + name + " a " + next);
+          });
+          setMsg("Territorio actualizado a " + next + ".");
+        } catch {
+          setMsg("No se pudo conectar con la base de datos.");
+        }
       },
       toggleActive: () => {
         const nextActive = !active;

@@ -31,6 +31,7 @@ export function AdminUsuariosScreen() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           initialAsk={String(v.pendingAsk || "")}
           context="users"
           contextLabel="Sobre: usuarios y permisos"

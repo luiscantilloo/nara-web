@@ -135,7 +135,7 @@ export function useAdminPersonaScreen() {
       email: patient?.email || person?.email || "—",
       expert: person?.expert || patient?.expert || "Sin experto",
       clin: person?.clin || patient?.clin || "Sin clínico",
-      status: person?.status || patient?.signal || "Activa",
+      status: person?.status || patient?.signal || "Sin evaluación",
       profile,
       hasProfile,
       riskLabel: risk?.k || "—",

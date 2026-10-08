@@ -27,12 +27,12 @@ export const CHECKS: [string, string][] = [
 ];
 
 export const NOTES: Record<string, string> = {
-  wa: "Audio primero · ventana de check-in en la app",
-  bracelet: "Sueño y ritmo cardiaco",
-  videos: "Biblioteca de videos en la app",
+  mood: "Check-in «¿Cómo se siente hoy?» en la app · solo en rutas con capacidad digital alta; en baja y media se pregunta en la llamada, la revisita o el WhatsApp",
+  clin: "Canal según capacidad digital (persona / teléfono / videollamada)",
+  ia: "Botón TEO en la app del paciente",
   tech: "Respiración, sueño, anclaje",
-  revisit: "Ventana de revisita en la app del paciente",
-  cursos: "Curso y cuentos en la app (Mi curso + biblioteca)",
+  revisit: "Visita en casa",
+  cursos: "Curso y cuentos según nivel de riesgo y capacidad digital",
 };
 
 export type AdminUiState = {
@@ -57,6 +57,10 @@ export type AdminUiState = {
   tfErr: string;
   expForm: boolean;
   ef: { name: string; phone: string; terr: string; target: string };
+  /** Modal Definición metas (diaria / semanal del equipo). */
+  goalsForm: boolean;
+  gf: { daily: string; weekly: string };
+  gfErr: string;
   sel: string;
   drafts: Record<string, { s: Record<string, string>; months: number }>;
   scope: string;
@@ -75,6 +79,8 @@ export type AdminUiState = {
   simDig?: string;
   simDano?: string;
   simLoss?: boolean;
+  /** Matriz v2: fuerza capacidad digital Baja en el simulador. */
+  simNoPhone?: boolean;
   simQ9?: boolean;
   libKind?: string;
   libSel?: string | null;
@@ -82,6 +88,11 @@ export type AdminUiState = {
   q?: string;
   pf?: Record<string, string>;
   pendingAsk?: string;
+  /**
+   * Personas · depuración: solo 15 perfiles representativos (P01–P15)
+   * en lugar de toda la cohorte histórica.
+   */
+  peopleSample?: boolean;
   /** Detalle de activos: territorio + manilla | tablet */
   assetTerr?: string;
   assetKind?: "manilla" | "tablet";
@@ -109,7 +120,12 @@ export const INITIAL_ADMIN_STATE: AdminUiState = {
   tfErr: "",
   expForm: false,
   ef: { name: "Natalia Loaiza", phone: "310 555 0142", terr: "Filandia", target: "9" },
+  goalsForm: false,
+  gf: { daily: "9", weekly: "45" },
+  gfErr: "",
   sel: "P08",
   drafts: {},
   scope: "all",
+  /** Por defecto: depuración liviana con 15 perfiles. */
+  peopleSample: true,
 };

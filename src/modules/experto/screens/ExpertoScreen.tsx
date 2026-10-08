@@ -23,6 +23,7 @@ export function ExpertoScreen() {
           <AgentPanel
             role={String(v.agentRole)}
             mode="drawer"
+            open={!!v.agentOpen}
             initialAsk={String(v.pendingAsk || "")}
             contextLabel={String(v.agentCtx || "")}
             onClose={() => v.closeAgent?.()}

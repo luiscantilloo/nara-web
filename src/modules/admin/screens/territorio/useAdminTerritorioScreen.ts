@@ -78,8 +78,11 @@ export function useAdminTerritorioScreen() {
         { label: "Captación", val: cap.toLocaleString("es-CO") + " / " + goal.toLocaleString("es-CO"), sub: pct + " % de la meta" },
         { label: "Rural", val: cap ? (t.rural || 0) + " %" : "—", sub: "Meta " + (t.ruralG || 0) + " %" },
         { label: "60+", val: String(t.sixty || 0) + (cap ? " %" : ""), sub: "Meta " + (t.sixtyG || 0) + " %" },
-        { label: "Manillas disponibles", val: String((t.brAv || 0) + (ov.extraBr || 0)), sub: (t.brD || 0) + " entregadas · " + (t.brA || 0) + " asignadas" },
-        { label: "Expertos", val: String(exps.length), sub: people.length + " personas en el territorio" },
+        {
+          label: "Experto",
+          val: exps[0]?.name || "Sin experto",
+          sub: people.length + (people.length === 1 ? " persona en el territorio" : " personas en el territorio"),
+        },
       ],
       content,
       insts: instsList,
@@ -91,17 +94,52 @@ export function useAdminTerritorioScreen() {
         training: e.training || "—",
         open: () => router.push("/admin/experto?e=" + encodeURIComponent(e.name)),
       })),
-      places: (map?.rows || []).map((r: { name: string; rural: boolean; n: number; goal: number; pct: number; expert: string; alerts: number }) => ({
-        name: r.name,
-        zone: r.rural ? "Rural" : "Urbano",
-        n: r.n,
-        goal: r.goal,
-        pct: r.pct + "%",
-        expert: r.expert,
-        alerts: r.alerts,
-      })),
-      noPlaces: !(map?.rows || []).length,
-      placeSummary: map?.summary || "Sin veredas ni barrios registrados",
+      // Sin columna Experto: con 1 experto/territorio se repetiría en cada fila.
+      // Si solo hay un “lugar” igual al territorio, no listar (duplica el KPI Captación).
+      places: (() => {
+        const rows = (map?.rows || []).map((r: { name: string; rural: boolean; n: number; goal: number; pct: number; alerts: number }) => ({
+          name: r.name,
+          zone: r.rural ? "Rural" : "Urbano",
+          n: r.n,
+          goal: r.goal,
+          pct: r.pct + "%",
+          alerts: r.alerts,
+        }));
+        if (
+          rows.length === 1 &&
+          String(rows[0].name || "")
+            .trim()
+            .toLowerCase() === String(name || "").trim().toLowerCase()
+        ) {
+          return [];
+        }
+        return rows;
+      })(),
+      noPlaces: (() => {
+        const rows = map?.rows || [];
+        if (!rows.length) return true;
+        if (
+          rows.length === 1 &&
+          String(rows[0].name || "")
+            .trim()
+            .toLowerCase() === String(name || "").trim().toLowerCase()
+        ) {
+          return true;
+        }
+        return false;
+      })(),
+      placeSummary: (() => {
+        const rows = map?.rows || [];
+        if (
+          rows.length === 1 &&
+          String(rows[0].name || "")
+            .trim()
+            .toLowerCase() === String(name || "").trim().toLowerCase()
+        ) {
+          return "La captación del territorio está en el resumen de arriba · aún no hay veredas o barrios distintos.";
+        }
+        return map?.summary || "Sin veredas ni barrios registrados";
+      })(),
       crisisLine,
       setCrisisLine: (e: ChangeEvent<HTMLInputElement>) => setCrisisLine(e.target.value),
       msg,

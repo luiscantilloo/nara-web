@@ -4,6 +4,8 @@
  * Uso:
  *   node scripts/migrate-patients-xlsx.mjs
  *   node scripts/migrate-patients-xlsx.mjs "C:\ruta\archivo.xlsx"
+ *   node scripts/migrate-patients-xlsx.mjs --sample-15
+ *     → solo 15 filas representativas (P01–P15), no todo el histórico.
  */
 import { config } from "dotenv";
 import { MongoClient } from "mongodb";
@@ -96,8 +98,9 @@ async function main() {
     process.exit(1);
   }
 
+  const argPath = process.argv.slice(2).find((a) => a && !a.startsWith("--"));
   const candidates = [
-    process.argv[2],
+    argPath,
     resolve(NARA_DATA, "Base De Datos Web Salud Mental - 24 Junio 2022.xlsx"),
     join(homedir(), "Downloads", "Base De Datos Web Salud Mental - 24 Junio 2022.xlsx"),
   ].filter(Boolean);
@@ -108,9 +111,14 @@ async function main() {
     process.exit(1);
   }
 
+  const sample15 = process.argv.includes("--sample-15");
   console.log("Excel:", filePath);
-  const rows = parseRows(filePath);
+  let rows = parseRows(filePath);
   console.log("Filas:", rows.length);
+  if (sample15) {
+    rows = rows.slice(0, 15);
+    console.log("Modo --sample-15: solo", rows.length, "perfiles representativos P01–P15");
+  }
 
   const client = new MongoClient(uri);
   await client.connect();
@@ -121,6 +129,7 @@ async function main() {
 
   let upserted = 0;
   let skipped = 0;
+  let profileIdx = 0;
 
   for (const raw of rows) {
     const m = mapRow(raw);
@@ -128,6 +137,11 @@ async function main() {
       skipped++;
       continue;
     }
+
+    const profile = sample15
+      ? "P" + String(Math.min(profileIdx + 1, 15)).padStart(2, "0")
+      : "P01";
+    profileIdx += 1;
 
     const patientDoc = {
       id: m.id,
@@ -144,7 +158,7 @@ async function main() {
       genero: m.genero,
       estadoCivil: m.estadoCivil,
       estrato: m.estrato,
-      profile: "P01",
+      profile,
       phq: [],
       phqDates: [],
       expert: "",
@@ -152,7 +166,7 @@ async function main() {
       next: "Primera llamada dentro de 7 días",
       nextShort: "Primera llamada",
       consent: true,
-      signal: "Migrado",
+      signal: sample15 ? "Datos de prueba · 15 perfiles" : "Migrado",
       summary: null,
       adherence: null,
       sleep: null,
@@ -164,7 +178,7 @@ async function main() {
       ctx: { dano: 0, perdida: 0 },
       modulesEnabled: DEFAULT_MODULES.slice(),
       modulesVisible: DEFAULT_MODULES.slice(),
-      source: "xlsx-salud-mental-2022-06-24",
+      source: sample15 ? "xlsx-sample-15-profiles" : "xlsx-salud-mental-2022-06-24",
       registeredAt: m.registeredAt,
       autodiagnostico: m.autodiagnostico,
       updatedAt: now,
@@ -190,16 +204,16 @@ async function main() {
           place: m.place,
           rural: false,
           terr: m.terr,
-          profile: "P01",
+          profile,
           week: 0,
           weeks: 13,
           expert: "",
           expertId: null,
-          status: "Activa",
+          status: "Sin evaluación",
           clin: null,
           phone: m.phone,
           email: m.email,
-          source: "xlsx-salud-mental-2022-06-24",
+          source: sample15 ? "xlsx-sample-15-profiles" : "xlsx-salud-mental-2022-06-24",
           updatedAt: now,
         },
         $setOnInsert: { createdAt: now },

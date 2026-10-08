@@ -63,14 +63,14 @@ const KEY = 'nara-memory-v1';
     { q: 'Perdió a un familiar o allegado', o: ['No', 'Sí'] }
   ];
 
-  // Por ahora solo estos 6 servicios (el resto del catálogo queda oculto en toda la app).
+  // Solo estos 6 servicios en el editor de rutas / perfiles (matriz v2 proyectada).
   const SERVICES = [
-    { id: 'wa', name: 'Check-ins por WhatsApp', freqs: ['3 veces por semana', '1 vez por semana'] },
-    { id: 'bracelet', name: 'Manilla de monitoreo', freqs: ['6 meses', '12 meses'] },
-    { id: 'videos', name: 'Videos psicoeducativos', freqs: ['Serie completa', 'Selección'] },
+    { id: 'mood', name: 'Estado de ánimo', freqs: ['Diario'], note: 'Check-in «¿Cómo se siente hoy?» en la app' },
+    { id: 'clin', name: 'Psicólogo clínico', freqs: ['Semanal', 'Quincenal', 'Mensual'] },
+    { id: 'ia', name: 'Acompañante con IA (TEO)', freqs: ['Acceso libre', 'Entre sesiones'] },
     { id: 'tech', name: 'Técnicas guiadas', freqs: ['En audio', 'Material impreso'] },
     { id: 'revisit', name: 'Revisita del experto', freqs: ['Cada 2 semanas', 'Mensual'] },
-    { id: 'cursos', name: 'Cursos y cuentos', freqs: ['Curso guiado por TEO', 'Curso con el experto', 'Asignado por la psicóloga'] }
+    { id: 'cursos', name: 'Cursos y cuentos', freqs: ['Curso guiado por TEO', 'Curso con el experto', 'Asignado por la psicóloga'] },
   ];
   const SERVICE_IDS = new Set(SERVICES.map((x) => x.id));
   const prunePathS = (s) => {
@@ -83,7 +83,9 @@ const KEY = 'nara-memory-v1';
   const CLIN_CH = ['En persona', 'Por teléfono', 'Videollamada o teléfono'];
 
   // ---------- v7 · Recursos de tratamiento: cuentos, videos, técnicas y cursos ----------
-  const cursosFreq = r => r <= 1 ? 'Curso guiado por TEO' : r === 2 ? 'Curso con el experto' : 'Asignado por la psicóloga';
+  const cursosFreq = (r) => (r <= 1 ? 'Curso guiado por TEO' : r === 2 ? 'Curso con el experto' : 'Asignado por la psicóloga');
+  // v2: con capacidad Baja, Mínimo a Moderado llevan el curso con el experto.
+  const cursosMod = (r, d) => (r >= 3 ? 'Asignado por la psicóloga' : d === 0 ? 'Curso con el experto' : cursosFreq(r));
   const REC = (() => {
     const C = (slug, title, temas, para, pag, lect, audio, uso, extra) => Object.assign({ slug, title, temas, para, pag, lect, audio, uso, nivel: 'TEO o experto', restr: null, estado: 'Aprobado', version: 1, aprobado: '14 sep', pages: 0, preguntas: [] }, extra || {});
     const CUENTOS = [
@@ -143,7 +145,13 @@ const KEY = 'nara-memory-v1';
       if (age >= 60) return { id: 'mayores', motivo: 'porque tiene 60 años o más' };
       return { id: 'calma', motivo: 'para manejar el miedo y el estrés' };
     }
-    const RULES = [['Mínimo', 'Biblioteca abierta + 1 curso a elección, guiado por TEO o por WhatsApp'], ['Leve', '1 curso recomendado según el motivo principal, guiado por TEO; revisión del experto en la revisita'], ['Moderado', '1 curso con el experto (dentro de PM+ y del grupo de apoyo)'], ['Moderado-severo', 'Solo cuentos y cursos que asigne la psicóloga, como apoyo a la terapia'], ['Severo', 'Igual que moderado-severo; nunca recomendaciones automáticas']];
+    const RULES = [
+      ['Mínimo', 'Biblioteca abierta + 1 curso a elección, guiado por TEO; con capacidad digital baja, con el experto'],
+      ['Leve', '1 curso recomendado según el motivo principal, guiado por TEO; con capacidad digital baja, con el experto'],
+      ['Moderado', '1 curso con el experto (dentro del grupo de apoyo)'],
+      ['Moderado-severo', 'Solo cuentos y cursos que asigne la psicóloga, como apoyo a la terapia'],
+      ['Severo', 'Igual que moderado-severo; nunca recomendaciones automáticas'],
+    ];
     const STATS = { courses: { dormir: [412, 46], calma: [236, 41], perdimos: [158, 52], animo: [121, 38], familia: [64, 57], mayores: [97, 61] }, groupStories: [['la-bruja-estresona', 38], ['el-ladron-de-suenos', 31], ['la-carta-del-abuelo', 24], ['el-congreso-de-las-emociones', 19], ['la-carrera-del-riesgo', 15], ['el-arbol-que-no-queria-crecer', 11]], phq: { done: [486, -5.8], notDone: [602, -3.1] }, topStories: [['el-pais-de-los-suenos', 512], ['el-ladron-de-suenos', 447], ['la-bruja-estresona', 390], ['el-inventario-de-las-cosas-perdidas', 211], ['la-carta-del-abuelo', 198]] };
     return { TEMAS, temaMatch, STATS, CUENTOS, VIDEOS, TECNICAS, CURSOS, TAG, RULES, cuento, video, tecnica, curso, cover, page, openLib, teoOk, channel, courseFor, item: id => cuento(id) || video(id) || tecnica(id) };
   })();
@@ -152,31 +160,40 @@ const KEY = 'nara-memory-v1';
   function defaultPath(r, d) {
     const p = basePath(r, d);
     p.s = prunePathS(p.s);
-    p.s.cursos = p.s.cursos || cursosFreq(r);
+    // v2: el check-in de ánimo en la app solo con capacidad Alta.
+    if (d === 2) p.s.mood = 'Diario'; else delete p.s.mood;
+    p.s.cursos = cursosMod(r, d);
+    // v2: Leve recibe revisita; Leve y Moderado con capacidad Baja, cada 2 semanas.
+    if (r === 1) p.s.revisit = d === 0 ? 'Cada 2 semanas' : 'Mensual';
+    if (r === 2 && d === 0) p.s.revisit = 'Cada 2 semanas';
     return p;
   }
   function basePath(r, d) {
     const s = {};
     const on = (id, freq) => { s[id] = freq; };
+    on('tech', d === 0 ? 'Material impreso' : 'En audio');
+    on('cursos', cursosMod(r, d));
+    // v2: TEO y ánimo solo con capacidad Alta; Severo × Alta sin TEO (como la matriz).
+    if (d === 2) {
+      on('mood', 'Diario');
+      if (r <= 1) on('ia', 'Acceso libre');
+      else if (r === 2 || r === 3) on('ia', 'Entre sesiones');
+    }
     if (r <= 1) {
-      if (d === 0) { on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
-      if (d === 1) { on('wa', '1 vez por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
-      if (d === 2) { on('wa', '1 vez por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
+      if (d === 0) on('revisit', 'Mensual');
       return { s, months: 3 };
     }
     if (r === 2) {
-      on('bracelet', '6 meses');
-      if (d === 0) { on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
-      if (d === 1) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
-      if (d === 2) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
+      on('clin', 'Mensual');
+      // v2: Moderado solo revisita en Baja (Media/Alta no la llevan en la matriz).
+      if (d === 0) on('revisit', 'Mensual');
       return { s, months: 6 };
     }
-    on('bracelet', '12 meses'); on('revisit', 'Cada 2 semanas');
-    if (d === 0) { on('tech', 'Material impreso'); }
-    if (d >= 1) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
+    on('clin', r === 3 ? 'Quincenal' : 'Semanal');
+    on('revisit', 'Cada 2 semanas');
     return { s, months: 12 };
   }
-  // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 } → activa «Vinculación a ayudas sociales» en ruta por defecto
+  // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 }
   const needsSocial = ctx => !!ctx && ((ctx.dano || 0) > 0 || (ctx.perdida || 0) > 0);
   function asPathDraft(x) {
     // s:{} vacío cuenta como override explícito (ruta sin módulos).
@@ -193,13 +210,20 @@ const KEY = 'nara-memory-v1';
     const p = { s: prunePathS(p0.s || {}), months: p0.months != null ? p0.months : 3 };
 
     if (usingDefault) {
-      if (!p.s.cursos) p.s.cursos = cursosFreq(r);
+      if (!p.s.cursos) p.s.cursos = cursosMod(r, d);
+      if (!p.s.mood && d === 2) p.s.mood = 'Diario';
     }
 
     return SERVICES.filter(x => p.s[x.id]).map(x => ({
       id: x.id, name: x.name, freq: p.s[x.id],
-      channel: x.id === 'wa' ? 'Audio primero' : x.id === 'revisit' ? 'Visita en casa' : x.id === 'bracelet' ? 'Sueño y ritmo cardiaco' : x.id === 'cursos' ? REC.channel(d) : x.id === 'videos' ? 'App' : x.id === 'tech' ? 'App o impreso' : '',
-      main: false
+      channel:
+        x.id === 'mood' ? 'App · check-in diario' :
+        x.id === 'clin' ? CLIN_CH[d] :
+        x.id === 'ia' ? 'App' :
+        x.id === 'revisit' ? 'Visita en casa' :
+        x.id === 'cursos' ? REC.channel(d) :
+        x.id === 'tech' ? 'App o impreso' : '',
+      main: x.id === 'clin' && r >= 2,
     }));
   }
   const HEAT = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
@@ -272,8 +296,12 @@ const KEY = 'nara-memory-v1';
         risk: RISK.map(r => ({ k: r.k, min: r.min, max: r.max, c: r.c })),
         dig: { q: DIGQ.map(x => ({ q: x.q, o: x.o.map((o, i) => ({ o, p: i })) })), cuts: DIG.map(d => ({ k: d.k, min: d.min, max: d.max })) },
         auto: { expert: 'vereda', clin: 'carga', review: 'Cada 4 semanas' },
+        goals: { daily: 9, weekly: 45 },
         pending: null,
-        versions: [{ v: 1, by: 'Sistema', at: Date.now(), what: 'Reglas iniciales del programa.' }],
+        versions: [
+          { v: 2, by: 'Daniel Galvis', at: Date.parse('2026-10-08'), what: 'Matriz v2: sin teléfono ⇒ Baja; uso diario ≤ teléfono; ánimo en app solo con capacidad Alta; cursos con el experto en Baja; PM+ en Moderado y Moderado-severo; revisitas en Leve.' },
+          { v: 1, by: 'Sistema', at: Date.parse('2026-09-01'), what: 'Reglas iniciales del programa.' },
+        ],
       },
       accounts: [],
       activity: [],
@@ -290,8 +318,37 @@ const KEY = 'nara-memory-v1';
     if (s.notifs && !s.notifs.oscar) { s.notifs.oscar = []; changed = true; }
     if (!Array.isArray(s.accounts)) { s.accounts = []; changed = true; }
     if (s.rules && (!Array.isArray(s.rules.versions) || !s.rules.versions.length)) {
-      s.rules.versions = [{ v: 1, by: 'Sistema', at: Date.now(), what: 'Reglas iniciales del programa.' }];
+      s.rules.versions = [
+        { v: 2, by: 'Daniel Galvis', at: Date.parse('2026-10-08'), what: 'Matriz v2: sin teléfono ⇒ Baja; uso diario ≤ teléfono; ánimo en app solo con capacidad Alta; cursos con el experto en Baja; PM+ en Moderado y Moderado-severo; revisitas en Leve.' },
+        { v: 1, by: 'Sistema', at: Date.parse('2026-09-01'), what: 'Reglas iniciales del programa.' },
+      ];
       changed = true;
+    } else if (s.rules && Array.isArray(s.rules.versions) && !s.rules.versions.some((v) => Number(v.v) === 2)) {
+      s.rules.versions.unshift({
+        v: 2,
+        by: 'Daniel Galvis',
+        at: Date.parse('2026-10-08'),
+        what: 'Matriz v2: sin teléfono ⇒ Baja; uso diario ≤ teléfono; ánimo en app solo con capacidad Alta; cursos con el experto en Baja; PM+ en Moderado y Moderado-severo; revisitas en Leve.',
+      });
+      changed = true;
+    }
+    // Matriz v2: los textos de cursos viven en Mongo (app_state.recursos.rules) y
+    // pisaban la plantilla. Si aún no hay matrixVersion ≥ 2, forzar REC.RULES.
+    if (s.recursos) {
+      const matrixV = Number(s.rules?.matrixVersion || 0);
+      const rules = Array.isArray(s.recursos.rules) ? s.recursos.rules : null;
+      const looksV1 = rules && rules.some((row) =>
+        Array.isArray(row) && (
+          /TEO o por WhatsApp/.test(String(row[1] || '')) ||
+          (/revisión del experto en la revisita/.test(String(row[1] || '')) && !/capacidad digital baja/.test(String(row[1] || ''))) ||
+          /dentro de PM\+/.test(String(row[1] || ''))
+        ),
+      );
+      if (matrixV < 2 || looksV1 || !rules || !rules.length) {
+        s.recursos.rules = REC.RULES.map((r) => r.slice());
+        if (s.rules) s.rules.matrixVersion = 2;
+        changed = true;
+      }
     }
     // Reglas hidratadas desde Mongo a veces vienen incompletas (solo cuts, sin dig.q).
     if (s.rules) {
@@ -314,6 +371,15 @@ const KEY = 'nara-memory-v1';
       if (!s.rules.auto) {
         s.rules.auto = { expert: 'vereda', clin: 'carga', review: 'Cada 4 semanas' };
         changed = true;
+      }
+      if (!s.rules.goals || typeof s.rules.goals !== 'object') {
+        s.rules.goals = { daily: 9, weekly: 45 };
+        changed = true;
+      } else {
+        const d = Number(s.rules.goals.daily);
+        const w = Number(s.rules.goals.weekly);
+        if (!(d > 0)) { s.rules.goals.daily = 9; changed = true; }
+        if (!(w > 0)) { s.rules.goals.weekly = 45; changed = true; }
       }
     }
     if (!s.patients || typeof s.patients !== 'object') { s.patients = {}; changed = true; }
@@ -399,15 +465,23 @@ const KEY = 'nara-memory-v1';
     s.pendingSync = s.pendingSync || {};
     if (s.pendingSync[ex] == null) s.pendingSync[ex] = 0;
   }
+  function teamGoals(s) {
+    ensure(s);
+    const g = (s.rules && s.rules.goals) || {};
+    const daily = Number(g.daily) > 0 ? Number(g.daily) : 9;
+    const weekly = Number(g.weekly) > 0 ? Number(g.weekly) : 45;
+    return { daily, weekly };
+  }
   function quotas(s, ex) {
     ensureExpertBuckets(s, ex);
     const wl = s.worklists[ex] || [];
     const v = wl.filter(x => x.status === 'validada');
     const targets = ex === 'andres' ? { rural: 5, sixty: 3 } : { rural: 1, sixty: 2 };
-    const todayT = 9;
+    const g = teamGoals(s);
+    const todayT = g.daily;
     return {
       today: v.length, todayT,
-      week: (s.weekBase[ex] || 0) + v.length - (s.rejected[ex] || 0), weekT: 45,
+      week: (s.weekBase[ex] || 0) + v.length - (s.rejected[ex] || 0), weekT: g.weekly,
       rural: v.filter(x => x.rural).length, ruralT: targets.rural,
       sixty: v.filter(x => x.age >= 60).length, sixtyT: targets.sixty
     };
@@ -487,7 +561,14 @@ const KEY = 'nara-memory-v1';
     { id: 'datos', name: 'Datos seudonimizados', desc: 'Catálogo de datos y solicitudes de extracción (exige número de aprobación ética)' },
     { id: 'casos', name: 'Casos remitidos', desc: 'Solo los casos remitidos a su institución, con autorización del paciente' }
   ];
-  const OBS_TEMPLATES = { 'Financiador': ['avance', 'recursos', 'resultados'], 'Investigación': ['resultados', 'datos'], 'Institución de salud': ['casos'] };
+  // Observador es un solo rol (sin tipos Financiador / Investigación / Institución).
+  const OBS_DEFAULT_MODULES = OBS_MODULES.map((m) => m.id);
+  /** @deprecated Los 3 tipos quedaron unificados; se mantiene por compatibilidad de lecturas antiguas. */
+  const OBS_TEMPLATES = {
+    Financiador: OBS_DEFAULT_MODULES.slice(),
+    Investigación: OBS_DEFAULT_MODULES.slice(),
+    'Institución de salud': OBS_DEFAULT_MODULES.slice(),
+  };
   function isAdminRole(role) { return !!role && /Admin/i.test(role); }
   function accountAsUser(a) {
     if (!a || a.status !== 'Activo') return null;
@@ -755,10 +836,10 @@ const KEY = 'nara-memory-v1';
   const small = v => v > 0 && v < 10 ? 'Menos de 10' : String(v);
 
   const AlientoStore = {
-    OFFSET, shiftText, fmtDay, today0, needsSocial, crisisLines, ctxFor, teamPerf, OBS_MODULES, OBS_TEMPLATES, ensure, TERRS, EXPERT_LIST, CLINICIANS, ROSTER, TCODE, person, people, terrInfo, experts, assetList, logActivity, logAccess,
+    OFFSET, shiftText, fmtDay, today0, needsSocial, crisisLines, ctxFor, teamPerf, OBS_MODULES, OBS_DEFAULT_MODULES, OBS_TEMPLATES, ensure, TERRS, EXPERT_LIST, CLINICIANS, ROSTER, TCODE, person, people, terrInfo, experts, assetList, logActivity, logAccess,
     KEY, C, RISK, DIG, PHQ, PHQ_OPTS, Q9_EXACT, DIGQ, CTX, SERVICES, CLIN_CH, HEAT, PATIENTS, emptyPatient,
-    riskIdx, digIdx, code, parseCode, defaultPath, pathList,
-    get, set, reset, subscribe, ensureExpertBuckets, quotas, openFlags, minsAgo, agoText, countdown, addAlert,
+    riskIdx, digIdx, code, parseCode, defaultPath, pathList, cursosFreq, cursosMod,
+    get, set, reset, subscribe, ensureExpertBuckets, teamGoals, quotas, openFlags, minsAgo, agoText, countdown, addAlert,
     CRISIS_TERMS, crisisCheck, logAgent, logAi, SAMPLE,
     USERS, session, login, logout, requireSession, devMode, setDevMode, param, notify, pushNotif, PEOPLE, CASE_IDS, territoryDist, placeMap, small, REC, recPerson, courseProgress
   };

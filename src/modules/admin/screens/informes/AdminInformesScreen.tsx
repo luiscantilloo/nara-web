@@ -31,6 +31,7 @@ export function AdminInformesScreen() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           initialAsk={String(v.pendingAsk || "")}
           context="reports"
           contextLabel="Sobre: informes"

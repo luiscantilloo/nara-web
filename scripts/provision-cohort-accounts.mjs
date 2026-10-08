@@ -266,7 +266,7 @@ async function main() {
           expert: expert?.name || "",
           expertId: expert?.id || null,
           accountId,
-          status: p.status || "Activa",
+          status: p.status || "Sin evaluación",
           updatedAt: now,
         },
       },

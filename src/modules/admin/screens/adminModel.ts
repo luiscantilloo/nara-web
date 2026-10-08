@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Auto-ported from Admin.dc.html — keep in sync with prototype logic.
+import { pickRepresentativePeople } from "@/lib/clinical/representativePeople";
+import { normalizePatientState, patientStateLabel } from "@/lib/clinical/patientStates";
 import { CHECKS, NOTES, type AdminUiState } from "./adminConstants";
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { resolvePlaceLatLng, terrCenter } from "@/lib/geo/quindioPlaces";
@@ -19,6 +21,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     Object.keys(s || {}).forEach((k) => {
       if (allowed.has(k)) out[k] = s[k];
     });
+    if (out.cursos) out.cursos = 'Biblioteca';
     return out;
   }
   function draft(code: string) {
@@ -130,13 +133,30 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const au = st.au || S.rules.auto, auChanged = JSON.stringify(au) !== JSON.stringify(S.rules.auto);
     const sp = num(st.simPhq ?? '17'), sd = num(st.simDig ?? '6');
     const ri = rs.findIndex(r => sp >= num(r.min) && sp <= num(r.max)), di = cuts.findIndex(c => sd >= num(c.min) && sd <= num(c.max));
-    const simOk = ri > -1 && di > -1;
+    // v2: casilla «Sin teléfono» fuerza capacidad Baja aunque el puntaje digital sea alto.
+    const diForced = st.simNoPhone ? 0 : di;
+    const simOk = ri > -1 && (st.simNoPhone || di > -1);
     let sim = { services: [] };
-    if (simOk) { const ri2 = Math.min(4, ri), di2 = Math.min(2, di), code = A.code(ri2, di2); const dr = (st.drafts || {})[code]; sim = { code, label: rs[ri].k + ' × digital ' + String(cuts[di].k).toLowerCase(), bg: rs[ri].c + '33', crisis: !!st.simQ9, months: A.defaultPath(ri2, di2).months, services: A.pathList(ri2, di2, dr, { dano: +(st.simDano || 0), perdida: st.simLoss ? 1 : 0 }).map(s => ({ name: s.name, freq: s.freq + (s.channel ? ' · ' + s.channel : '') })) }; }
+    if (simOk) {
+      const ri2 = Math.min(4, ri), di2 = Math.min(2, st.simNoPhone ? 0 : diForced);
+      const digLabel = st.simNoPhone ? 'baja' : String(cuts[di].k).toLowerCase();
+      const code = A.code(ri2, di2);
+      const dr = (st.drafts || {})[code];
+      sim = {
+        code,
+        label: rs[ri].k + ' × digital ' + digLabel,
+        bg: rs[ri].c + '33',
+        crisis: !!st.simQ9,
+        months: A.defaultPath(ri2, di2).months,
+        services: A.pathList(ri2, di2, dr, { dano: +(st.simDano || 0), perdida: st.simLoss ? 1 : 0 }).map(s => ({ name: s.name, freq: s.freq + (s.channel ? ' · ' + s.channel : '') })),
+      };
+    }
     const pend = S.rules.pending;
     return {
-      pathTabs: [['1', 'Servicios por perfil'], ['2', 'Reglas de clasificación'], ['3', 'Biblioteca']].map(([k, label]) => ({ label, bd: (st.pathTab || '1') === k ? C.amarillo : 'transparent', fg: (st.pathTab || '1') === k ? C.verde : C.tinta, go: () => api.setState({ pathTab: k }) })),
-      pathTab1: (st.pathTab || '1') === '1', pathTab2: st.pathTab === '2', pathTab3: st.pathTab === '3', ...libVals(A, S, st),
+      pathTabs: [['1', 'Servicios por perfil'], ['2', 'Reglas de clasificación']].map(([k, label]) => ({ label, bd: (st.pathTab || '1') === k ? C.amarillo : 'transparent', fg: (st.pathTab || '1') === k ? C.verde : C.tinta, go: () => api.setState({ pathTab: k }) })),
+      pathTab1: (st.pathTab || '1') === '1', pathTab2: st.pathTab === '2', pathTab3: st.pathTab === '3',
+      closeLib: () => api.setState({ pathTab: '1' }),
+      ...libVals(A, S, st),
       rRisk: rs.map((r, i) => ({ k: r.k, c: r.c, min: String(r.min), max: String(r.max), bd: num(r.min) <= num(r.max) ? C.lineas : C.revisar, setK: e => upd(d => { d.risk[i].k = e.target.value; }), setC: e => upd(d => { d.risk[i].c = e.target.value; }), setMin: e => upd(d => { d.risk[i].min = e.target.value.replace(/\D/g, ''); }), setMax: e => upd(d => { d.risk[i].max = e.target.value.replace(/\D/g, ''); }) })),
       rDigQ: rd.dig.q.map((q, qi) => ({ n: qi + 1, q: q.q, opts: q.o.map((o, oi) => ({ o: o.o, p: String(o.p), setO: e => upd(d => { d.dig.q[qi].o[oi].o = e.target.value; }), setP: e => upd(d => { d.dig.q[qi].o[oi].p = e.target.value.replace(/\D/g, ''); }) })) })),
       rCuts: cuts.map((c, i) => ({ k: c.k, min: String(c.min), max: String(c.max), bd: C.lineas, setMin: e => upd(d => { d.dig.cuts[i].min = e.target.value.replace(/\D/g, ''); }), setMax: e => upd(d => { d.dig.cuts[i].max = e.target.value.replace(/\D/g, ''); }) })),
@@ -150,6 +170,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       saveAuto: () => { if (!auChanged) return; const L = { territorio: 'por territorio', vereda: 'por vereda o barrio', carga: 'por carga' }; A.set(s => { s.rules.auto = au; s.rules.versions = s.rules.versions || []; const prev = (s.rules.versions[0] && s.rules.versions[0].v) || 1; s.rules.versions.unshift({ v: prev + 1, by: (A.session() && A.session().name) || 'Administrador', at: Date.now(), what: 'Asignación automática: experto ' + L[au.expert] + ', clínico ' + L[au.clin] + ', revisión de ruta ' + au.review.toLowerCase() + '.' }); A.logActivity(s, (A.session()?.id || "admin"), 'Cambió la asignación automática'); }); api.setState({ au: null, autoMsg: 'Guardado. Aplica a las personas nuevas desde hoy.' }); },
       simPhq: st.simPhq ?? '17', simDig: st.simDig ?? '6', setSimPhq: e => api.setState({ simPhq: e.target.value.replace(/\D/g, '') }), setSimDig: e => api.setState({ simDig: e.target.value.replace(/\D/g, '') }),
       simDano: st.simDano || '0', setSimDano: e => api.setState({ simDano: e.target.value }), toggleSimLoss: () => api.setState({ simLoss: !st.simLoss }), simLossBd: st.simLoss ? C.verde : C.texto2, simLossBg: st.simLoss ? C.verde : '#fff', simLossMark: st.simLoss ? '✓' : '',
+      toggleSimNoPhone: () => api.setState({ simNoPhone: !st.simNoPhone }), simNoPhoneBd: st.simNoPhone ? C.verde : C.texto2, simNoPhoneBg: st.simNoPhone ? C.verde : '#fff', simNoPhoneMark: st.simNoPhone ? '✓' : '',
       toggleSimQ9: () => api.setState({ simQ9: !st.simQ9 }), simQ9Bd: st.simQ9 ? C.rojo : C.texto2, simQ9Bg: st.simQ9 ? C.rojo : '#fff', simQ9Mark: st.simQ9 ? '✓' : '',
       simOk, simBad: !simOk, sim,
       versions: S.rules.versions.map(v => ({ v: v.v, by: v.by, what: v.what, when: A.fmtDay(v.at, { year: true }) }))
@@ -157,8 +178,13 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
   }
   function moreVals(A, S, C, st) {
     const fmt = n => n.toLocaleString('es-CO');
-    const all = A.people(S);
+    const full = A.people(S);
+    const sampleOn = st.peopleSample !== false;
+    const sample = pickRepresentativePeople(full);
+    // Depuración: KPIs, heat, funnel, roster y export usan como máx. 15 perfiles P01–P15.
+    const all = sampleOn ? sample : full;
     const classified = (p) => !!(p.profile && /^P\d+$/i.test(String(p.profile)));
+    const estadoDe = (p) => patientStateLabel(normalizePatientState(p.status, { hasProfile: classified(p) }));
     const heatGrid = A.RISK.map(() => [0, 0, 0]);
     all.forEach(p => {
       if (!classified(p)) return;
@@ -170,10 +196,33 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const evaluadas = all.length;
     const conRuta = all.filter(p => classified(p)).length;
     const primer = all.filter(p => (p.week || 0) > 0).length;
-    const activas = all.filter(p => p.status === 'Activa').length;
+    const activas = all.filter(p => estadoDe(p) === 'Activo').length;
     const completadas = all.filter(p => /terminar|complet/i.test(p.status || '')).length;
-    const sinContacto = all.filter(p => /Sin contacto/i.test(p.status || '')).length;
-    const crisisMes = (S.alerts || []).filter(a => a.sev === 'crisis').length;
+    // Pacientes sin ingreso a la app en 3+ días (por lastLoginAt de la cuenta).
+    const INACTIVE_MS = 3 * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    const sinContacto = (S.accounts || []).filter((a: { roleId?: string; role?: string; status?: string; lastLoginAt?: number; createdAt?: number; updatedAt?: number }) => {
+      const isPatient = a.roleId === 'paciente' || /Paciente/i.test(a.role || '');
+      if (!isPatient) return false;
+      if (a.status && a.status !== 'Activo') return false;
+      const last = Number(a.lastLoginAt || 0);
+      if (last > 0) return nowMs - last >= INACTIVE_MS;
+      const created = Number(a.createdAt || a.updatedAt || 0);
+      if (created > 0) return nowMs - created >= INACTIVE_MS;
+      return true;
+    }).length;
+    // Pacientes que tocaron «Estoy en crisis» (alertas abiertas, una por persona).
+    const crisisPids = new Set();
+    (S.alerts || []).forEach((a: { sev?: string; status?: string; pid?: string; name?: string; source?: string; id?: string; what?: string }) => {
+      if (a.sev !== 'crisis') return;
+      if (/closed|cerrada/i.test(String(a.status || ''))) return;
+      const fromBtn = /Estoy en crisis|crisis-btn/i.test(
+        String(a.source || '') + ' ' + String(a.id || '') + ' ' + String(a.what || ''),
+      );
+      if (!fromBtn) return;
+      crisisPids.add(a.pid || a.name || a.id);
+    });
+    const crisisMes = crisisPids.size;
     const F = [['Evaluadas', evaluadas], ['Con ruta asignada', conRuta], ['Primer contacto de la ruta', primer], ['Activas últimos 14 días', activas], ['Ruta completada', completadas]];
     const denom = Math.max(1, evaluadas);
     const brRows = (S.territories || []).map(t => {
@@ -296,7 +345,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const hay = (p) => {
       if (!q) return true;
       const blob = [
-        p.code, p.id, p.name, p.terr, p.place, p.age, p.profile, p.status,
+        p.code, p.id, p.name, p.terr, p.place, p.age, p.profile, estadoDe(p),
         p.expert, p.expertId, p.clin, p.phone, p.email, p.week, p.weeks,
       ].map((x) => String(x ?? '').toLowerCase()).join(' ');
       return blob.includes(q);
@@ -308,7 +357,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       else if (pf.profile && p.profile !== pf.profile) return false;
       if (pf.risk !== undefined && pf.risk !== '' && c.r !== +pf.risk) return false;
       if (pf.dig !== undefined && pf.dig !== '' && c.d !== +pf.dig) return false;
-      if (pf.status && p.status !== pf.status) return false;
+      if (pf.status && estadoDe(p) !== pf.status) return false;
       if (pf.expert) {
         if (pf.expert === '—') { if (p.expert) return false; }
         else if (p.expert !== pf.expert) return false;
@@ -330,7 +379,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         pct: p.weeks ? Math.round((p.week || 0) / p.weeks * 100) + '%' : '0%',
         prog: 'Semana ' + (p.week || 0) + ' de ' + (p.weeks || 0),
         expert: p.expert || 'Sin experto',
-        status: p.status,
+        status: estadoDe(p),
         fw: /Sin contacto|Sin experto/.test(p.status || '') ? 500 : 400,
       };
     });
@@ -342,18 +391,20 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       ['profile', 'Perfil', opt(profileOpts, 'Todos')],
       ['risk', 'Riesgo', opt(A.RISK.map((r, i) => ({ v: String(i), l: r.k })), 'Todos')],
       ['dig', 'Capacidad digital', opt(A.DIG.map((r, i) => ({ v: String(i), l: r.k })), 'Todas')],
-      ['status', 'Estado', opt(uniq(all.map(p => p.status)), 'Todos')],
+      ['status', 'Estado', opt(uniq(all.map(estadoDe)), 'Todos')],
       ['expert', 'Experto', opt([{ v: '—', l: 'Sin experto' }].concat(uniq(all.map(p => p.expert))), 'Todos')],
     ].map(([k, label, opts]) => ({ label, opts, val: pf[k] || '', set: setPf(k), bd: pf[k] ? C.verde : C.lineas }));
     const exportRoster = () => {
       const rows = [['Código', 'Nombre', 'Territorio', 'Vereda o barrio', 'Edad', 'Perfil', 'Semana', 'De', 'Experto', 'Clínico', 'Estado', 'Correo', 'Teléfono']]
-        .concat(list.map(p => [p.code, p.name || '', p.terr, p.place, p.age, hasProfile(p) ? p.profile : '', p.week, p.weeks, p.expert || '', p.clin || '', p.status, p.email || '', p.phone || '']));
+        .concat(list.map(p => [p.code, p.name || '', p.terr, p.place, p.age, hasProfile(p) ? p.profile : '', p.week, p.weeks, p.expert || '', p.clin || '', estadoDe(p), p.email || '', p.phone || '']));
       const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-      a.download = 'personas-nara.csv';
+      a.download = sampleOn ? 'personas-nara-15-perfiles.csv' : 'personas-nara.csv';
       a.click();
-      A.set(s => A.logActivity(s, (A.session()?.id || "admin"), 'Exportó ' + list.length + ' personas'));
+      A.set(s => A.logActivity(s, (A.session()?.id || "admin"), sampleOn
+        ? 'Exportó ' + list.length + ' perfiles representativos (datos de prueba)'
+        : 'Exportó ' + list.length + ' personas'));
     };
     const digDrop = [0, 1, 2].map(di => {
       const group = all.filter(p => classified(p) && A.parseCode(p.profile).d === di);
@@ -361,13 +412,23 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       const pct = group.length ? Math.round(drop / group.length * 100) : 0;
       return [A.DIG[di].k, pct, A.DIG[di].c];
     });
+    const sampleLabel = sampleOn
+      ? sample.length + ' de 15 perfiles representativos (P01–P15)'
+        + (full.length > sample.length ? ' · cohorte completa ' + full.length.toLocaleString('es-CO') : '')
+      : list.length + ' de ' + full.length + ' personas' + (list.length > 300 ? ' · se muestran 300' : '');
     return {
-      q: st.q || '', setQ: e => api.setState({ q: e.target.value }), roster, noRoster: roster.length === 0, rosterCount: list.length + ' de ' + all.length + ' personas' + (list.length > 300 ? ' · se muestran 300' : ''), pFilters, exportRoster, hasPF: Object.values(pf).some(Boolean) || !!q, clearPF: () => api.setState({ pf: {}, q: '' }),
+      q: st.q || '', setQ: e => api.setState({ q: e.target.value }), roster, noRoster: roster.length === 0,
+      rosterCount: sampleLabel,
+      peopleSample: sampleOn,
+      peopleSampleN: sample.length,
+      peopleFullN: full.length,
+      togglePeopleSample: () => api.setState({ peopleSample: !sampleOn }),
+      pFilters, exportRoster, hasPF: Object.values(pf).some(Boolean) || !!q, clearPF: () => api.setState({ pf: {}, q: '' }),
       pk: [
-        { label: 'Personas evaluadas', val: fmt(evaluadas), sub: Object.keys(S.visits || {}).length ? Object.keys(S.visits).length + ' visitas registradas' : 'Sin visitas aún' },
-        { label: 'Activas en su ruta', val: fmt(activas), sub: 'Con estado activo en el programa' },
-        { label: 'Sin contacto +14 días', val: fmt(sinContacto), sub: 'Para reactivar por los expertos' },
-        { label: 'Alertas de crisis', val: fmt(crisisMes), sub: crisisMes ? 'Abiertas en el store' : 'Sin alertas' },
+        { label: 'Personas a evaluar', val: fmt(evaluadas), sub: sampleOn ? 'Modo prueba · máx. 15 perfiles P01–P15' : (Object.keys(S.visits || {}).length ? Object.keys(S.visits).length + ' visitas registradas' : 'Sin visitas aún') },
+        { label: 'Evaluadas con ruta', val: fmt(conRuta), sub: sampleOn ? 'Representativos con perfil' : 'Ya evaluadas y con ruta asignada' },
+        { label: 'Sin contacto +3 días', val: fmt(sinContacto), sub: 'Pacientes sin ingresar a la app en 3 días o más' },
+        { label: 'Alertas de crisis', val: fmt(crisisMes), sub: crisisMes ? 'Pacientes que tocaron «Estoy en crisis»' : 'Sin alertas' },
       ],
       heat, funnel: F.map(([label, v]) => ({ label, v: fmt(v), w: (Number(v) / denom * 100).toFixed(1) + '%' })),
       dropout: digDrop.map(([label, v, c]) => ({ label, v: v + ' %', w: (Number(v) / Math.max(20, Number(v)) * 100) + '%', c })),
@@ -442,20 +503,24 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const tf = st.tf; const setTf = k => e => api.setState({ tf: Object.assign({}, tf, { [k]: e.target.value }), tfErr: '' });
     const chk = (group, k, label) => ({ label, mark: tf[group][k] ? '✓' : '', bd: tf[group][k] ? C.verde : C.texto2, bg: tf[group][k] ? C.verde : '#fff', toggle: () => api.setState({ tf: Object.assign({}, tf, { [group]: Object.assign({}, tf[group], { [k]: !tf[group][k] }) }) }) });
 
+    const goals = A.teamGoals(S);
+    const midWeek = Math.max(1, Math.round(goals.weekly * 34 / 45));
     const experts = A.experts(S).map(e => {
       const exKey = e.id === 'andres' || e.name === 'Andrés Ocampo' ? 'andres' : e.id === 'mj' || e.name === 'María José Vélez' ? 'mj' : null;
       let today = e.today || 0, week = e.week || 0, flags = 0, status = 'low';
-      if (exKey) { const q = A.quotas(S, exKey); today = q.today; week = q.week; flags = A.openFlags(S, exKey); status = flags ? 'rev' : week >= 34 ? 'ok' : week > 0 ? 'low' : 'low'; }
+      if (exKey) { const q = A.quotas(S, exKey); today = q.today; week = q.week; flags = A.openFlags(S, exKey); status = flags ? 'rev' : week >= midWeek ? 'ok' : week > 0 ? 'low' : 'low'; }
       else {
         flags = (S.flags || []).filter(x => x.expertName === e.name && x.status === 'pending').length;
-        status = flags ? 'rev' : e.isNew || e.training === 'Pendiente' ? 'new' : week >= 34 ? 'ok' : 'low';
+        status = flags ? 'rev' : e.isNew || e.training === 'Pendiente' ? 'new' : week >= midWeek ? 'ok' : 'low';
       }
       const map = { ok: ['Al día', C.alDia], low: ['Bajo meta', C.bajoMeta], rev: ['Revisar', C.revisar], new: ['Capacitación pendiente', '#8C857C'], off: ['Desactivado', '#8C857C'] };
       const eov = (S.expertOv || {})[e.name] || {}; if (eov.active === false || e.active === false) { status = 'off'; }
-      const target = e.target || 9;
-      return { open: () => { api.router.push('/admin/experto?e=' + encodeURIComponent(e.name)); }, name: e.name, terr: eov.terr || e.terr, today: today + ' / ' + target, week: week + ' / 45', flags, status: map[status][0], sc: map[status][1], rowBg: e.isNew ? '#FFF9E3' : '#fff' };
+      const target = e.target || goals.daily;
+      return { open: () => { api.router.push('/admin/experto?e=' + encodeURIComponent(e.name)); }, name: e.name, terr: eov.terr || e.terr, today: today + ' / ' + target, week: week + ' / ' + goals.weekly, flags, status: map[status][0], sc: map[status][1], rowBg: e.isNew ? '#FFF9E3' : '#fff' };
     });
     const ef = st.ef; const setEf = k => e => api.setState({ ef: Object.assign({}, ef, { [k]: e.target.value }) });
+    const gf = st.gf || { daily: String(goals.daily), weekly: String(goals.weekly) };
+    const setGf = k => e => api.setState({ gf: Object.assign({}, gf, { [k]: e.target.value.replace(/\D/g, '') }), gfErr: '' });
     const flags = S.flags.map(f => ({ expertName: f.expertName, territory: f.territory, when: f.when, person: f.person, reasons: f.reasons, pending: f.status === 'pending', done: f.status !== 'pending', doneText: f.status === 'approved' ? 'Aprobada · cuenta para la cuota' : f.fromVisit ? 'Rechazada · no cuenta para la cuota' : 'Rechazada · se restó de la cuota',
       approve: async () => {
         try {
@@ -486,7 +551,9 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       title: st.sel + ' · ' + A.RISK[sr].k + ' × digital ' + A.DIG[sd].k.toLowerCase(), people: A.people(S).filter(p => p.profile === st.sel).length,
       rows: A.SERVICES.map(sv => {
         const on = !!dr.s[sv.id];
+        const isCursos = sv.id === 'cursos';
         return {
+          id: sv.id,
           name: sv.name,
           note: NOTES[sv.id] || '',
           op: on ? 1 : 0.6,
@@ -496,19 +563,25 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           toggle: () => {
             api.setDraft(st.sel, d => {
               if (d.s[sv.id]) delete d.s[sv.id];
-              else d.s[sv.id] = sv.freqs[0];
+              else d.s[sv.id] = isCursos ? 'Biblioteca' : (sv.freqs[0] || 'Activo');
             });
           },
-          freqs: sv.freqs.map(label => {
-            const sel = dr.s[sv.id] === label;
-            return {
-              label,
-              bd: sel ? C.verde : C.lineas,
-              bg: sel ? '#FFF4CC' : '#fff',
-              fg: on ? C.tinta : C.texto2,
-              pick: () => { api.setDraft(st.sel, d => { d.s[sv.id] = label; }); },
-            };
-          }),
+          freqs: isCursos
+            ? []
+            : sv.freqs.map(label => {
+                const sel = dr.s[sv.id] === label;
+                return {
+                  label,
+                  bd: sel ? C.verde : C.lineas,
+                  bg: sel ? '#FFF4CC' : '#fff',
+                  fg: on ? C.tinta : C.texto2,
+                  pick: () => { api.setDraft(st.sel, d => { d.s[sv.id] = label; }); },
+                };
+              }),
+          // Mueve la pestaña Biblioteca aquí: abre el mismo panel de recursos.
+          libBtn: isCursos
+            ? { label: 'Biblioteca', go: () => api.setState({ pathTab: '3' }) }
+            : null,
         };
       }),
       warn: false,
@@ -569,6 +642,52 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       },
       expForm: st.expForm, expFormBtn: '+ Crear experto', toggleExpForm: () => api.setState({ expForm: true }), closeExpForm: () => api.setState({ expForm: false }),
       ef, efSet: { name: setEf('name'), phone: setEf('phone'), terr: setEf('terr'), target: setEf('target') }, terrNames: allTerr.map(t => t.name),
+      goalsForm: st.goalsForm,
+      openGoalsForm: () => api.setState({ goalsForm: true, gf: { daily: String(goals.daily), weekly: String(goals.weekly) }, gfErr: '' }),
+      closeGoalsForm: () => api.setState({ goalsForm: false, gfErr: '' }),
+      gf, gfSet: { daily: setGf('daily'), weekly: setGf('weekly') }, gfErr: st.gfErr || '', clearGfErr: () => api.setState({ gfErr: '' }),
+      teamGoalsDaily: goals.daily, teamGoalsWeekly: goals.weekly,
+      saveGoals: async () => {
+        const daily = parseInt(gf.daily, 10);
+        const weekly = parseInt(gf.weekly, 10);
+        if (!(daily > 0) || !(weekly > 0)) return api.setState({ gfErr: 'Indique metas diarias y semanales mayores que cero.' });
+        if (weekly < daily) return api.setState({ gfErr: 'La meta semanal no puede ser menor que la diaria.' });
+        try {
+          const res = await fetch('/api/experts/goals', {
+            credentials: 'same-origin',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ daily, weekly }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) return api.setState({ gfErr: data.error || 'No se pudieron guardar las metas.' });
+          const next = data.goals || { daily, weekly };
+          A.set(s => {
+            s.rules = s.rules || {};
+            s.rules.goals = { daily: next.daily, weekly: next.weekly };
+            (s.experts || []).forEach(ex => { ex.target = next.daily; ex.weekT = next.weekly; });
+            s.rules.versions = s.rules.versions || [];
+            const prev = (s.rules.versions[0] && s.rules.versions[0].v) || 1;
+            s.rules.versions.unshift({
+              v: prev + 1,
+              by: (A.session() && A.session().name) || 'Administrador',
+              at: Date.now(),
+              what: 'Metas de captación del equipo: ' + next.daily + ' visitas/día y ' + next.weekly + ' /semana.',
+            });
+            A.logActivity(s, (A.session()?.id || 'admin'), 'Actualizó las metas de captación del equipo');
+          });
+          api.setState({
+            goalsForm: false,
+            gf: { daily: String(next.daily), weekly: String(next.weekly) },
+            gfErr: '',
+            ef: Object.assign({}, st.ef, { target: String(next.daily) }),
+            msg: 'Metas actualizadas para todo el equipo: ' + next.daily + ' /día y ' + next.weekly + ' /semana.',
+            msgActions: [],
+          });
+        } catch (err) {
+          api.setState({ gfErr: 'No se pudo conectar con la base de datos.' });
+        }
+      },
       terrChips: allTerr.map(t => ({ n: t.name, bd: ef.terr === t.name ? C.verde : C.lineas, bg: ef.terr === t.name ? '#FFF4CC' : '#fff', fw: ef.terr === t.name ? 500 : 400, pick: () => api.setState({ ef: Object.assign({}, ef, { terr: t.name }) }) })),
       saveExp: async () => {
         if (!ef.name.trim() || ef.phone.replace(/\D/g, '').length < 10) return api.setState({ msg: 'Faltan datos: escriba el nombre y un celular de 10 dígitos.', msgActions: [] });
@@ -577,7 +696,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           name: ef.name.trim(),
           phone: ef.phone,
           terr: ef.terr,
-          target: parseInt(ef.target, 10) || 9,
+          target: parseInt(ef.target, 10) || goals.daily,
         };
         try {
           const res = await fetch('/api/experts', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

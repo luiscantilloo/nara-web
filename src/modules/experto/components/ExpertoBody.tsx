@@ -697,31 +697,31 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
               <FormModal
                 open={!!v.isNew}
                 onClose={() => v.closeNewForm?.()}
-                title="Nueva persona"
-                description="Datos mínimos para abrir la visita. El teléfono se usa para detectar duplicados."
-                size="lg"
+                title={v.formTitle || "Nueva persona"}
+                description={v.formDesc || "Datos mínimos para abrir la visita. El teléfono se usa para detectar duplicados."}
+                size="md"
                 footer={(
                   <>
                     <button
                       type="button"
                       onClick={() => v.newSave?.()}
-                      className="h-[46px] cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-5 font-texto text-[15px] font-medium text-nara-tinta"
+                      className="h-[46px] w-full cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-5 font-texto text-[15px] font-medium text-nara-tinta sm:w-auto"
                     >
-                      Agregar y empezar visita
+                      {v.formSaveLabel || "Agregar y empezar visita"}
                     </button>
                     <button
                       type="button"
                       onClick={() => v.closeNewForm?.()}
-                      className="h-[46px] cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-[18px] font-texto text-[15px] font-medium text-nara-tinta"
+                      className="h-[46px] w-full cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-[18px] font-texto text-[15px] font-medium text-nara-tinta sm:w-auto"
                     >
                       Cancelar
                     </button>
                   </>
                 )}
               >
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-4">
                   {(v.newFields || []).map((f: Record<string, any>, fi: number) => (
-                    <label key={fi} className="flex min-w-0 flex-col gap-1.5 font-medium">
+                    <label key={fi} className="flex w-full flex-col gap-1.5 font-medium">
                       <span className="leading-5">{f.label}</span>
                       {f.kind === "phone" ? (
                         <PhoneInput
@@ -1198,52 +1198,6 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                       gap: 16,
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        background: "#fff",
-                        border: "1px solid #DCD6CD",
-                        borderRadius: 12,
-                        padding: 4,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => v.modeForm?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 16,
-                          fontWeight: 500,
-                          height: 44,
-                          padding: "0 18px",
-                          borderRadius: 9,
-                          border: "none",
-                          cursor: "pointer",
-                          background: v.mFormBg,
-                          color: v.mFormFg,
-                        }}
-                      >
-                        Formulario
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => v.modeChat?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 16,
-                          fontWeight: 500,
-                          height: 44,
-                          padding: "0 18px",
-                          borderRadius: 9,
-                          border: "none",
-                          cursor: "pointer",
-                          background: v.mChatBg,
-                          color: v.mChatFg,
-                        }}
-                      >
-                        Conversación con TEO
-                      </button>
-                    </div>
                     <span style={{ fontSize: 16 }}>
                       <b style={{ fontWeight: 500 }}>{v.progressOk}</b>
                       <span style={{ color: "#161413" }}>{v.progressDraft}</span>
@@ -1629,13 +1583,15 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                             height: 44,
                             padding: "0 16px",
                             borderRadius: 10,
-                            border: "1.5px solid #161413",
-                            background: "#fff",
-                            color: "#161413",
+                            border: `1.5px solid ${(v.confirmBtnBd as string) || "#161413"}`,
+                            background: (v.confirmBtnBg as string) || "#fff",
+                            color: (v.confirmBtnFg as string) || "#161413",
                             cursor: "pointer",
                           }}
                         >
-                          Confirmar las revisadas
+                          {v.secDraftN
+                            ? `Confirmar las revisadas · ${v.secDraftN}`
+                            : "Confirmar las revisadas"}
                         </button>
                       </div>
                     </div>
@@ -2165,68 +2121,6 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                         gap: 14,
                       }}
                     >
-                      {v.notCrisis ? (
-                        <div
-                          style={{
-                            background: "#fff",
-                            border: "1px solid #DCD6CD",
-                            borderRadius: 20,
-                            padding: "18px 20px",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 10,
-                          }}
-                        >
-                          <span style={{ fontSize: 16, fontWeight: 500 }}>
-                            Criterio del experto
-                          </span>
-                          {(v.overrides || []).map(
-                            (o: Record<string, any>, oi: number) => (
-                              <div
-                                key={oi}
-                                onClick={() => o.pick?.()}
-                                style={{
-                                  display: "flex",
-                                  gap: 12,
-                                  alignItems: "center",
-                                  minHeight: 46,
-                                  padding: "0 12px",
-                                  borderRadius: 10,
-                                  border: `1.5px solid ${o.bd}`,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: "50%",
-                                    border: `2px solid ${o.bd}`,
-                                    boxSizing: "border-box",
-                                    background: o.dot,
-                                  }}
-                                />
-                                <span style={{ fontSize: 16 }}>{o.label}</span>
-                              </div>
-                            ),
-                          )}
-                          {v.needReason ? (
-                            <textarea
-                              value={v.reason}
-                              onChange={v.setReason}
-                              rows={2}
-                              placeholder="Motivo del cambio de ruta"
-                              style={{
-                                border: `1.5px solid ${v.reasonBd}`,
-                                borderRadius: 10,
-                                padding: "10px 12px",
-                                fontSize: 16,
-                                resize: "none",
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                      ) : null}
                       <button
                         type="button"
                         onClick={() => v.saveVisit?.()}

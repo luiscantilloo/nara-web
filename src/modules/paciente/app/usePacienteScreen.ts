@@ -918,13 +918,21 @@ export function usePacienteScreen() {
           at: Date.now(),
           d: "Hoy",
         });
+        const prevStatus = String(prev.status || "");
+        // Aprobado → Activo con el primer contacto / check-in (seguimiento continuo).
+        const nextStatus = /^aprobad/i.test(prevStatus) ? "Activo" : prevStatus || prev.status;
         s.patients[id] = {
           ...prev,
           lastCheckin: new Date().toISOString(),
           lastMood: i + 1,
           lastMoodLabel: label,
           timeline,
+          ...(nextStatus ? { status: nextStatus, signal: nextStatus === "Activo" ? "Activo" : prev.signal } : {}),
         };
+        if (nextStatus === "Activo") {
+          const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
+          if (pe) pe.status = "Activo";
+        }
       });
       store.logAi(id, "Check-in de ánimo", `${label} (${i + 1}/5)`);
     },
@@ -2272,29 +2280,120 @@ export function usePacienteScreen() {
       setPl(null);
     },
     helpOpen: help,
-    helpNotSent: !helpSent && !(pid === "diana" && S.diana?.crisis),
-    helpText:
-      helpSent || (pid === "diana" && S.diana?.crisis)
+    helpNotSent: (() => {
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || {};
+      const openCrisis = (S.alerts || []).some(
+        (a: { id?: string; pid?: string; sev?: string }) =>
+          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
+      );
+      if (openCrisis || (pid === "diana" && S.diana?.crisis)) return false;
+      // Reactivación tras inactividad o tras cerrar crisis en clínico.
+      if (P.crisisBtnReady) return true;
+      return !helpSent;
+    })(),
+    helpText: (() => {
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || {};
+      const openCrisis = (S.alerts || []).some(
+        (a: { id?: string; pid?: string; sev?: string }) =>
+          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
+      );
+      const blocked =
+        (openCrisis || (pid === "diana" && S.diana?.crisis) || (helpSent && !P.crisisBtnReady));
+      return blocked
         ? "Ya avisamos al equipo. Una persona la va a llamar en menos de 30 minutos. Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4."
-        : "Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4. También puede pedir que alguien del equipo la llame ya.",
-    openHelp: () => setHelp(true),
-    closeHelp: () => setHelp(false),
-    askCall: () => {
-      setHelpSent(true);
+        : "Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4. Al tocar «Estoy en crisis» avisamos al equipo para que la contacten.";
+    })(),
+    openHelp: () => {
+      setHelp(true);
       const id = pidRef.current;
       const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
+      const openCrisis = (store.get().alerts || []).some(
+        (a: { id?: string; pid?: string; sev?: string }) =>
+          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
+      );
+      if (openCrisis || (pid === "diana" && store.get().diana?.crisis)) return;
+      if (helpSent && !P.crisisBtnReady) return;
+      setHelpSent(true);
+      store.set((s: any) => {
+        if (s.patients[id]) {
+          s.patients[id].crisisBtnReady = false;
+          s.patients[id].status = "Crisis";
+          s.patients[id].signal = "Crisis";
+        }
+        const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
+        if (pe) pe.status = "Crisis";
+      });
       store.addAlert({
-        id: "a-" + id + "-btn",
+        id: "a-" + id + "-crisis-btn-" + Date.now(),
         sev: "crisis",
         pid: id,
         name: P.name,
         age: P.age,
         place: (P.place || "").split(",")[0] || P.place,
         profile: P.profile || "P05",
-        what: "Tocó «Necesito ayuda ahora» y pidió que la llamen ya.",
-        source: "Botón de ayuda · app",
+        what: "Tocó «Estoy en crisis» en la app.",
+        source: "Botón Estoy en crisis · app",
         phone: P.phone || "",
+        expert: P.expert || undefined,
       });
+      void Promise.all([
+        fetch("/api/people", {
+          credentials: "same-origin",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, name: P.name, status: "Crisis" }),
+        }),
+        fetch("/api/patients", {
+          credentials: "same-origin",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, name: P.name, status: "Crisis", signal: "Crisis" }),
+        }),
+      ]).catch(() => {});
+    },
+    closeHelp: () => setHelp(false),
+    askCall: () => {
+      setHelpSent(true);
+      const id = pidRef.current;
+      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
+      store.set((s: any) => {
+        if (s.patients[id]) {
+          s.patients[id].crisisBtnReady = false;
+          s.patients[id].status = "Crisis";
+          s.patients[id].signal = "Crisis";
+        }
+        const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
+        if (pe) pe.status = "Crisis";
+      });
+      store.addAlert({
+        id: "a-" + id + "-crisis-btn-" + Date.now(),
+        sev: "crisis",
+        pid: id,
+        name: P.name,
+        age: P.age,
+        place: (P.place || "").split(",")[0] || P.place,
+        profile: P.profile || "P05",
+        what: "Tocó «Estoy en crisis» y pidió que la llamen ya.",
+        source: "Botón Estoy en crisis · app",
+        phone: P.phone || "",
+        expert: P.expert || undefined,
+      });
+      void Promise.all([
+        fetch("/api/people", {
+          credentials: "same-origin",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, name: P.name, status: "Crisis" }),
+        }),
+        fetch("/api/patients", {
+          credentials: "same-origin",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, name: P.name, status: "Crisis", signal: "Crisis" }),
+        }),
+      ]).catch(() => {});
     },
     dianaLines: ((DP.place || "").includes("Salento") ? rosaLines : dianaLines),
     rosaLines,

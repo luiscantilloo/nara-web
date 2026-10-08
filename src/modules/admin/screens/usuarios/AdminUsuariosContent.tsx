@@ -6,6 +6,35 @@ import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
 import { ix } from "../inlineStyle";
 
+function UsuariosPager({ v }: { v: Record<string, any> }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+      <span className="text-sm text-texto-secundario">{v.pageLabel}</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={!v.canPrev}
+          onClick={() => v.prevPage?.()}
+          className="h-9 cursor-pointer rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-sm text-nara-tinta disabled:cursor-default disabled:opacity-40"
+        >
+          Anterior
+        </button>
+        <span className="min-w-[4.5rem] text-center text-sm font-medium text-nara-tinta">
+          {v.page + 1} / {v.totalPages}
+        </span>
+        <button
+          type="button"
+          disabled={!v.canNext}
+          onClick={() => v.nextPage?.()}
+          className="h-9 cursor-pointer rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-sm text-nara-tinta disabled:cursor-default disabled:opacity-40"
+        >
+          Siguiente
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
   return (
     <>
@@ -112,64 +141,68 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
             Ningún usuario coincide con la búsqueda.
           </div>
         ) : null}
+        {!v.noUsers ? <UsuariosPager v={v} /> : null}
       </div>
 
       {/* Desktop: tabla + tip */}
       <div className="nara-split-panel hidden md:grid">
-        <div className="nara-scroll-x overflow-hidden rounded-[20px] border border-linea bg-nara-blanco">
-          <div style={{ minWidth: 720 }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) 100px",
-                gap: 12,
-                padding: "10px 20px",
-                background: "#F0ECE6",
-                color: "#5E5750",
-                fontSize: 13,
-                fontWeight: 500,
-              }}
-            >
-              <span>Nombre</span>
-              <span>Rol</span>
-              <span>Organización</span>
-              <span>Territorio</span>
-              <span>Estado</span>
-            </div>
-            {v.users?.map((u: any) => (
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="nara-scroll-x overflow-hidden rounded-[20px] border border-linea bg-nara-blanco">
+            <div style={{ minWidth: 720 }}>
               <div
-                key={u.key}
-                onClick={() => u.pick()}
-                style={ix`display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) 100px;gap:12px;padding:11px 20px;border-top:1px solid #E6E1D9;align-items:center;font-size:14px;cursor:pointer;background:${u.bg}`}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) 100px",
+                  gap: 12,
+                  padding: "10px 20px",
+                  background: "#F0ECE6",
+                  color: "#5E5750",
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
               >
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span style={{ fontWeight: 500 }}>
-                    {u.role === "Observador" ? u.org || u.name : u.name}
-                  </span>
-                  <span style={{ fontSize: 12, color: "#5E5750" }}>
-                    {u.role === "Observador" ? u.mods || u.contact : u.contact}
-                  </span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                  <span>{u.role}</span>
-                  {u.role !== "Observador" && u.mods ? (
-                    <span style={{ fontSize: 12, color: "#5E5750" }}>{u.mods}</span>
-                  ) : null}
-                </div>
-                <span style={{ minWidth: 0 }}>{u.role === "Observador" ? u.terr : u.org}</span>
-                <span style={{ minWidth: 0 }}>{u.terr}</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 500 }}>
-                  <span style={ix`width:8px;height:8px;border-radius:50%;background:${u.sc}`} />
-                  {u.status}
-                </span>
+                <span>Nombre</span>
+                <span>Rol</span>
+                <span>Organización</span>
+                <span>Territorio</span>
+                <span>Estado</span>
               </div>
-            ))}
-            {v.noUsers ? (
-              <span style={{ display: "block", padding: 20, color: "#5E5750" }}>
-                Ningún usuario coincide con la búsqueda.
-              </span>
-            ) : null}
+              {v.users?.map((u: any) => (
+                <div
+                  key={u.key}
+                  onClick={() => u.pick()}
+                  style={ix`display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,.9fr) 100px;gap:12px;padding:11px 20px;border-top:1px solid #E6E1D9;align-items:center;font-size:14px;cursor:pointer;background:${u.bg}`}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <span style={{ fontWeight: 500 }}>
+                      {u.role === "Observador" ? u.org || u.name : u.name}
+                    </span>
+                    <span style={{ fontSize: 12, color: "#5E5750" }}>
+                      {u.role === "Observador" ? u.mods || u.contact : u.contact}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                    <span>{u.role}</span>
+                    {u.role !== "Observador" && u.mods ? (
+                      <span style={{ fontSize: 12, color: "#5E5750" }}>{u.mods}</span>
+                    ) : null}
+                  </div>
+                  <span style={{ minWidth: 0 }}>{u.role === "Observador" ? u.terr : u.org}</span>
+                  <span style={{ minWidth: 0 }}>{u.terr}</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 7, fontWeight: 500 }}>
+                    <span style={ix`width:8px;height:8px;border-radius:50%;background:${u.sc}`} />
+                    {u.status}
+                  </span>
+                </div>
+              ))}
+              {v.noUsers ? (
+                <span style={{ display: "block", padding: 20, color: "#5E5750" }}>
+                  Ningún usuario coincide con la búsqueda.
+                </span>
+              ) : null}
+            </div>
           </div>
+          {!v.noUsers ? <UsuariosPager v={v} /> : null}
         </div>
 
         <div className="sticky top-5 flex flex-col gap-3.5 rounded-[20px] border border-linea bg-nara-blanco px-[22px] py-5">
@@ -373,76 +406,19 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
           ) : null}
 
           {v.isObs ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                borderTop: "1px solid #E6E1D9",
-                paddingTop: 12,
-              }}
-            >
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-                  Organización
-                  <input
-                    value={v.f.org ?? ""}
-                    onChange={v.fSet.org}
-                    className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea px-3 font-texto text-[15px] text-nara-tinta"
-                  />
-                </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-                  Tipo
-                  <select
-                    value={v.f.orgType ?? ""}
-                    onChange={v.fSet.orgType}
-                    style={{
-                      height: 42,
-                      borderRadius: 9,
-                      border: "1.5px solid #DCD6CD",
-                      padding: "0 8px",
-                      fontSize: 15,
-                      background: "#fff",
-                    }}
-                  >
-                    <option>Financiador</option>
-                    <option>Investigación</option>
-                    <option>Institución de salud</option>
-                  </select>
-                </label>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={{ fontWeight: 500, fontSize: 14 }}>Vistas de este tipo</span>
-                <span style={{ fontSize: 13, color: "#5E5750", lineHeight: 1.4 }}>
-                  Se asignan al elegir el tipo. Por ahora la app del observador muestra topbar + TEO; estas vistas se armarán después.
-                </span>
-                {v.obsVistas?.map((m: { key: string; name: string; desc: string }) => (
-                  <div
-                    key={m.key}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                      padding: "10px 0",
-                      borderTop: "1px solid #F0ECE6",
-                    }}
-                  >
-                    <span style={{ fontWeight: 500, fontSize: 14 }}>{m.name}</span>
-                    <span style={{ fontSize: 12, color: "#5E5750", lineHeight: 1.35 }}>{m.desc}</span>
-                  </div>
-                ))}
-              </div>
-              {v.needEthics ? (
-                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-                  Número de aprobación ética
-                  <input
-                    value={v.f.ethics ?? ""}
-                    onChange={v.fSet.ethics}
-                    placeholder="Ej. CEI-2026-118"
-                    style={ix`height:42px;border-radius:9px;border:1.5px solid ${v.ethicsBd};padding:0 12px;font-size:15px`}
-                  />
-                </label>
-              ) : null}
+            <div className="flex flex-col gap-3 border-t border-[#E6E1D9] pt-3">
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                Organización
+                <input
+                  value={v.f.org ?? ""}
+                  onChange={v.fSet.org}
+                  placeholder="Nombre de la organización"
+                  className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                />
+              </label>
+              <span className="text-[13px] leading-snug text-texto-secundario">
+                Observador es un solo rol. Por ahora la app muestra topbar y TEO; las vistas se armarán después.
+              </span>
             </div>
           ) : null}
 

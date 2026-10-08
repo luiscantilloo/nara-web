@@ -31,6 +31,7 @@ export function AdminScreen() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           initialAsk={String(v.pendingAsk || "")}
           context={String(v.view || "")}
           contextLabel={String(v.ctxLabel || "")}

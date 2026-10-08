@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
 import { apiJson } from "@/lib/api/client";
+import { hydrateProgramData } from "@/lib/store/hydrateProgram";
 import { useNaraStore } from "@/providers/nara-provider";
 
 type LoginUser = {
@@ -21,12 +22,29 @@ type LoginUser = {
   nk: string | null;
 };
 
+type Mode = "login" | "verify" | "reset";
+
+const inputClass =
+  "h-[52px] rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-base text-nara-tinta";
+const labelClass = "flex flex-col gap-1.5 font-medium text-nara-tinta";
+const primaryBtnClass =
+  "h-[54px] w-full cursor-pointer rounded-[14px] border-none bg-nara-amarillo font-texto text-[17px] font-medium text-nara-tinta disabled:cursor-wait disabled:opacity-70";
+const linkBtnClass =
+  "cursor-pointer self-center border-none bg-transparent p-0 font-texto text-sm text-nara-tinta underline";
+
 export function IngresoScreen() {
   const store = useNaraStore();
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newPass2, setNewPass2] = useState("");
   const [err, setErr] = useState("");
+  const [okMsg, setOkMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [taps, setTaps] = useState(0);
   const [panel, setPanel] = useState(false);
@@ -38,8 +56,19 @@ export function IngresoScreen() {
     setDev(store.devMode());
   }, [store]);
 
+  const goLogin = () => {
+    setMode("login");
+    setFirstName("");
+    setLastName("");
+    setResetToken("");
+    setNewPass("");
+    setNewPass2("");
+    setErr("");
+  };
+
   const enter = async () => {
     setErr("");
+    setOkMsg("");
     setLoading(true);
     try {
       const { res, data } = await apiJson<{ ok?: boolean; error?: string; user?: LoginUser }>(
@@ -54,7 +83,76 @@ export function IngresoScreen() {
         return;
       }
       applySessionUser(data.user);
+      await hydrateProgramData(store, { force: true });
       router.push(data.user.href || "/inicio");
+    } catch {
+      setErr("No se pudo conectar. Intente de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyIdentity = async () => {
+    setErr("");
+    setOkMsg("");
+    setLoading(true);
+    try {
+      const { res, data } = await apiJson<{
+        ok?: boolean;
+        error?: string;
+        resetToken?: string;
+        email?: string;
+      }>("/api/auth/verify-identity", {
+        method: "POST",
+        body: JSON.stringify({ email, firstName, lastName }),
+      });
+      if (!res.ok || !data.ok || !data.resetToken) {
+        setErr(data.error || "No pudimos verificar su identidad. Revise correo y nombre.");
+        return;
+      }
+      setResetToken(data.resetToken);
+      if (data.email) setEmail(data.email);
+      setMode("reset");
+    } catch {
+      setErr("No se pudo conectar. Intente de nuevo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const changePassword = async () => {
+    setErr("");
+    setOkMsg("");
+    if (newPass !== newPass2) {
+      setErr("Las contraseñas no coinciden.");
+      return;
+    }
+    if (newPass.length < 8) {
+      setErr("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { res, data } = await apiJson<{ ok?: boolean; error?: string; message?: string }>(
+        "/api/auth/reset-password",
+        {
+          method: "POST",
+          body: JSON.stringify({ email, resetToken, password: newPass }),
+        },
+      );
+      if (!res.ok || !data.ok) {
+        setErr(data.error || "No se pudo cambiar la contraseña.");
+        if (res.status === 401) {
+          setMode("verify");
+          setResetToken("");
+          setNewPass("");
+          setNewPass2("");
+        }
+        return;
+      }
+      setPass("");
+      setOkMsg(data.message || "Contraseña actualizada. Ya puede ingresar.");
+      goLogin();
     } catch {
       setErr("No se pudo conectar. Intente de nuevo.");
     } finally {
@@ -65,23 +163,12 @@ export function IngresoScreen() {
   return (
     <div
       data-screen-label="Ingresar"
-      style={{
-        minHeight: "100vh",
-        fontFamily: "Figtree, system-ui, sans-serif",
-        color: "#161413",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "32px 20px",
-        boxSizing: "border-box",
-        gap: 24,
-        background: "#F0ECE6",
-      }}
+      className="box-border flex min-h-screen flex-col items-center justify-center gap-6 bg-nara-crema px-5 py-8 font-texto text-nara-tinta"
     >
       <NaraMsgAlert msg={err} onClear={() => setErr("")} />
-      <div style={{ width: "100%", maxWidth: 420, display: "flex", flexDirection: "column", gap: 28 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+      <NaraMsgAlert msg={okMsg} onClear={() => setOkMsg("")} />
+      <div className="flex w-full max-w-[420px] flex-col gap-7">
+        <div className="flex flex-col items-center gap-2.5">
           <div
             onClick={() => {
               if (tapTimer.current) clearTimeout(tapTimer.current);
@@ -95,154 +182,203 @@ export function IngresoScreen() {
                 tapTimer.current = setTimeout(() => setTaps(0), 1500);
               }
             }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              color: "#161413",
-              cursor: "default",
-              userSelect: "none",
-            }}
+            className="flex cursor-default select-none items-center gap-3 text-nara-tinta"
           >
             <img
               src="/nara/marca/logo/nara-logo.svg"
               alt="NARA"
-              style={{ height: 64, width: "auto", display: "block" }}
+              className="block h-16 w-auto"
             />
           </div>
         </div>
 
-        <div
-          style={{
-            background: "#fff",
-            border: "1px solid #DCD6CD",
-            borderRadius: 20,
-            padding: "26px 24px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-          }}
-        >
-          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontWeight: 500 }}>
-            Correo
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setErr("");
-              }}
-              autoComplete="username"
-              placeholder="correo@nara.com"
-              style={{
-                height: 52,
-                borderRadius: 10,
-                border: `1.5px solid ${err ? "#D9692B" : "#DCD6CD"}`,
-                padding: "0 14px",
-                fontSize: 16,
-                color: "#161413",
-                background: "#fff",
-                fontFamily: "Figtree, system-ui, sans-serif",
-              }}
-            />
-          </label>
+        <div className="flex flex-col gap-4 rounded-[20px] border border-linea bg-nara-blanco px-6 py-[26px]">
+          {mode === "login" ? (
+            <>
+              <label className={labelClass}>
+                Correo
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setErr("");
+                  }}
+                  autoComplete="username"
+                  placeholder="correo@nara.com"
+                  className={inputClass}
+                />
+              </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontWeight: 500 }}>
-            Contraseña
-            <input
-              type="password"
-              value={pass}
-              onChange={(e) => {
-                setPass(e.target.value);
-                setErr("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !loading) void enter();
-              }}
-              autoComplete="current-password"
-              style={{
-                height: 52,
-                borderRadius: 10,
-                border: "1.5px solid #DCD6CD",
-                padding: "0 14px",
-                fontSize: 16,
-                background: "#fff",
-                color: "#161413",
-                fontFamily: "Figtree, system-ui, sans-serif",
-              }}
-            />
-          </label>
+              <label className={labelClass}>
+                Contraseña
+                <input
+                  type="password"
+                  value={pass}
+                  onChange={(e) => {
+                    setPass(e.target.value);
+                    setErr("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !loading) void enter();
+                  }}
+                  autoComplete="current-password"
+                  className={inputClass}
+                />
+              </label>
 
-          <button
-            type="button"
-            onClick={() => void enter()}
-            disabled={loading}
-            style={{
-              fontFamily: "Figtree, system-ui, sans-serif",
-              fontSize: 17,
-              fontWeight: 500,
-              height: 54,
-              borderRadius: 14,
-              border: "none",
-              background: "#FDCD22",
-              color: "#161413",
-              cursor: loading ? "wait" : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
-            {loading ? "Ingresando…" : "Ingresar"}
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              setErr("Para restablecer su acceso, escriba al administrador del programa NARA.")
-            }
-            style={{
-              alignSelf: "center",
-              fontSize: 14,
-              color: "#161413",
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              textDecoration: "underline",
-            }}
-          >
-            ¿Olvidó su contraseña?
-          </button>
+              <button
+                type="button"
+                onClick={() => void enter()}
+                disabled={loading}
+                className={primaryBtnClass}
+              >
+                {loading ? "Ingresando…" : "Ingresar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setErr("");
+                  setOkMsg("");
+                  setMode("verify");
+                }}
+                className={linkBtnClass}
+              >
+                ¿Olvidó su contraseña?
+              </button>
+            </>
+          ) : null}
+
+          {mode === "verify" ? (
+            <>
+              <p className="text-[15px] leading-relaxed text-texto-secundario">
+                Confirme su correo y el nombre registrado en su cuenta para continuar.
+              </p>
+              <label className={labelClass}>
+                Correo
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setErr("");
+                  }}
+                  autoComplete="username"
+                  placeholder="correo@nara.com"
+                  className={inputClass}
+                />
+              </label>
+              <label className={labelClass}>
+                Primer nombre
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => {
+                    setFirstName(e.target.value);
+                    setErr("");
+                  }}
+                  autoComplete="given-name"
+                  className={inputClass}
+                />
+              </label>
+              <label className={labelClass}>
+                Primer apellido
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => {
+                    setLastName(e.target.value);
+                    setErr("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !loading) void verifyIdentity();
+                  }}
+                  autoComplete="family-name"
+                  className={inputClass}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void verifyIdentity()}
+                disabled={loading}
+                className={primaryBtnClass}
+              >
+                {loading ? "Verificando…" : "Continuar"}
+              </button>
+              <button type="button" onClick={goLogin} className={linkBtnClass}>
+                Volver a ingresar
+              </button>
+            </>
+          ) : null}
+
+          {mode === "reset" ? (
+            <>
+              <p className="text-[15px] leading-relaxed text-texto-secundario">
+                Identidad verificada. Defina su nueva contraseña.
+              </p>
+              <label className={labelClass}>
+                Nueva contraseña
+                <input
+                  type="password"
+                  value={newPass}
+                  onChange={(e) => {
+                    setNewPass(e.target.value);
+                    setErr("");
+                  }}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </label>
+              <label className={labelClass}>
+                Confirmar contraseña
+                <input
+                  type="password"
+                  value={newPass2}
+                  onChange={(e) => {
+                    setNewPass2(e.target.value);
+                    setErr("");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !loading) void changePassword();
+                  }}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void changePassword()}
+                disabled={loading}
+                className={primaryBtnClass}
+              >
+                {loading ? "Guardando…" : "Cambiar contraseña"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("verify");
+                  setResetToken("");
+                  setNewPass("");
+                  setNewPass2("");
+                  setErr("");
+                }}
+                className={linkBtnClass}
+              >
+                Volver
+              </button>
+            </>
+          ) : null}
         </div>
 
         {panel ? (
-          <div
-            style={{
-              alignSelf: "center",
-              background: "#fff",
-              border: "1px solid #DCD6CD",
-              borderRadius: 12,
-              padding: "10px 12px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              minWidth: 240,
-              fontSize: 14,
-            }}
-          >
+          <div className="flex min-w-60 flex-col gap-1.5 self-center rounded-xl border border-linea bg-nara-blanco px-3 py-2.5 text-sm">
             <button
               type="button"
               onClick={() => {
                 store.reset();
                 setDone(true);
               }}
-              style={{
-                fontFamily: "Figtree, system-ui, sans-serif",
-                textAlign: "left",
-                fontSize: 14,
-                border: "none",
-                background: "none",
-                color: "#161413",
-                cursor: "pointer",
-                padding: "8px 4px",
-              }}
+              className="cursor-pointer border-none bg-transparent px-1 py-2 text-left font-texto text-sm text-nara-tinta"
             >
               Reiniciar datos
             </button>
@@ -251,41 +387,19 @@ export function IngresoScreen() {
                 store.setDevMode(!dev);
                 setDev(!dev);
               }}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                cursor: "pointer",
-                padding: "8px 4px",
-              }}
+              className="flex cursor-pointer items-center justify-between px-1 py-2"
             >
               <span>Modo desarrollador</span>
               <span
-                style={{
-                  width: 40,
-                  height: 24,
-                  borderRadius: 12,
-                  background: dev ? "#161413" : "#C4BDB3",
-                  position: "relative",
-                }}
+                className={`relative h-6 w-10 rounded-xl ${dev ? "bg-nara-tinta" : "bg-[#C4BDB3]"}`}
               >
                 <span
-                  style={{
-                    position: "absolute",
-                    top: 3,
-                    left: dev ? 19 : 3,
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    background: "#fff",
-                  }}
+                  className={`absolute top-[3px] h-[18px] w-[18px] rounded-[9px] bg-nara-blanco ${dev ? "left-[19px]" : "left-[3px]"}`}
                 />
               </span>
             </div>
             {done ? (
-              <span style={{ color: "#161413", fontWeight: 500, padding: "0 4px 4px" }}>
-                Datos reiniciados
-              </span>
+              <span className="px-1 pb-1 font-medium text-nara-tinta">Datos reiniciados</span>
             ) : null}
           </div>
         ) : null}

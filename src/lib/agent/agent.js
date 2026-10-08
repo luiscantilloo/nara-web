@@ -16,7 +16,7 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
 
   const Q = {
     admin: [
-      { id: 'a1', q: '¿Qué territorio va más atrasado y por qué?', keys: ['atrasad', 'retrasad', 'mas lento', 'peor territorio'], run: () => {
+      { id: 'a1', q: '¿Qué territorio va más atrasado en captación?', keys: ['atrasad', 'retrasad', 'mas lento', 'peor territorio', 'captacion'], run: () => {
         const T = A().SAMPLE.terr.map(([name, cap, goal, ex, r, rg]) => ({ name, cap, goal, ex, r, rg, pct: cap / goal * 100 })).sort((a, b) => a.pct - b.pct);
         const w = T[0], per = w.goal / w.ex, avgPer = 8700 / 14;
         return { text: w.name + ' va más atrasado: ' + n0(w.cap) + ' de ' + n0(w.goal) + ' (' + Math.round(w.pct) + ' %). Tiene ' + w.ex + ' expertos para ' + n0(w.goal) + ' personas, ' + n0(per) + ' por experto, frente a ' + n0(avgPer) + ' en promedio del programa. También está bajo la cuota rural: ' + w.r + ' % de ' + w.rg + ' %.',
@@ -26,29 +26,22 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
           basis: 'Basado en 6 territorios · 3.933 personas evaluadas · ' + PER, method: 'Captación = evaluadas ÷ meta del territorio. Personas por experto = meta ÷ expertos asignados. Promedio del programa = 8.700 ÷ 14 expertos.',
           detail: { target: 'terr', filter: w.name, label: 'Territorios · ' + w.name }, report: true };
       } },
-      { id: 'a2', q: '¿Qué expertos tienen más visitas rechazadas?', keys: ['rechaz'], run: S => {
-        const R = A().SAMPLE.rejectedMonth.map(([n, t, c]) => [n, t, c + (n === 'Andrés Ocampo' ? S.rejected.andres : 0)]).sort((a, b) => b[2] - a[2]);
-        const total = R.reduce((a, r) => a + r[2], 0);
-        return { text: R[0][0] + ' (' + R[0][1] + ') tiene más visitas rechazadas este mes: ' + R[0][2] + '. Le sigue ' + R[1][0] + ' con ' + R[1][2] + '. En total se rechazaron ' + total + ' visitas en control de calidad.',
-          charts: [{ type: 'hbar', labels: R.map(r => r[0]), values: R.map(r => r[2]), hi: 0, max: Math.max(5, R[0][2]), tips: R.map(r => r[1] + ' · ' + r[2] + ' rechazadas') }], chartNote: 'Visitas rechazadas por experto · septiembre',
-          suggestion: 'Recomiendo una llamada de acompañamiento con ' + R[0][0] + ' esta semana.',
-          basis: 'Control de calidad · 1 – 29 sep · 14 expertos (se muestran los que tienen rechazos)', method: 'Cuenta de visitas marcadas y rechazadas por un administrador en la cola de revisión.', detail: { target: 'team', label: 'Equipos de campo' }, report: true };
+      { id: 'a2', q: '¿Cuántos pacientes hay en el programa?', keys: ['cuantos pacientes', 'numero de pacientes', 'pacientes hay'], run: S => {
+        const n = Object.keys((S.recursos && S.recursos.people) || {}).length || Object.keys(A().PATIENTS || {}).length;
+        return { text: n ? ('Hay ' + n0(n) + ' pacientes con ficha en el programa.') : 'Consulte a TEO: le dirá el total actual de pacientes del programa.',
+          basis: 'Pacientes del programa', method: 'Conteo de fichas de paciente.', detail: { target: 'people', label: 'Personas' }, report: true };
       } },
-      { id: 'a3', q: '¿Cuántas manillas necesitaremos en octubre?', keys: ['manilla', 'octubre'], run: () => {
-        const H = A().HEAT, share = (H[2].concat(H[3], H[4]).reduce((a, b) => a + b, 0)) / 3933;
-        const newP = 638 * 31 / 7, need = Math.round(newP * share) + 88, avail = A().SAMPLE.braceletAvail.reduce((a, b) => a + b[1], 0);
-        return { text: 'Unas ' + n0(need) + ' manillas en octubre: ' + n0(need - 88) + ' para personas nuevas cuya ruta la incluye y 88 que ya la esperan. Los territorios tienen ' + n0(avail) + ' disponibles, así que faltan unas ' + n0(need - avail) + ' que deben salir de la bodega central (6.269).',
-          charts: [{ type: 'bar', labels: ['Disponibles en territorios', 'Necesarias en octubre', 'Faltan'], values: [avail, need, need - avail], colors: ['#A9D4FF', '#161413', '#161413'], yLabel: 'Manillas' }],
-          suggestion: 'Recomiendo despachar ' + n0(Math.ceil((need - avail) / 50) * 50) + ' manillas desde bodega antes del 1 de octubre.',
-          basis: 'Ritmo de la última semana (638 personas) × 31 días · ' + Math.round(share * 100) + ' % de la cohorte tiene manilla en su ruta', method: 'Personas nuevas = 638 ÷ 7 × 31. Manillas = personas nuevas × proporción de perfiles Moderado o más (1.178 de 3.933) + 88 elegibles sin manilla.',
-          detail: { target: 'assets', label: 'Activos' }, report: true };
+      { id: 'a3', q: '¿En qué territorios hay más personas captadas?', keys: ['mas personas', 'captadas', 'donde hay mas'], run: () => {
+        const T = A().SAMPLE.terr.map(([name, cap]) => ({ name, cap })).sort((a, b) => b.cap - a.cap);
+        return { text: T[0].name + ' concentra más captación con ' + n0(T[0].cap) + ' personas. Le siguen ' + T.slice(1, 3).map(t => t.name + ' (' + n0(t.cap) + ')').join(' y ') + '.',
+          charts: [{ type: 'hbar', labels: T.map(t => t.name), values: T.map(t => t.cap), hi: 0, tips: T.map(t => n0(t.cap) + ' personas') }],
+          basis: 'Personas evaluadas por territorio · ' + PER, method: 'Suma de captación (cap) por territorio.', detail: { target: 'terr', label: 'Territorios' }, report: true };
       } },
-      { id: 'a4', q: '¿Dónde hay más personas en riesgo severo sin clínico cerca?', keys: ['severo', 'sin clinico', 'clinico cerca'], run: () => {
-        const R = A().SAMPLE.severeByTerr.slice().sort((a, b) => b[1] - a[1]); const without = R.filter(r => !r[2]); const tot = R.reduce((a, r) => a + r[1], 0);
-        return { text: without.map(r => r[0] + ' (' + r[1] + ')').join(' y ') + ' no tienen clínico presencial en el municipio: ' + without.reduce((a, r) => a + r[1], 0) + ' de las ' + tot + ' personas en riesgo Severo. ' + without.map(r => r[0] + ': ' + r[3].toLowerCase()).join('. ') + '.',
-          charts: [{ type: 'hbar', labels: R.map(r => r[0]), values: R.map(r => r[1]), colors: R.map(r => r[2] ? '#A9D4FF' : '#9C2F25'), tips: R.map(r => r[1] + ' en Severo · ' + r[3]) }], chartNote: 'Personas en Severo por territorio · ladrillo: sin clínico presencial en el municipio',
-          suggestion: 'Recomiendo teleconsulta con la clínica universitaria o una jornada mensual de un clínico itinerante en esos dos municipios.',
-          basis: 'Perfiles P13–P15 · ' + tot + ' personas · 6 territorios · ' + PER, method: 'Personas en Severo por territorio, cruzadas con la ubicación de los clínicos de la red.', detail: { target: 'terr', label: 'Territorios' }, report: true };
+      { id: 'a4', q: '¿Qué expertos están activos y en qué territorio?', keys: ['expertos activos', 'quien trabaja', 'equipo de campo'], run: S => {
+        const E = (S.experts || A().SAMPLE.experts || []).slice();
+        if (!E.length) return { text: 'Pregunte a TEO: le lista los expertos activos y su territorio.', basis: 'Equipos de campo', method: 'Listado de expertos.' };
+        return { text: E.filter(e => e.active !== false).map(e => e.name + ' · ' + (e.terr || 'sin territorio')).join('; ') + '.',
+          basis: 'Expertos de campo', method: 'Expertos con estado activo.', detail: { target: 'team', label: 'Equipos de campo' }, report: true };
       } }
     ],
     clin: [
@@ -281,7 +274,7 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
 
   // El saludo con nombre lo arma AgentPanel desde store.session() (login).
   const ROLE = {
-    admin: { name: 'TEO · Asistente de datos', greet: '', sub: 'Pregúnteme por territorios, equipos, rutas o activos. Respondo con los datos del programa.' },
+    admin: { name: 'TEO · Asistente de datos', greet: '', sub: '¿En qué le puedo ayudar hoy? Puedo orientarle sobre territorios, equipos, rutas o activos.' },
     clin: { name: 'TEO · Asistente clínico', greet: '', sub: 'Le ayudo a preparar sesiones y a ver patrones en su carga de casos. No doy diagnósticos ni cambio rutas.' },
     fin: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo con datos agregados del programa. Nunca muestro datos personales.' },
     inv: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo sobre datos seudonimizados, con el n y el método. Aprobación ética CEI-2026-114.' },

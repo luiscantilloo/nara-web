@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/patientModules";
 
 const ROLES = ["Administrador", "Experto de campo", "Clínico", "Paciente", "Observador"];
+const PAGE_SIZE = 5;
 
 type FormState = {
   id: string | null;
@@ -20,10 +21,8 @@ type FormState = {
   role: string;
   terr: string;
   org: string;
-  orgType: string;
   modules: string[];
   patientModules: string[];
-  ethics: string;
   status?: string;
   derived?: boolean;
 };
@@ -34,6 +33,7 @@ type UiState = {
   msg: string;
   rf: string;
   q: string;
+  page: number;
   sel: string | null;
   f: FormState | null;
   err: string;
@@ -46,6 +46,7 @@ const INITIAL: UiState = {
   msg: "",
   rf: "",
   q: "",
+  page: 0,
   sel: null,
   f: null,
   err: "",
@@ -107,6 +108,10 @@ export function useAdminUsuariosScreen() {
         (!st.rf || u.role === st.rf) &&
         (!q || (u.name + " " + u.org).toLowerCase().includes(q)),
     );
+    const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    const page = Math.min(Math.max(0, st.page || 0), totalPages - 1);
+    const pageStart = page * PAGE_SIZE;
+    const pageList = list.slice(pageStart, pageStart + PAGE_SIZE);
     const f = st.f;
     const isEdit = !!(f && f.id);
     const setF = (k: keyof FormState) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -123,31 +128,25 @@ export function useAdminUsuariosScreen() {
           role: u.role,
           terr: u.terr,
           org: u.org,
-          orgType: u.orgType || "Financiador",
-          modules: (u.modules || []).slice(),
+          modules: (u.modules || A.OBS_DEFAULT_MODULES || []).slice(),
           patientModules: (u.patientModules || u.modulesEnabled || DEFAULT_PATIENT_MODULES).slice(),
-          ethics: u.ethics || "",
           status: u.status,
           derived: u.derived,
         },
       });
-    const orgType = (f && f.orgType) || "Financiador";
-    const modsFromType: string[] = A.OBS_TEMPLATES[orgType]
-      ? A.OBS_TEMPLATES[orgType].slice()
-      : A.OBS_TEMPLATES.Financiador.slice();
-    /** En Observador los módulos salen del Tipo (plantilla del enfoque), no se editan a mano. */
-    const mods =
-      f?.role === "Observador" ? modsFromType : (f && f.modules) || [];
-    const needEthics = mods.includes("datos");
-    const terrOpts = Array.from(
+    const allTerrNames = Array.from(
       new Set(
-        ["Todos"]
-          .concat(A.TERRS.map((t: any) => t.name))
+        (A.TERRS || [])
+          .map((t: any) => t.name)
           .concat((S.territories || []).map((t: any) => t.name))
           .concat(["Quindío", "Risaralda", "Caldas"])
           .filter(Boolean),
       ),
     );
+    const isExpertoCampo = f?.role === "Experto de campo";
+    const terrOpts = isExpertoCampo
+      ? allTerrNames
+      : Array.from(new Set(["Todos"].concat(allTerrNames)));
 
     const save = async () => {
       if (!f) return;
@@ -160,17 +159,18 @@ export function useAdminUsuariosScreen() {
         return setState({ err: "La contraseña debe tener al menos 8 caracteres." });
       if (f.role === "Observador" && !f.org.trim())
         return setState({ err: "Escriba la organización del observador." });
-      if (f.role === "Observador" && !["Financiador", "Investigación", "Institución de salud"].includes(f.orgType))
-        return setState({ err: "Elija el tipo de observador (Financiador, Investigación o Institución de salud)." });
-      if (needEthics && f.role === "Observador" && !/\w{2,}-?\d/.test(f.ethics || ""))
-        return setState({ err: "Datos seudonimizados exige el número de aprobación ética." });
       if (f.role === "Paciente" && !(f.patientModules || []).length)
         return setState({ err: "Active al menos un módulo para la app del paciente." });
-
-      const obsModules =
-        f.role === "Observador"
-          ? (A.OBS_TEMPLATES[f.orgType] || A.OBS_TEMPLATES.Financiador).slice()
-          : undefined;
+      if (f.role === "Experto de campo") {
+        const oneTerr = String(f.terr || "")
+          .split(/\s*[,;/|]\s*|\s+y\s+/i)
+          .map((x) => x.trim())
+          .filter(Boolean)[0];
+        if (!oneTerr || /^todos$/i.test(oneTerr)) {
+          return setState({ err: "El experto de campo debe tener un único territorio asignado." });
+        }
+        f.terr = oneTerr;
+      }
 
       const payload: any = {
         id: f.id || undefined,
@@ -181,10 +181,8 @@ export function useAdminUsuariosScreen() {
         role: f.role,
         terr: f.terr,
         org: f.role === "Observador" ? f.org.trim() : "Programa NARA",
-        orgType: f.role === "Observador" ? f.orgType : undefined,
-        modules: obsModules,
+        modules: f.role === "Observador" ? (A.OBS_DEFAULT_MODULES || []).slice() : undefined,
         patientModules: f.role === "Paciente" ? (f.patientModules || []).slice() : undefined,
-        ethics: needEthics ? f.ethics : undefined,
         status: f.status || "Activo",
       };
 
@@ -258,19 +256,16 @@ export function useAdminUsuariosScreen() {
           n: val ? all.filter((u: any) => u.role === val).length : all.length,
           bd: st.rf === val ? C.verde : C.lineas,
           bg: st.rf === val ? "#FFF4CC" : "#fff",
-          go: () => setState({ rf: val }),
+          go: () => setState({ rf: val, page: 0 }),
         })),
       q: st.q,
-      setQ: (e: ChangeEvent<HTMLInputElement>) => setState({ q: e.target.value }),
-      users: list.map((u: any) => ({
+      setQ: (e: ChangeEvent<HTMLInputElement>) => setState({ q: e.target.value, page: 0 }),
+      users: pageList.map((u: any) => ({
         key: u.id,
         name: u.name + (u.lead ? " · líder clínica" : ""),
         contact: u.contact || "",
         role: u.role,
-        mods:
-          u.role === "Observador"
-            ? `Observador · ${u.orgType || "Observador"}`
-            : "",
+        mods: "",
         org: u.org,
         terr: u.terr,
         status: u.status,
@@ -279,6 +274,17 @@ export function useAdminUsuariosScreen() {
         pick: () => open(u),
       })),
       noUsers: !list.length,
+      page,
+      totalPages,
+      pageLabel:
+        list.length === 0
+          ? "0 usuarios"
+          : `${pageStart + 1}–${Math.min(pageStart + PAGE_SIZE, list.length)} de ${list.length}`,
+      canPrev: page > 0,
+      canNext: page < totalPages - 1,
+      prevPage: () => setState({ page: Math.max(0, page - 1) }),
+      nextPage: () => setState({ page: Math.min(totalPages - 1, page + 1) }),
+      goPage: (n: number) => setState({ page: Math.min(Math.max(0, n), totalPages - 1) }),
       newUser: () =>
         setState({
           sel: null,
@@ -291,10 +297,8 @@ export function useAdminUsuariosScreen() {
             role: "Observador",
             terr: "Todos",
             org: "",
-            orgType: "Financiador",
-            modules: A.OBS_TEMPLATES["Financiador"].slice(),
+            modules: (A.OBS_DEFAULT_MODULES || []).slice(),
             patientModules: DEFAULT_PATIENT_MODULES.slice(),
-            ethics: "",
           },
         }),
       noForm: !f,
@@ -318,39 +322,30 @@ export function useAdminUsuariosScreen() {
                 : f?.patientModules || DEFAULT_PATIENT_MODULES.slice(),
           }) as FormState;
           if (role === "Observador") {
-            const tipo = next.orgType && A.OBS_TEMPLATES[next.orgType] ? next.orgType : "Financiador";
-            next.orgType = tipo;
-            next.modules = A.OBS_TEMPLATES[tipo].slice();
+            next.modules = (A.OBS_DEFAULT_MODULES || []).slice();
             if (!next.terr) next.terr = "Todos";
+          }
+          if (role === "Experto de campo") {
+            const names = Array.from(
+              new Set(
+                (A.TERRS || [])
+                  .map((t: any) => t.name)
+                  .concat((S.territories || []).map((t: any) => t.name))
+                  .filter(Boolean),
+              ),
+            );
+            if (!next.terr || /^todos$/i.test(next.terr) || !names.includes(next.terr)) {
+              next.terr = names[0] || "";
+            }
           }
           setState({ f: next, err: "" });
         },
         terr: setF("terr"),
         org: setF("org"),
-        orgType: (e: ChangeEvent<HTMLSelectElement>) => {
-          const val = e.target.value;
-          setState({
-            f: Object.assign({}, f, {
-              orgType: val,
-              modules: A.OBS_TEMPLATES[val]
-                ? A.OBS_TEMPLATES[val].slice()
-                : A.OBS_TEMPLATES.Financiador.slice(),
-            }),
-            err: "",
-          });
-        },
-        ethics: setF("ethics"),
       },
       terrOpts,
       isObs: !!f && f.role === "Observador",
       isPaciente: !!f && f.role === "Paciente",
-      obsVistas: A.OBS_MODULES.filter((m: { id: string }) => mods.includes(m.id)).map(
-        (m: { id: string; name: string; desc: string }) => ({
-          key: m.id,
-          name: m.name,
-          desc: m.desc,
-        }),
-      ),
       patientMods: PATIENT_APP_MODULES.map((m) => {
         const list = (f && f.patientModules) || DEFAULT_PATIENT_MODULES;
         const on = list.includes(m.id);
@@ -369,8 +364,6 @@ export function useAdminUsuariosScreen() {
             }),
         };
       }),
-      needEthics,
-      ethicsBd: needEthics && !(f && f.ethics) ? C.revisar : C.lineas,
       hasErr: !!st.err,
       err: st.err,
       clearErr: () => setState({ err: "" }),
@@ -394,9 +387,7 @@ export function useAdminUsuariosScreen() {
               role: f.role,
               terr: f.terr,
               org: f.org,
-              orgType: f.orgType,
               modules: f.modules,
-              ethics: f.ethics,
               status: nv,
             }),
           });

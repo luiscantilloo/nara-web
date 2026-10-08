@@ -82,7 +82,11 @@ function PerfilTopbar({
     kind === "clin"
       ? [
           { key: "home", label: "Inicio", href: "/clinico" },
-          { key: "alerts", label: "Alertas", href: "/clinico?view=alerts" },
+          {
+            key: "approvals",
+            label: "Aprobaciones",
+            href: "/clinico?view=approvals",
+          },
           {
             key: "patients",
             label: "Mis pacientes",
@@ -522,6 +526,7 @@ export function PerfilScreen() {
           <AgentPanel
             role={aRole}
             mode="drawer"
+            open={agentOpen}
             context="users"
             contextLabel="Perfil"
             onClose={() => setAgentOpen(false)}

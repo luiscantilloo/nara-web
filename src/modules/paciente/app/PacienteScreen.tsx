@@ -244,10 +244,10 @@ function DianaApp({ vm }: { vm: Vm }) {
           <button
             type="button"
             onClick={vm.openHelp}
-            aria-label="Necesito ayuda ahora"
+            aria-label="Estoy en crisis"
             style={{
               ...btnFont(),
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: 600,
               height: 48,
               padding: "0 14px 0 10px",
@@ -267,7 +267,7 @@ function DianaApp({ vm }: { vm: Vm }) {
               <circle cx="12" cy="12" r="3.5" />
               <path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
             </svg>
-            Ayuda
+            Estoy en crisis
           </button>
           <UserMenu compact />
         </div>
@@ -1091,7 +1091,7 @@ function HelpSheet({ vm }: { vm: Vm }) {
       <div style={{ background: "#fff", width: "100%", borderRadius: "24px 24px 0 0", padding: "22px 20px 34px", display: "flex", flexDirection: "column", gap: 12, fontSize: 17 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#A9D4FF", borderRadius: 16, padding: "12px 14px" }}>
           <img src={naraAsset("marca/personajes/nara-calma.svg")} alt="" style={{ flex: "none", width: 40, height: "auto", display: "block" }} />
-          <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 24, lineHeight: 1.2 }}>Ayuda ahora</span>
+          <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 24, lineHeight: 1.2 }}>Estoy en crisis</span>
         </div>
         <span style={{ lineHeight: 1.45 }}>{vm.helpText}</span>
         {vm.dianaLines.map((cl) => (

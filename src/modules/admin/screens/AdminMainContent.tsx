@@ -38,7 +38,6 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
                 <Link href="/informe?t=admin-weekly&back=/inicio" style={{ background: '#FDCD22', color: '#161413', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontSize: '13px', opacity: '.9' }}>Generado el lunes 28 sep</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '22px' }}>Operaciones de la semana</span><span style={{ fontSize: '14px', lineHeight: '1.45' }}>Captación frente al ritmo, territorios en riesgo, control de calidad, manillas y tres acciones.</span><span style={{ fontWeight: '500', marginTop: '6px' }}>Abrir one-pager →</span></Link>
-                {v.homeLinks?.map((l) => (<button key={l.id || l.label} onClick={() => l.go()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', textAlign: 'left', background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '3px', cursor: 'pointer', color: '#161413', whiteSpace: 'normal' }}><span style={{ fontWeight: '500' }}>{l.label}</span><span style={{ fontSize: '13px', color: '#5E5750' }}>{l.sub}</span></button>))}
               </div>
             </div>
           )}
@@ -104,8 +103,63 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <PageHead>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Equipos de campo</span><span style={{ color: '#5E5750' }}>Metas por volumen y por mezcla (rural, 60+). Solo cuentan las visitas validadas.</span></div><button onClick={() => v.toggleExpForm()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '15px', fontWeight: '500', height: '46px', padding: '0 20px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer', whiteSpace: 'nowrap' }}>{v.expFormBtn}</button></div>
-              <div className="nara-tabs-scroll">{v.teamTabs?.map((tt) => (<button key={tt.label} onClick={() => tt.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:15px;font-weight:500;height:44px;padding:0 16px;border:none;background:none;border-bottom:3px solid ${tt.bd};color:${tt.fg};cursor:pointer;margin-bottom:-1px;white-space:nowrap;flex:none`}>{tt.label}</button>))}</div>
+              <div className="nara-tabs-scroll items-center gap-2">
+                {v.teamTabs?.map((tt) => (
+                  <button key={tt.label} onClick={() => tt.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:15px;font-weight:500;height:44px;padding:0 16px;border:none;background:none;border-bottom:3px solid ${tt.bd};color:${tt.fg};cursor:pointer;margin-bottom:-1px;white-space:nowrap;flex:none`}>{tt.label}</button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => v.openGoalsForm?.()}
+                  className="mb-0.5 ml-1 h-9 shrink-0 cursor-pointer rounded-[10px] border-[1.5px] border-nara-tinta bg-nara-blanco px-3 font-texto text-sm font-medium text-nara-tinta"
+                >
+                  Definición metas
+                </button>
+              </div>
               </PageHead>
+              <FormModal
+                open={!!v.goalsForm}
+                onClose={() => (v.closeGoalsForm || (() => {}))()}
+                title="Definición metas"
+                description="Aplica a todo el equipo de campo. Solo cuentan las visitas validadas."
+                size="sm"
+                footer={(
+                  <>
+                    <button type="button" onClick={() => v.saveGoals?.()} className="h-[46px] cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-5 font-texto text-[15px] font-medium text-nara-tinta">Guardar metas</button>
+                    <button type="button" onClick={() => (v.closeGoalsForm || (() => {}))()} className="h-[46px] cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-[18px] font-texto text-[15px] font-medium text-nara-tinta">Cancelar</button>
+                  </>
+                )}
+              >
+                <div className="flex flex-col gap-4">
+                  {v.gfErr ? (
+                    <p className="m-0 text-[15px] text-[#B42318]">{v.gfErr}</p>
+                  ) : null}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="flex min-w-0 flex-col gap-1.5 font-medium">
+                      <span className="leading-5">Meta diaria</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={String(v.gf?.daily ?? "")}
+                        onChange={v.gfSet?.daily}
+                        className="h-11 w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta"
+                      />
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1.5 font-medium">
+                      <span className="leading-5">Meta semanal</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={String(v.gf?.weekly ?? "")}
+                        onChange={v.gfSet?.weekly}
+                        className="h-11 w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta"
+                      />
+                    </label>
+                  </div>
+                  <p className="m-0 text-[15px] text-texto-secundario">
+                    Al guardar, se actualizan las columnas Hoy y Semana de todos los expertos.
+                  </p>
+                </div>
+              </FormModal>
               {v.teamTab1 && (<div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <FormModal
                 open={!!v.expForm}
@@ -136,14 +190,21 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                     </label>
                   </div>
                   <div className="flex flex-col gap-1.5 font-medium">
-                    <span className="leading-5">Territorio</span>
-                    <div className="flex min-h-11 flex-wrap items-center gap-2">
-                      {v.terrChips?.length ? v.terrChips.map((t) => (
-                        <button key={t.n} type="button" onClick={() => t.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:15px;height:40px;padding:0 14px;border-radius:9px;border:1.5px solid ${t.bd};background:${t.bg};color:#161413;cursor:pointer;font-weight:${t.fw}`}>{t.n}</button>
-                      )) : (
-                        <span className="text-[15px] text-texto-secundario">Cree un territorio antes de asignar expertos.</span>
-                      )}
-                    </div>
+                    <span className="leading-5">Territorio (uno solo)</span>
+                    {v.terrNames?.length ? (
+                      <select
+                        value={String(v.ef?.terr ?? "")}
+                        onChange={v.efSet.terr}
+                        className="h-11 w-full max-w-md rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta"
+                      >
+                        <option value="">Seleccione…</option>
+                        {v.terrNames.map((n: string) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-[15px] text-texto-secundario">Cree un territorio antes de asignar expertos.</span>
+                    )}
                   </div>
                   <p className="text-[15px] text-texto-secundario">Debe completar la capacitación antes de su primera visita.</p>
                 </div>
@@ -230,7 +291,14 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                     <div key={s.name || s.id} style={ix`display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 0;border-top:1px solid #E6E1D9;opacity:${s.op}`}>
                       <div onClick={() => s.toggle()} style={ix`flex:none;width:52px;height:30px;border-radius:15px;background:${s.swBg};position:relative;cursor:${s.cur}`}><div style={ix`position:absolute;top:3px;left:${s.x};width:24px;height:24px;border-radius:12px;background:#fff`}></div></div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1 1 140px', minWidth: 0 }}><span style={{ fontWeight: '500' }}>{s.name}</span><span style={{ fontSize: '13px', color: '#5E5750' }}>{s.note}</span></div>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: '1 1 200px' }}>{s.freqs?.map((q) => (<button key={q.label} onClick={() => q.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;height:38px;padding:0 12px;border-radius:8px;border:1.5px solid ${q.bd};background:${q.bg};color:${q.fg};cursor:pointer`}>{q.label}</button>))}</div>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: '1 1 200px' }}>
+                        {s.freqs?.map((q) => (<button key={q.label} onClick={() => q.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;height:38px;padding:0 12px;border-radius:8px;border:1.5px solid ${q.bd};background:${q.bg};color:${q.fg};cursor:pointer`}>{q.label}</button>))}
+                        {s.libBtn ? (
+                          <button type="button" onClick={() => s.libBtn.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:38px;padding:0 14px;border-radius:8px;border:1.5px solid #161413;background:#FDCD22;color:#161413;cursor:pointer`}>
+                            {s.libBtn.label}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ))}
                   {v.pe.warn && (<div style={{ background: '#F7E2D2', borderRadius: '10px', padding: '12px 14px', color: '#7A3A10', fontWeight: '500' }}>Atención: desde Moderado, el psicólogo IA no puede ser el único apoyo. Active el psicólogo clínico.</div>)}
@@ -244,6 +312,14 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               </div>
               )}
               {v.pathTab3 && (
+              <div className="flex flex-col gap-4">
+                <button
+                  type="button"
+                  onClick={() => v.closeLib?.()}
+                  className="self-start border-none bg-transparent p-0 font-texto text-[15px] font-medium text-nara-tinta underline"
+                >
+                  ← Volver a servicios por perfil
+                </button>
               <div className="nara-split-panel">
                 <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden', minWidth: 0 }}>
                   <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}><span style={{ fontWeight: '500', fontSize: '17px' }}>Biblioteca de recursos</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Fuente: Colección de cuentos del programa · aprueba la coordinadora clínica</span></div><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{v.lib.kinds?.map((k) => (<button key={k.label} onClick={() => k.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:40px;padding:0 14px;border-radius:14px;border:1.5px solid #161413;background:#fff;color:#161413;cursor:pointer;background:${k.bg}`}>{k.label}</button>))}</div></div>
@@ -263,10 +339,11 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                     <span style={{ fontSize: '13px', color: '#5E5750' }}>Los cuentos de uso restringido o con acompañamiento no se pueden poner en cursos guiados por TEO.</span></div>
                 </div>
               </div>
+              </div>
               )}
               {v.pathTab2 && (
                 <div className="nara-split-panel" style={{ display: 'grid' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}><div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '10px' }}><span style={{ fontWeight: '500', fontSize: '17px' }}>Cursos y cuentos por nivel de riesgo</span><span style={{ fontSize: '13px', color: '#5E5750' }}>El canal lo decide la capacidad digital: alta en la app, media por WhatsApp, baja con cuadernillo impreso. Los cambios pasan por aprobación clínica.</span>{v.lib.rules?.map((r) => (<div key={r.k} className="nara-label-row"><span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}><span style={ix`width:10px;height:10px;border-radius:2px;background:${r.c}`}></span>{r.k}</span><input value={String(r.v ?? "")} onChange={r.set} style={{ height: '40px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '14px', background: '#fff', color: '#161413', fontFamily: 'Figtree,system-ui,sans-serif', width: '100%', boxSizing: 'border-box' }} /></div>))}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}><div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '10px' }}><span style={{ fontWeight: '500', fontSize: '17px' }}>Reglas de clasificación</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Cursos y canal según nivel de riesgo y capacidad digital: alta en la app, media por WhatsApp, baja con cuadernillo o con el experto. Los cambios pasan por aprobación clínica.</span>{v.lib.rules?.map((r) => (<div key={r.k} className="nara-label-row"><span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}><span style={ix`width:10px;height:10px;border-radius:2px;background:${r.c}`}></span>{r.k}</span><input value={String(r.v ?? "")} onChange={r.set} style={{ height: '40px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '14px', background: '#fff', color: '#161413', fontFamily: 'Figtree,system-ui,sans-serif', width: '100%', boxSizing: 'border-box' }} /></div>))}</div>
                     <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '21px' }}>Niveles de riesgo (PHQ-9)</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Cambiarla requiere aprobación de la líder clínica</span></div>
                       <div style={{ display: 'grid', gridTemplateColumns: '56px minmax(0,1.6fr) 80px 80px', gap: '10px', fontSize: '13px', color: '#5E5750', fontWeight: '500' }}><span>Color</span><span>Nombre</span><span>Desde</span><span>Hasta</span></div>
@@ -299,6 +376,7 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '20px' }}>Simulador</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Con las reglas que ve en pantalla</span></div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '12px' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Puntaje PHQ-9 (0–27)<input value={String(v.simPhq ?? "")} onChange={v.setSimPhq} inputMode="numeric" style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: '15px' }} /></label><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Puntaje digital (0–{v.digMax})<input value={String(v.simDig ?? "")} onChange={v.setSimDig} inputMode="numeric" style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: '15px' }} /></label></div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '12px', alignItems: 'end' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Daño en la vivienda<select value={String(v.simDano ?? "")} onChange={v.setSimDano} style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '15px', background: '#fff' }}><option value="0">Ninguno</option><option value="1">Parcial</option><option value="2">Total</option></select></label><div onClick={() => v.toggleSimLoss()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer', height: '42px' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simLossBd};background:${v.simLossBg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simLossMark}</span>Perdió a un familiar</div></div>
+                      <div onClick={() => v.toggleSimNoPhone()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simNoPhoneBd};background:${v.simNoPhoneBg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simNoPhoneMark}</span>Sin teléfono</div>
                       <div onClick={() => v.toggleSimQ9()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simQ9Bd};background:${v.simQ9Bg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simQ9Mark}</span>Pregunta 9 mayor que 0</div>
                       {v.simOk && (<div style={{ borderTop: '1px solid #E6E1D9', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}><div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '24px' }}>{v.sim.code}</span><span style={ix`font-size:14px;font-weight:500;padding:3px 9px;border-radius:6px;background:${v.sim.bg};color:#161413`}>{v.sim.label}</span></div>{v.sim.crisis && (<span style={{ background: '#FDE7E4', color: '#8A1C14', borderRadius: '8px', padding: '8px 10px', fontWeight: '500' }}>Crisis: protocolo inmediato y ruta de crisis antes que la ruta del perfil.</span>)}{v.sim.services?.map((sv) => (<span key={sv.name} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '14px', borderTop: '1px solid #F0ECE6', paddingTop: '6px' }}><span style={{ fontWeight: '500' }}>{sv.name}</span><span style={{ color: '#5E5750', textAlign: 'right' }}>{sv.freq}</span></span>))}<span style={{ fontSize: '13px', color: '#5E5750' }}>Duración: {v.sim.months} meses</span></div>)}
                       {v.simBad && (<span style={{ color: '#9A4D14', fontWeight: '500' }}>Escriba puntajes dentro del rango.</span>)}
@@ -315,7 +393,38 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
           {v.vPeople && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <PageHead>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Personas</span><span style={{ color: '#5E5750' }}>Toda la cohorte evaluada</span></div><span style={{ fontWeight: '500', padding: '6px 12px', borderRadius: '8px', background: '#fff', border: '1px solid #DCD6CD', whiteSpace: 'nowrap' }}>Datos de identidad ocultos</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                  <span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Personas</span>
+                  <span style={{ color: '#5E5750' }}>
+                    {v.peopleSample
+                      ? 'Datos de prueba · 15 perfiles representativos (P01–P15), no toda la cohorte histórica'
+                      : 'Cohorte completa · mayor carga operativa'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => v.togglePeopleSample?.()}
+                    style={{
+                      fontFamily: 'Figtree,system-ui,sans-serif',
+                      fontSize: '14px',
+                      fontWeight: 500,
+                      height: '40px',
+                      padding: '0 14px',
+                      borderRadius: '9px',
+                      border: '1.5px solid #161413',
+                      background: v.peopleSample ? '#FDCD22' : '#fff',
+                      color: '#161413',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {v.peopleSample ? '15 perfiles · activo' : 'Usar 15 perfiles'}
+                  </button>
+                  <span style={{ fontWeight: '500', padding: '6px 12px', borderRadius: '8px', background: '#fff', border: '1px solid #DCD6CD', whiteSpace: 'nowrap' }}>Datos de identidad ocultos</span>
+                </div>
+              </div>
               </PageHead>
               <div className="nara-kpi-grid">{v.pk?.map((k) => (<div key={k.label} style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ color: '#5E5750' }}>{k.label}</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '32px', lineHeight: '1.1' }}>{k.val}</span><span style={{ fontSize: '14px', color: '#5E5750' }}>{k.sub}</span></div>))}</div>
               <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>

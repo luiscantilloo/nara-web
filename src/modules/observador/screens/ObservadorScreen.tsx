@@ -1,13 +1,8 @@
 "use client";
 
 /**
- * Observador = un solo rol, distintos enfoques (orgType + modules):
- * - Financiador → avance, recursos, resultados
- * - Investigación → resultados, datos
- * - Institución de salud → casos
- *
+ * Observador = un solo rol (sin tipos Financiador / Investigación / Institución).
  * Por ahora la vista queda en blanco: solo topbar (org + TEO + menú), sin nav.
- * Los módulos/enfoques se guardan al crear el usuario y se usarán después.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -17,13 +12,6 @@ import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import { useNaraStore } from "@/providers/nara-provider";
-
-function agentRoleForOrgType(orgType: string): "fin" | "inv" | "inst" | "obs" {
-  if (orgType === "Investigación") return "inv";
-  if (orgType === "Institución de salud") return "inst";
-  if (orgType === "Financiador") return "fin";
-  return "obs";
-}
 
 function ObservadorInner() {
   const store = useNaraStore();
@@ -51,18 +39,9 @@ function ObservadorInner() {
     );
   }, [store, u, tick]);
 
-  const orgName = String(account?.org || (u as { org?: string } | null)?.org || u?.name || "Observador");
-  const rawOrgType = String(
-    (account?.orgType as string) ||
-      (u as { orgType?: string } | null)?.orgType ||
-      "",
-  ).trim();
-  const orgType = (
-    ["Financiador", "Investigación", "Institución de salud"] as const
-  ).includes(rawOrgType as "Financiador")
-    ? rawOrgType
-    : "Financiador";
-  const agentRole = agentRoleForOrgType(orgType);
+  const orgName = String(
+    account?.org || (u as { org?: string } | null)?.org || u?.name || "Observador",
+  );
 
   if (!u) {
     return <NaraLoadingScreen />;
@@ -80,9 +59,7 @@ function ObservadorInner() {
           <span className="truncate text-[15px] font-medium text-nara-tinta">
             {orgName}
           </span>
-          <span className="truncate text-xs text-texto-secundario">
-            Observador · {orgType}
-          </span>
+          <span className="truncate text-xs text-texto-secundario">Observador</span>
         </div>
       </div>
 
@@ -117,8 +94,9 @@ function ObservadorInner() {
       header={header}
       drawer={
         <AgentPanel
-          role={agentRole}
+          role="obs"
           mode="drawer"
+          open={agentOpen}
           initialAsk={pendingAsk}
           context="home"
           contextLabel={`Sobre: ${orgName}`}
@@ -133,7 +111,6 @@ function ObservadorInner() {
         />
       }
     >
-      {/* Contenido en blanco a propósito: enfoques/módulos se implementan después */}
       <div className="nara-page flex min-h-0 flex-1 flex-col bg-nara-crema" />
     </AgentDrawerShell>
   );

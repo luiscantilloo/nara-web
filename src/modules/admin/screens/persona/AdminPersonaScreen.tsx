@@ -27,6 +27,7 @@ function AdminPersonaInner() {
         <AgentPanel
           role="admin"
           mode="drawer"
+          open={!!v.agentOpen}
           context="people"
           contextLabel={"Sobre: " + (v.code || "Persona")}
           onClose={() => v.closeAgent()}

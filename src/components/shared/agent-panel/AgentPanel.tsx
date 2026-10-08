@@ -11,30 +11,17 @@ import React, {
 import { IoClose } from "react-icons/io5";
 import { naraAlert } from "@/components/shared/nara-alert/naraAlert";
 import { useNaraStore } from "@/providers/nara-provider";
+import { TeoRichText } from "./TeoRichText";
+import { pickTeoSuggestions } from "./teoSuggestions";
 
-const CTX: Record<string, string[]> = {
-  terr: ["a15", "a16", "a17", "a21", "a1", "a6", "a4"],
-  team: ["a11", "a12", "a13", "a2", "a8"],
-  assets: ["a3"],
-  paths: ["a19", "a20", "a14", "a9", "a4"],
-  users: ["a9"],
-  reports: ["a10", "a1"],
-  people: ["a4"],
-  alerts: ["c1", "c2"],
-  patients: ["c6", "c7", "c2", "c3", "c4"],
-  file: ["c1", "c7", "c5"],
-  avance: ["f1"],
-  rec: ["f2"],
-  res: ["f9", "f3", "i1", "i2"],
-  datos: ["i2", "i1"],
-  casos: ["n2", "n1"],
-};
-
-const SHARE: Record<string, string> = { admin: "pdf", clin: "team" };
+const SHARE: Record<string, string> = { clin: "team" };
 
 type Props = {
   role?: string;
   mode?: "home" | "drawer";
+  /** true cuando el drawer de TEO está abierto — rota sugerencias al abrir */
+  open?: boolean;
+  /** @deprecated Las sugerencias ya no dependen del contexto de pantalla */
   context?: string;
   contextLabel?: string;
   initialAsk?: string;
@@ -49,7 +36,7 @@ type ConvItem = Record<string, unknown> & { id: string; q: string };
 export function AgentPanel({
   role = "admin",
   mode = "home",
-  context = "",
+  open = true,
   contextLabel = "",
   initialAsk = "",
   onAction,
@@ -61,15 +48,22 @@ export function AgentPanel({
   const [conv, setConv] = useState<ConvItem[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [method, setMethod] = useState<Record<string, boolean>>({});
-  const [sug, setSug] = useState<Record<string, string>>({});
   const [shareOpen, setShareOpen] = useState<Record<string, boolean>>({});
-  const [more, setMore] = useState(false);
   const [ready, setReady] = useState(false);
+  const [suggestQs, setSuggestQs] = useState<string[]>(() => pickTeoSuggestions(role));
   const scrollRef = useRef<HTMLDivElement>(null);
   const askedRef = useRef(false);
+  const wasOpenRef = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ChartRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (mode !== "drawer") return;
+    if (open && !wasOpenRef.current) {
+      setSuggestQs(pickTeoSuggestions(role));
+    }
+    wasOpenRef.current = open;
+  }, [open, mode, role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +99,7 @@ export function AgentPanel({
 
   useEffect(() => {
     if (mode === "drawer" && scrollRef.current) scrollRef.current.scrollTop = 1e6;
-  }, [conv.length, mode]);
+  }, [conv.length, mode, loading]);
 
   const ask = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -114,50 +108,56 @@ export function AgentPanel({
       onOpenDrawer(text);
       return;
     }
+    const id = "q" + Date.now();
     setInput("");
+    setConv((s) => [...s, { id, q: text }]);
     setLoading(true);
-    const G = (window as unknown as { AlientoAgent?: { ask: (r: string, t: string) => Promise<ConvItem> } }).AlientoAgent;
     let a: ConvItem;
     try {
-      a = (await G?.ask(role, text)) as ConvItem;
-      if (!a) throw new Error("vacía");
-      // Si no hay consulta fija, TEO pregunta a Gemini con contexto de la app/datos
-      if (a.none) {
-        try {
-          const res = await fetch("/api/teo/ask", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ question: text, role }),
-          });
-          const data = (await res.json()) as { ok?: boolean; text?: string; error?: string };
-          if (data.ok && data.text) {
-            a = {
-              id: "q" + Date.now(),
-              q: text,
-              text: data.text,
-              basis: "TEO · Gemini + datos del programa",
-              method: "Respuesta generada con Gemini a partir del contexto autorizado para su rol.",
-              none: false,
-            };
-          } else if (data.error || data.text) {
-            a = {
-              id: "q" + Date.now(),
-              q: text,
-              text: data.text || data.error || "No pude consultar a Gemini. Intente de nuevo en unos segundos.",
-              basis: "TEO · Gemini",
-              none: false,
-            };
-          }
-        } catch {
-          /* deja la respuesta none del motor local */
-        }
+      const res = await fetch("/api/teo/ask", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ question: text, role }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        text?: string;
+        error?: string;
+        message?: string;
+        model?: string;
+        provider?: string;
+      };
+      if (data.ok && data.text) {
+        a = {
+          id,
+          q: text,
+          text: data.text,
+          basis: `TEO · ${data.provider || "openai"} (${data.model || "gpt-6-luna"})`,
+          method: "Respuesta generada con el modelo a partir del contexto autorizado del programa.",
+          none: false,
+        };
+      } else {
+        a = {
+          id,
+          q: text,
+          err: true,
+          text:
+            data.text ||
+            data.error ||
+            data.message ||
+            "TEO no respondió. Compruebe que nara-api (gateway :4000 y ai :4004) esté en marcha.",
+        };
       }
     } catch {
-      a = { id: "q" + Date.now(), q: text, err: true, text: "No pude consultar los datos en este momento. Revise la conexión e intente de nuevo." };
+      a = {
+        id,
+        q: text,
+        err: true,
+        text: "No pude contactar a TEO. Revise la conexión con nara-api e intente de nuevo.",
+      };
     }
-    a.id = "q" + Date.now();
-    setConv((s) => [...s, a]);
+    setConv((s) => s.map((x) => (x.id === id ? a : x)));
     setLoading(false);
   };
 
@@ -170,33 +170,13 @@ export function AgentPanel({
   const G = (window as unknown as { AlientoAgent: typeof import("@/lib/agent/agent.js") extends infer T ? T : never }).AlientoAgent;
   const S = store.get();
   const R = G.ROLE[role.split(":")[0] as keyof typeof G.ROLE];
-  const L = G.list(role) || [];
-  const pref = CTX[context] || [];
-  const allChips = L.slice()
-    .sort((x, y) => Number(pref.indexOf(y.id) > -1) - Number(pref.indexOf(x.id) > -1))
-    .map((x) => ({ q: x.q, go: () => void ask(x.q) }));
-  const ctxList = pref
-    .map((id) => L.find((x) => x.id === id))
-    .filter(Boolean)
-    .map((x) => ({ q: x!.q, go: () => void ask(x!.q) }));
-  const genList = allChips.filter((c) => !ctxList.find((x) => x.q === c.q));
-  const chips =
-    mode === "drawer" && ctxList.length
-      ? more
-        ? genList
-        : genList.slice(0, 3)
-      : more
-        ? allChips
-        : allChips.slice(0, 4);
+  const chips = suggestQs.map((q) => ({ q, go: () => void ask(q) }));
   const pins = (S.pins[role] || []) as string[];
   const mk = (spec: unknown, key: string) => createElement(ChartRef.current, { spec, key });
-  const spark = (v: number[]) =>
-    v.map((x, i) => `${(4 + (i * 72) / Math.max(1, v.length - 1)).toFixed(1)},${(24 - (x / 27) * 22).toFixed(1)}`).join(" ");
 
   const convUi = conv.map((a) => {
     const id = a.id;
     const pinned = pins.includes(a.qid as string);
-    const sg = sug[id];
     const buttons: { label: string; go: () => void; bd?: string; bg?: string; fg?: string }[] = [];
     if (!a.none && !a.err) {
       if (a.detail) buttons.push({ label: "Ver detalle", go: () => act("detail", a.detail) });
@@ -209,17 +189,6 @@ export function AgentPanel({
           },
         }),
       );
-      if (a.report !== false)
-        buttons.push({
-          label: "Convertir en informe",
-          go: () => {
-            const rid = "r" + Date.now();
-            store.set((s: { reports: Record<string, unknown> }) => {
-              s.reports[rid] = { type: "answer", role, qid: a.qid, q: a.q, at: Date.now() };
-            });
-            act("report", rid);
-          },
-        });
       if (a.qid)
         buttons.push({
           label: pinned ? "Fijada ✓" : "Fijar",
@@ -233,8 +202,6 @@ export function AgentPanel({
             void naraAlert(pinned ? "Quitada de su inicio." : "Fijada en su inicio.");
           },
         });
-      if (SHARE[role.split(":")[0]] === "pdf")
-        buttons.push({ label: "Compartir · Descargar PDF", go: () => buttons.find((b) => b.label === "Convertir en informe")?.go() });
       if (SHARE[role.split(":")[0]] === "team")
         buttons.push({ label: "Compartir", go: () => setShareOpen((o) => ({ ...o, [id]: !o[id] })) });
     }
@@ -251,7 +218,7 @@ export function AgentPanel({
         void naraAlert("Compartido con: " + label.toLowerCase() + ". Queda registrado.");
       },
     }));
-    return { a, id, sg, buttons, shareTo, pinned };
+    return { a, id, buttons, shareTo };
   });
 
   const pinList =
@@ -426,122 +393,101 @@ export function AgentPanel({
           </div>
         ) : null}
 
-        {mode === "drawer" && ctxList.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#5E5750" }}>{contextLabel}</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {ctxList.map((c, i) => (
-                <button key={i} type="button" onClick={c.go} style={chipStyle}>
+        {mode === "drawer" ? (
+          <div className="flex w-full min-w-0 flex-col gap-2">
+            {contextLabel ? (
+              <span className="text-[13px] font-medium text-[#5E5750]">{contextLabel}</span>
+            ) : null}
+            <div className="flex w-full min-w-0 flex-wrap gap-2">
+              {chips.map((c, i) => (
+                <button key={`${c.q}-${i}`} type="button" onClick={c.go} style={{ ...chipStyle, background: "#fff" }}>
                   {c.q}
                 </button>
               ))}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#5E5750", marginTop: 4 }}>Otras preguntas</span>
           </div>
         ) : null}
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minWidth: 0, width: "100%" }}>
-          {chips.map((c, i) => (
-            <button key={i} type="button" onClick={c.go} style={{ ...chipStyle, background: "#fff" }}>
-              {c.q}
-            </button>
-          ))}
-          {(mode === "drawer" && ctxList.length ? genList.length > 3 : allChips.length > 4) ? (
-            <button type="button" onClick={() => setMore(!more)} style={moreBtnStyle}>
-              {more ? "Menos preguntas" : "Ver todas las preguntas"}
-            </button>
-          ) : null}
-        </div>
-
-        {convUi.map(({ a, id, sg, buttons, shareTo, pinned }) => (
-          <div key={id} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div
-              style={{
-                alignSelf: "flex-end",
-                maxWidth: "80%",
-                background: "#FFF4CC",
-                borderRadius: "14px 4px 14px 14px",
-                padding: "10px 14px",
-                fontSize: 15,
-              }}
-            >
+        {convUi.map(({ a, id, buttons, shareTo }) => (
+          <div key={id} className="flex flex-col gap-2.5">
+            <div className="max-w-[80%] self-end rounded-[14px_4px_14px_14px] bg-[#FFF4CC] px-3.5 py-2.5 text-[15px]">
               {a.q as string}
             </div>
-            <div
-              style={{
-                background: "#fff",
-                border: "1px solid #DCD6CD",
-                borderRadius: 20,
-                padding: "16px 18px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              {a.understood ? (
-                <span style={{ fontSize: 13, color: "#5E5750" }}>{a.understood as string}</span>
-              ) : null}
-              {a.text ? (
-                <span style={{ fontSize: 16, lineHeight: 1.5, textWrap: "pretty" as const }}>{a.text as string}</span>
-              ) : null}
-              {((a.lines as string[]) || []).map((l, i) => (
-                <span key={i} style={{ fontSize: 15, lineHeight: 1.45, display: "flex", gap: 8 }}>
-                  <span style={{ color: "#161413" }}>•</span>
-                  {l}
-                </span>
-              ))}
-              {a.aiNote ? (
-                <div
-                  style={{
-                    background: "#D8FBE3",
-                    border: "1.5px dashed #3FEA73",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    fontSize: 15,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  {a.aiNote as string}
-                </div>
-              ) : null}
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {buttons.map((b, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={b.go}
-                    style={{
-                      fontFamily: "Figtree, system-ui, sans-serif",
-                      fontSize: 14,
-                      fontWeight: 500,
-                      height: 38,
-                      padding: "0 14px",
-                      borderRadius: 9,
-                      border: `1.5px solid ${b.bd}`,
-                      background: b.bg,
-                      color: b.fg,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {b.label}
-                  </button>
-                ))}
-              </div>
-              {shareOpen[id] ? (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", background: "#F0ECE6", borderRadius: 10, padding: 10 }}>
-                  <span style={{ fontSize: 14, alignSelf: "center" }}>Compartir con:</span>
-                  {shareTo.map((s, i) => (
-                    <button key={i} type="button" onClick={s.go} style={shareBtnStyle}>
-                      {s.label}
-                    </button>
+            {a.text || a.err || a.lines || a.aiNote || a.understood ? (
+              <div className="flex items-start gap-2.5">
+                <img
+                  src="/nara/marca/logo/teo-isotipo.svg"
+                  alt="TEO"
+                  className="mt-0.5 h-8 w-8 shrink-0"
+                />
+                <div className="flex min-w-0 flex-1 flex-col gap-3 rounded-[4px_20px_20px_20px] border border-linea bg-nara-blanco px-[18px] py-4">
+                  {a.understood ? (
+                    <span className="text-[13px] text-[#5E5750]">{a.understood as string}</span>
+                  ) : null}
+                  {a.text ? <TeoRichText text={String(a.text)} /> : null}
+                  {((a.lines as string[]) || []).map((l, i) => (
+                    <span key={i} className="flex gap-2 text-[15px] leading-[1.45]">
+                      <span className="text-nara-tinta">•</span>
+                      {l}
+                    </span>
                   ))}
+                  {a.aiNote ? (
+                    <div className="rounded-[10px] border-[1.5px] border-dashed border-nara-curiosidad bg-[#D8FBE3] px-3 py-2.5 text-[15px] leading-[1.45]">
+                      {a.aiNote as string}
+                    </div>
+                  ) : null}
+                  {buttons.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {buttons.map((b, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={b.go}
+                          className="h-[38px] cursor-pointer rounded-[9px] border-[1.5px] px-3.5 font-texto text-sm font-medium"
+                          style={{
+                            borderColor: b.bd,
+                            background: b.bg,
+                            color: b.fg,
+                          }}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {shareOpen[id] ? (
+                    <div className="flex flex-wrap gap-2 rounded-[10px] bg-nara-crema p-2.5">
+                      <span className="self-center text-sm">Compartir con:</span>
+                      {shareTo.map((s, i) => (
+                        <button key={i} type="button" onClick={s.go} style={shareBtnStyle}>
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         ))}
 
-        {loading ? <span style={{ fontSize: 15, color: "#5E5750" }}>Consultando los datos del programa…</span> : null}
+        {loading ? (
+          <div className="flex items-start gap-2.5" aria-live="polite" aria-label="TEO está pensando">
+            <img
+              src="/nara/marca/logo/teo-isotipo.svg"
+              alt=""
+              className="mt-0.5 h-8 w-8 shrink-0"
+            />
+            <div className="flex items-center gap-2.5 rounded-[4px_20px_20px_20px] border border-linea bg-nara-blanco px-4 py-3">
+              <span className="text-[15px] text-[#5E5750]">Pensando</span>
+              <span className="flex items-center gap-1" aria-hidden>
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-nara-tinta [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-nara-tinta [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-nara-tinta [animation-delay:300ms]" />
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         {pinList.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -580,36 +526,38 @@ export function AgentPanel({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 flex-col gap-2 border-t border-linea bg-nara-blanco p-3 sm:flex-row sm:items-center sm:gap-2 sm:px-4 sm:py-3">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === "Enter") void ask(input);
-          }}
-          placeholder={role === "inst" ? "Pregunte sobre sus casos remitidos" : "Escriba su pregunta"}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            width: "100%",
-            height: 46,
-            borderRadius: 10,
-            border: "1.5px solid #DCD6CD",
-            padding: "0 14px",
-            fontSize: 15,
-            fontFamily: "Figtree, system-ui, sans-serif",
-            color: "#161413",
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => void ask(input)}
-          className="w-full shrink-0 sm:w-auto"
-          style={sendBtnStyle}
-        >
-          Preguntar
-        </button>
-      </div>
+      {mode === "drawer" ? (
+        <div className="flex shrink-0 flex-col gap-2 border-t border-linea bg-nara-blanco p-3 sm:flex-row sm:items-center sm:gap-2 sm:px-4 sm:py-3">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") void ask(input);
+            }}
+            placeholder={role === "inst" ? "Pregunte sobre sus casos remitidos" : "Escriba su pregunta"}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              width: "100%",
+              height: 46,
+              borderRadius: 10,
+              border: "1.5px solid #DCD6CD",
+              padding: "0 14px",
+              fontSize: 15,
+              fontFamily: "Figtree, system-ui, sans-serif",
+              color: "#161413",
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void ask(input)}
+            className="w-full shrink-0 sm:w-auto"
+            style={sendBtnStyle}
+          >
+            Preguntar
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
