@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
+import { apiJson } from "@/lib/api/client";
 import { useNaraStore } from "@/providers/nara-provider";
 
 type LoginUser = {
@@ -41,13 +42,13 @@ export function IngresoScreen() {
     setErr("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password: pass }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string; user?: LoginUser };
+      const { res, data } = await apiJson<{ ok?: boolean; error?: string; user?: LoginUser }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify({ email, password: pass }),
+        },
+      );
       if (!res.ok || !data.ok || !data.user) {
         setErr(data.error || "No se pudo ingresar.");
         return;

@@ -13,16 +13,28 @@ export type AdminModelApi = {
 };
 
 export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
+  function pruneDraftS(s: Record<string, string>) {
+    const allowed = new Set((A.SERVICES || []).map((x: { id: string }) => x.id));
+    const out: Record<string, string> = {};
+    Object.keys(s || {}).forEach((k) => {
+      if (allowed.has(k)) out[k] = s[k];
+    });
+    return out;
+  }
   function draft(code: string) {
-    if (st.drafts[code]) return st.drafts[code];
+    if (st.drafts[code]) {
+      const d = st.drafts[code];
+      return { s: pruneDraftS(d.s || {}), months: d.months };
+    }
     const { r, d } = A.parseCode(code);
     const S0 = A.get();
     const p = (S0.pathOverrides && S0.pathOverrides[code]) || A.defaultPath(r, d);
-    return { s: Object.assign({}, p.s), months: p.months };
+    return { s: pruneDraftS(Object.assign({}, p.s)), months: p.months };
   }
   function setDraft(code: string, fn: (d: { s: Record<string, string>; months: number }) => void) {
     const d = JSON.parse(JSON.stringify(draft(code)));
     fn(d);
+    d.s = pruneDraftS(d.s || {});
     api.setState({ drafts: Object.assign({}, st.drafts, { [code]: d }) });
   }
   api.draft = draft;
@@ -146,12 +158,17 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
   function moreVals(A, S, C, st) {
     const fmt = n => n.toLocaleString('es-CO');
     const all = A.people(S);
+    const classified = (p) => !!(p.profile && /^P\d+$/i.test(String(p.profile)));
     const heatGrid = A.RISK.map(() => [0, 0, 0]);
-    all.forEach(p => { const c = A.parseCode(p.profile || 'P01'); if (heatGrid[c.r]) heatGrid[c.r][c.d] = (heatGrid[c.r][c.d] || 0) + 1; });
+    all.forEach(p => {
+      if (!classified(p)) return;
+      const c = A.parseCode(p.profile);
+      if (heatGrid[c.r]) heatGrid[c.r][c.d] = (heatGrid[c.r][c.d] || 0) + 1;
+    });
     const heatMax = Math.max(1, ...heatGrid.flat());
     const heat = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const v = heatGrid[ri][di]; const a = v ? (0.1 + v / heatMax * 0.85) : 0.05; return { v, code: A.code(ri, di), bg: 'rgba(30,94,72,' + a.toFixed(2) + ')', fg: a > 0.45 ? '#fff' : C.tinta }; }) }));
     const evaluadas = all.length;
-    const conRuta = all.filter(p => !!p.profile).length;
+    const conRuta = all.filter(p => classified(p)).length;
     const primer = all.filter(p => (p.week || 0) > 0).length;
     const activas = all.filter(p => p.status === 'Activa').length;
     const completadas = all.filter(p => /terminar|complet/i.test(p.status || '')).length;
@@ -169,7 +186,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         assign: async e2 => {
           e2 && e2.stopPropagation && e2.stopPropagation();
           try {
-            const res = await fetch('/api/assets/bracelets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terr: t.name, count: 100 }) });
+            const res = await fetch('/api/assets/bracelets', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ terr: t.name, count: 100 }) });
             const data = await res.json();
             if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudieron asignar manillas.', msgActions: [] });
             A.set(s0 => {
@@ -188,7 +205,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const manillasDisp = brRows.reduce((a, r) => a + r.av, 0);
     const manillasAssets = (S.assets || []).filter(x => /^MN-/.test(x.code || '') || x.kind === 'manilla');
     const sinDatos = manillasAssets.filter(x => /Sin datos/i.test(x.state || '')).length;
-    const elegibles = all.filter(p => A.parseCode(p.profile || 'P01').r >= 2).length;
+    const elegibles = all.filter(p => classified(p) && A.parseCode(p.profile).r >= 2).length;
     const tabByTerr = {};
     A.experts(S).forEach(e => {
       if (!e.terr) return;
@@ -211,7 +228,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         assign: async e2 => {
           e2 && e2.stopPropagation && e2.stopPropagation();
           try {
-            const res = await fetch('/api/assets/tablet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expertId: e.id, expertName: e.name }) });
+            const res = await fetch('/api/assets/tablet', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expertId: e.id, expertName: e.name }) });
             const data = await res.json();
             if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudo asignar la tablet.', msgActions: [] });
             A.set(s0 => {
@@ -274,19 +291,72 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     } : null;
     const q = (st.q || '').toLowerCase().trim(), pf = st.pf || {};
     const uniq = a => a.filter((x, i) => x && a.indexOf(x) === i).sort();
-    const rOk = p => { const c = A.parseCode(p.profile); return (!pf.terr || p.terr === pf.terr) && (!pf.profile || p.profile === pf.profile) && (pf.risk === undefined || pf.risk === '' || c.r === +pf.risk) && (pf.dig === undefined || pf.dig === '' || c.d === +pf.dig) && (!pf.status || p.status === pf.status) && (!pf.expert || (pf.expert === '—' ? !p.expert : p.expert === pf.expert)) && (!q || (p.code || '').toLowerCase().includes(q)); };
+    const hasProfile = (p) => !!(p.profile && /^P\d+$/i.test(String(p.profile)));
+    const safeParse = (p) => (hasProfile(p) ? A.parseCode(p.profile) : { r: -1, d: -1 });
+    const hay = (p) => {
+      if (!q) return true;
+      const blob = [
+        p.code, p.id, p.name, p.terr, p.place, p.age, p.profile, p.status,
+        p.expert, p.expertId, p.clin, p.phone, p.email, p.week, p.weeks,
+      ].map((x) => String(x ?? '').toLowerCase()).join(' ');
+      return blob.includes(q);
+    };
+    const rOk = (p) => {
+      const c = safeParse(p);
+      if (pf.terr && p.terr !== pf.terr) return false;
+      if (pf.profile === '—') { if (hasProfile(p)) return false; }
+      else if (pf.profile && p.profile !== pf.profile) return false;
+      if (pf.risk !== undefined && pf.risk !== '' && c.r !== +pf.risk) return false;
+      if (pf.dig !== undefined && pf.dig !== '' && c.d !== +pf.dig) return false;
+      if (pf.status && p.status !== pf.status) return false;
+      if (pf.expert) {
+        if (pf.expert === '—') { if (p.expert) return false; }
+        else if (p.expert !== pf.expert) return false;
+      }
+      return hay(p);
+    };
     const list = all.filter(rOk);
-    const roster = list.slice(0, 300).map(p => { const ri = A.parseCode(p.profile || 'P01').r; return { open: () => { api.router.push('/admin/persona?c=' + encodeURIComponent(p.code || p.id || '')); }, code: p.code, terr: p.terr, place: p.place, age: p.age, profile: p.profile, rc: A.RISK[ri].c, pct: p.weeks ? Math.round((p.week || 0) / p.weeks * 100) + '%' : '0%', prog: 'Semana ' + (p.week || 0) + ' de ' + (p.weeks || 0), expert: p.expert || 'Sin experto', status: p.status, fw: /Sin contacto|Sin experto/.test(p.status || '') ? 500 : 400 }; });
+    const roster = list.slice(0, 300).map((p) => {
+      const ri = safeParse(p).r;
+      const rc = ri >= 0 && A.RISK[ri] ? A.RISK[ri].c : '#C4BDB3';
+      return {
+        open: () => { api.router.push('/admin/persona?c=' + encodeURIComponent(p.code || p.id || '')); },
+        code: p.code,
+        terr: p.terr,
+        place: p.place,
+        age: p.age,
+        profile: hasProfile(p) ? p.profile : 'Sin perfil',
+        rc,
+        pct: p.weeks ? Math.round((p.week || 0) / p.weeks * 100) + '%' : '0%',
+        prog: 'Semana ' + (p.week || 0) + ' de ' + (p.weeks || 0),
+        expert: p.expert || 'Sin experto',
+        status: p.status,
+        fw: /Sin contacto|Sin experto/.test(p.status || '') ? 500 : 400,
+      };
+    });
     const opt = (all0, lab) => [{ v: '', l: lab }].concat(all0.map(x => typeof x === 'object' ? x : { v: x, l: x }));
     const setPf = k => e => api.setState({ pf: Object.assign({}, pf, { [k]: e.target.value }) });
+    const profileOpts = [{ v: '—', l: 'Sin perfil' }].concat(uniq(all.map(p => p.profile).filter(x => x && /^P\d+$/i.test(String(x)))));
     const pFilters = [
-      ['terr', 'Territorio', opt((S.territories || []).map(x => x.name), 'Todos')], ['profile', 'Perfil', opt(uniq(all.map(p => p.profile)), 'Todos')],
-      ['risk', 'Riesgo', opt(A.RISK.map((r, i) => ({ v: String(i), l: r.k })), 'Todos')], ['dig', 'Capacidad digital', opt(A.DIG.map((r, i) => ({ v: String(i), l: r.k })), 'Todas')],
-      ['status', 'Estado', opt(uniq(all.map(p => p.status)), 'Todos')], ['expert', 'Experto', opt([{ v: '—', l: 'Sin experto' }].concat(uniq(all.map(p => p.expert))), 'Todos')]
+      ['terr', 'Territorio', opt(uniq((S.territories || []).map(x => x.name).concat(all.map(p => p.terr))), 'Todos')],
+      ['profile', 'Perfil', opt(profileOpts, 'Todos')],
+      ['risk', 'Riesgo', opt(A.RISK.map((r, i) => ({ v: String(i), l: r.k })), 'Todos')],
+      ['dig', 'Capacidad digital', opt(A.DIG.map((r, i) => ({ v: String(i), l: r.k })), 'Todas')],
+      ['status', 'Estado', opt(uniq(all.map(p => p.status)), 'Todos')],
+      ['expert', 'Experto', opt([{ v: '—', l: 'Sin experto' }].concat(uniq(all.map(p => p.expert))), 'Todos')],
     ].map(([k, label, opts]) => ({ label, opts, val: pf[k] || '', set: setPf(k), bd: pf[k] ? C.verde : C.lineas }));
-    const exportRoster = () => { const rows = [['Código', 'Territorio', 'Vereda o barrio', 'Edad', 'Perfil', 'Semana', 'De', 'Experto', 'Clínico', 'Estado']].concat(list.map(p => [p.code, p.terr, p.place, p.age, p.profile, p.week, p.weeks, p.expert || '', p.clin || '', p.status])); const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n'); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = 'personas-nara.csv'; a.click(); A.set(s => A.logActivity(s, (A.session()?.id || "admin"), 'Exportó ' + list.length + ' personas (sin datos de identidad)')); };
+    const exportRoster = () => {
+      const rows = [['Código', 'Nombre', 'Territorio', 'Vereda o barrio', 'Edad', 'Perfil', 'Semana', 'De', 'Experto', 'Clínico', 'Estado', 'Correo', 'Teléfono']]
+        .concat(list.map(p => [p.code, p.name || '', p.terr, p.place, p.age, hasProfile(p) ? p.profile : '', p.week, p.weeks, p.expert || '', p.clin || '', p.status, p.email || '', p.phone || '']));
+      const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'personas-nara.csv';
+      a.click();
+      A.set(s => A.logActivity(s, (A.session()?.id || "admin"), 'Exportó ' + list.length + ' personas'));
+    };
     const digDrop = [0, 1, 2].map(di => {
-      const group = all.filter(p => A.parseCode(p.profile || 'P01').d === di);
+      const group = all.filter(p => classified(p) && A.parseCode(p.profile).d === di);
       const drop = group.filter(p => /Sin contacto|Sin experto/i.test(p.status || '')).length;
       const pct = group.length ? Math.round(drop / group.length * 100) : 0;
       return [A.DIG[di].k, pct, A.DIG[di].c];
@@ -334,7 +404,13 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
   }
   function renderVals() {
     const S = A.get(); const C = A.C;
-    const allTerr = (S.territories || []).map(t => {
+    const terrSeen = new Set();
+    const allTerr = (S.territories || []).filter((t) => {
+      const n = String(t.name || "").trim();
+      if (!n || terrSeen.has(n)) return false;
+      terrSeen.add(n);
+      return true;
+    }).map(t => {
       const info = A.terrInfo(S, t.name) || t;
       const nExp = A.experts(S).filter(e => e.terr === t.name && e.active !== false).length;
       const cap = info.cap || 0, goal = info.goal || t.goal || 0;
@@ -347,6 +423,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         isNew: !!t.isNew,
       };
     });
+    const terrQ = String(st.terrQ || '').toLowerCase().trim();
     const terrs = allTerr.filter(t => !st.terrFilter || t.name === st.terrFilter).map(t => {
       let status = 'En curso', sc = C.alDia;
       if (!t.cap) { status = 'Sin iniciar'; sc = '#8C857C'; }
@@ -354,7 +431,14 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       else if (t.rural < t.ruralG - 2) { status = 'Bajo cuota rural'; sc = C.revisar; }
       const ov = (S.terrOv || {})[t.name] || {}; if (ov.paused) { status = 'En pausa'; sc = '#8C857C'; }
       return { open: () => { api.router.push('/admin/territorio?t=' + encodeURIComponent(t.name)); }, name: t.name, dep: t.dep, level: t.level, experts: t.experts, capText: t.cap.toLocaleString('es-CO') + ' / ' + t.goal.toLocaleString('es-CO'), pct: t.goal ? Math.round(t.cap / t.goal * 100) + '%' : '0%', rural: (t.cap ? t.rural + ' %' : '—') + ' / ' + t.ruralG + ' %', bracelets: t.br, insts: t.insts, status, sc, rowBg: t.isNew ? '#FFF9E3' : '#fff' };
+    }).filter((t) => {
+      if (!terrQ) return true;
+      const blob = [t.name, t.dep, t.level, t.experts, t.capText, t.rural, t.bracelets, t.insts, t.status]
+        .map((x) => String(x ?? '').toLowerCase())
+        .join(' ');
+      return blob.includes(terrQ);
     });
+    const terrCountLabel = terrs.length + (terrQ || st.terrFilter ? ' de ' + allTerr.length : '') + ' territorios';
     const tf = st.tf; const setTf = k => e => api.setState({ tf: Object.assign({}, tf, { [k]: e.target.value }), tfErr: '' });
     const chk = (group, k, label) => ({ label, mark: tf[group][k] ? '✓' : '', bd: tf[group][k] ? C.verde : C.texto2, bg: tf[group][k] ? C.verde : '#fff', toggle: () => api.setState({ tf: Object.assign({}, tf, { [group]: Object.assign({}, tf[group], { [k]: !tf[group][k] }) }) }) });
 
@@ -375,9 +459,9 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const flags = S.flags.map(f => ({ expertName: f.expertName, territory: f.territory, when: f.when, person: f.person, reasons: f.reasons, pending: f.status === 'pending', done: f.status !== 'pending', doneText: f.status === 'approved' ? 'Aprobada · cuenta para la cuota' : f.fromVisit ? 'Rechazada · no cuenta para la cuota' : 'Rechazada · se restó de la cuota',
       approve: async () => {
         try {
-          await fetch('/api/flags', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'approved' }) });
+          await fetch('/api/flags', { credentials: 'same-origin', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'approved' }) });
           if (f.fromVisit && f.wid) {
-            await fetch('/api/worklists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'validada' }) });
+            await fetch('/api/worklists', { credentials: 'same-origin', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'validada' }) });
           }
         } catch (e) { /* local fallback */ }
         A.set(s => { const fl = s.flags.find(x => x.id === f.id); if (fl) fl.status = 'approved'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'validada'; } if (s.notifs[f.expert]) A.pushNotif(s, f.expert, 'Visita aprobada en control de calidad: ' + f.person, '/experto'); });
@@ -385,9 +469,9 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       },
       reject: async () => {
         try {
-          await fetch('/api/flags', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'rejected' }) });
+          await fetch('/api/flags', { credentials: 'same-origin', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'rejected' }) });
           if (f.fromVisit && f.wid) {
-            await fetch('/api/worklists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'rechazada' }) });
+            await fetch('/api/worklists', { credentials: 'same-origin', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.wid, expertId: f.expert, status: 'rechazada' }) });
           }
         } catch (e) { /* local fallback */ }
         A.set(s => { const fl = s.flags.find(x => x.id === f.id); if (fl) fl.status = 'rejected'; if (f.fromVisit) { const w = (s.worklists[f.expert] || []).find(x => x.id === f.wid); if (w) w.status = 'rechazada'; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · no cuenta para la cuota', '/experto'); } else if (s.rejected[f.expert] !== undefined) { s.rejected[f.expert] += 1; A.pushNotif(s, f.expert, 'Visita rechazada: ' + f.person + ' · se restó de su cuota', '/experto'); s.notices[f.expert] = s.notices[f.expert] || []; s.notices[f.expert].unshift({ kind: 'qc', tag: 'Control de calidad', text: 'Su visita a ' + f.person + ' (' + f.when.toLowerCase() + ') fue rechazada: ' + f.reasons.join(' · ').toLowerCase() + '. Se restó de su cuota semanal.' }); } });
@@ -397,20 +481,39 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const cellFor = (ri, di) => { const code = A.code(ri, di); const dr = api.draft(code); return { code, n: Object.keys(dr.s).length }; };
     const pm = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const x = cellFor(ri, di); const on = st.sel === x.code; return Object.assign(x, { bg: on ? C.verde : r.bg, fg: on ? '#fff' : C.tinta, bd: on ? C.amarillo : 'transparent', pick: () => api.setState({ sel: x.code }) }); }) }));
     const { r: sr, d: sd } = A.parseCode(st.sel); const dr = api.draft(st.sel);
-    const locked = sr >= 3;
     const req = S.pathRequests.find(x => x.code === st.sel && x.scope === st.scope);
     const pe = {
       title: st.sel + ' · ' + A.RISK[sr].k + ' × digital ' + A.DIG[sd].k.toLowerCase(), people: A.people(S).filter(p => p.profile === st.sel).length,
       rows: A.SERVICES.map(sv => {
-        const auto = sv.id === 'social'; const on = auto || !!dr.s[sv.id]; const lock = (sv.id === 'clin' && locked) || auto;
-        return { name: sv.name + (sv.id === 'clin' && sr >= 2 ? ' · servicio principal' : ''), note: auto ? NOTES.social : lock ? 'Obligatorio en Moderado-severo y Severo' : sv.id === 'clin' ? A.CLIN_CH[sd] : NOTES[sv.id], op: on ? 1 : 0.6,
-          swBg: auto ? '#C4BDB3' : lock ? '#8C857C' : on ? C.verde : '#C4BDB3', x: auto ? '14px' : on ? '25px' : '3px', cur: lock ? 'not-allowed' : 'pointer',
-          toggle: () => { if (lock) return; api.setDraft(st.sel, d => { if (d.s[sv.id]) delete d.s[sv.id]; else d.s[sv.id] = sv.freqs[0]; }); },
-          freqs: sv.freqs.map(label => { const sel = auto || dr.s[sv.id] === label; return { label, bd: sel ? C.verde : C.lineas, bg: sel ? '#FFF4CC' : '#fff', fg: on ? C.tinta : C.texto2, pick: () => { if (!auto) api.setDraft(st.sel, d => { d.s[sv.id] = label; }); } }; }) };
+        const on = !!dr.s[sv.id];
+        return {
+          name: sv.name,
+          note: NOTES[sv.id] || '',
+          op: on ? 1 : 0.6,
+          swBg: on ? C.verde : '#C4BDB3',
+          x: on ? '25px' : '3px',
+          cur: 'pointer',
+          toggle: () => {
+            api.setDraft(st.sel, d => {
+              if (d.s[sv.id]) delete d.s[sv.id];
+              else d.s[sv.id] = sv.freqs[0];
+            });
+          },
+          freqs: sv.freqs.map(label => {
+            const sel = dr.s[sv.id] === label;
+            return {
+              label,
+              bd: sel ? C.verde : C.lineas,
+              bg: sel ? '#FFF4CC' : '#fff',
+              fg: on ? C.tinta : C.texto2,
+              pick: () => { api.setDraft(st.sel, d => { d.s[sv.id] = label; }); },
+            };
+          }),
+        };
       }),
-      warn: sr >= 2 && !!dr.s.ia && !dr.s.clin,
+      warn: false,
       durs: [3, 6, 12].map(m => ({ label: m + ' meses', bd: dr.months === m ? C.verde : C.lineas, bg: dr.months === m ? '#FFF4CC' : '#fff', fg: C.tinta, pick: () => api.setDraft(st.sel, d => { d.months = m; }) })),
-      sendBg: sr >= 2 && !dr.s.clin ? '#8C857C' : C.verde,
+      sendBg: C.verde,
       status: req ? 'Enviado a aprobación clínica · pendiente de la líder clínica. Al aprobarse, aplica a personas nuevas y a las actuales en su próxima revisión de ruta.' : 'Los cambios no se aplican de inmediato: la líder clínica debe aprobarlos.'
     };
     const extra = moreVals(A, S, C, st);
@@ -432,6 +535,8 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       clearMsg: () => api.setState({ msg: '', msgActions: [] }),
       vTerr: st.view === 'terr', vTeam: st.view === 'team', vPaths: st.view === 'paths', vPeople: st.view === 'people', vAssets: st.view === 'assets',
       totalCap: allTerr.reduce((a, t) => a + t.cap, 0).toLocaleString('es-CO'), terrs,
+      terrQ: st.terrQ || '', setTerrQ: (e) => api.setState({ terrQ: e.target.value }),
+      terrCountLabel,
       terrForm: st.terrForm, terrFormBtn: '+ Crear territorio', toggleTerrForm: () => api.setState({ terrForm: true }), closeTerrForm: () => api.setState({ terrForm: false }),
       tf, tfSet: { dep: setTf('dep'), mun: setTf('mun'), goal: setTf('goal'), rural: setTf('rural'), sixty: setTf('sixty') }, tfErr: st.tfErr, clearTfErr: () => api.setState({ tfErr: '' }),
       levels: ['Municipio completo', 'Veredas seleccionadas', 'Barrios seleccionados'].map(label => ({ label, bd: tf.level === label ? C.verde : C.texto2, dot: tf.level === label ? C.verde : '#fff', pick: () => api.setState({ tf: Object.assign({}, tf, { level: label }) }) })),
@@ -448,7 +553,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           insts: Object.values(tf.insts).filter(Boolean).length, content,
         };
         try {
-          const res = await fetch('/api/territories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const res = await fetch('/api/territories', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
           const data = await res.json();
           if (!res.ok || !data.ok) return api.setState({ tfErr: data.error || 'No se pudo guardar el territorio.' });
           const t = data.territory;
@@ -475,7 +580,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           target: parseInt(ef.target, 10) || 9,
         };
         try {
-          const res = await fetch('/api/experts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const res = await fetch('/api/experts', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
           const data = await res.json();
           if (!res.ok || !data.ok) return api.setState({ msg: data.error || 'No se pudo guardar el experto.', msgActions: [] });
           const e = data.expert;
@@ -499,8 +604,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       experts, flags, flagCount: S.flags.filter(f => f.status === 'pending').length + ' por revisar', checks: CHECKS.map(([k, v]) => ({ k, v })),
       pm, pe, scope: st.scope, setScope: e => api.setState({ scope: e.target.value }),
       sendPath: () => {
-        if (sr >= 2 && !dr.s.clin) return;
-        // Copia profunda del borrador actual (incluye s:{} si apagaron todo, sin forzar mood)
+        // Copia profunda del borrador actual (incluye s:{} si apagaron todo)
         const live = api.draft(st.sel);
         const draft = JSON.parse(JSON.stringify(live));
         if (!draft.s || typeof draft.s !== 'object') draft.s = {};

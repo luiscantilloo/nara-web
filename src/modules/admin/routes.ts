@@ -24,15 +24,14 @@ export const ADMIN_PATH_TO_VIEW: Record<string, AdminNavKey> = {
   "/informes": "reports",
 };
 
+/** Nav visible. Activos e Informes quedan fuera por ahora (rutas siguen existiendo). */
 export const ADMIN_NAV_ITEMS: [AdminNavKey, string][] = [
   ["home", "Inicio"],
   ["terr", "Territorios"],
   ["team", "Equipos de campo"],
   ["paths", "Rutas"],
   ["people", "Personas"],
-  ["assets", "Activos"],
   ["users", "Usuarios y permisos"],
-  ["reports", "Informes"],
 ];
 
 export function adminPathForView(view: string): string {

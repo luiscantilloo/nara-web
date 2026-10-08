@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
 import { useAdminPersonaScreen } from "./useAdminPersonaScreen";
@@ -12,7 +13,7 @@ function AdminPersonaInner() {
   const { v } = useAdminPersonaScreen();
 
   if (!v?.ready) {
-    return <div className="min-h-screen bg-nara-crema font-texto" />;
+    return <NaraLoadingScreen />;
   }
 
   return (
@@ -77,7 +78,9 @@ function AdminPersonaInner() {
                   className="inline-block h-2.5 w-2.5 rounded-sm"
                   style={{ background: v.riskColor }}
                 />
-                {v.riskLabel} · digital {String(v.digLabel || "").toLowerCase()}
+                {v.hasProfile
+                  ? `${v.riskLabel} · digital ${String(v.digLabel || "").toLowerCase()}`
+                  : "Sin perfil de ruta"}
               </span>
             ) : null}
           </div>
@@ -157,56 +160,52 @@ function AdminPersonaInner() {
 
               <section className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-5">
                 <div className="flex flex-col gap-1">
-                  <h2 className="font-titulos text-lg font-semibold">Módulos de la app</h2>
+                  <h2 className="font-titulos text-lg font-semibold">Servicios de su ruta</h2>
                   <p className="text-sm text-texto-secundario">
-                    Como administrador usted decide qué ofrece el programa (verde = activo). Lo que
-                    desactive aquí no aparece en la app del paciente. Si está activo y la persona lo
-                    ocultó en su perfil, verá la etiqueta «oculto por la persona».
+                    Solo consulta. Son los mismos servicios activos de{" "}
+                    <strong className="font-medium text-nara-tinta">Rutas · Servicios por perfil</strong>
+                    {v.hasProfile ? ` para ${v.profile}` : ""}. Los cambios se hacen allá y pasan por
+                    aprobación clínica; aquí solo se ven los que están activos.
                   </p>
                 </div>
-                {v.modules?.map((m: {
-                  key: string;
-                  name: string;
-                  desc: string;
-                  swBg: string;
-                  x: string;
-                  on: boolean;
-                  patientHid: boolean;
-                  toggle: () => void;
-                }) => (
-                  <button
-                    key={m.key}
-                    type="button"
-                    disabled={v.saving}
-                    onClick={() => m.toggle()}
-                    className="grid cursor-pointer grid-cols-[52px_minmax(0,1fr)] items-center gap-2.5 border-t border-[#F0ECE6] py-2 text-left disabled:opacity-60"
-                  >
-                    <span
-                      className="relative h-[26px] w-11 rounded-full"
-                      style={{ background: m.swBg }}
+                {!v.hasProfile ? (
+                  <p className="border-t border-[#F0ECE6] pt-3 text-sm text-texto-secundario">
+                    Sin perfil de ruta aún. Cuando el experto complete el cuestionario y quede
+                    clasificada, aquí aparecerán los servicios activos de ese perfil.
+                  </p>
+                ) : !v.modules?.length ? (
+                  <p className="border-t border-[#F0ECE6] pt-3 text-sm text-texto-secundario">
+                    Este perfil no tiene servicios activos en la ruta actual.
+                  </p>
+                ) : (
+                  v.modules.map((m: {
+                    key: string;
+                    name: string;
+                    desc: string;
+                    swBg: string;
+                    x: string;
+                  }) => (
+                    <div
+                      key={m.key}
+                      className="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2.5 border-t border-[#F0ECE6] py-2"
                     >
                       <span
-                        className="absolute top-[3px] h-5 w-5 rounded-full bg-white"
-                        style={{ left: m.x }}
-                      />
-                    </span>
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-sm font-medium">
-                        {m.name}
-                        {m.patientHid ? (
-                          <span className="ml-2 text-xs font-normal text-texto-secundario">
-                            (oculto por la persona)
-                          </span>
-                        ) : !m.on ? (
-                          <span className="ml-2 text-xs font-normal text-texto-secundario">
-                            (desactivado por el programa)
-                          </span>
-                        ) : null}
+                        className="relative h-[26px] w-11 rounded-full"
+                        style={{ background: m.swBg }}
+                        aria-hidden
+                      >
+                        <span
+                          className="absolute top-[3px] h-5 w-5 rounded-full bg-white"
+                          style={{ left: m.x }}
+                        />
                       </span>
-                      <span className="text-xs text-texto-secundario">{m.desc}</span>
-                    </span>
-                  </button>
-                ))}
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{m.name}</span>
+                        <span className="text-xs text-texto-secundario">{m.desc}</span>
+                      </span>
+                    </div>
+                  ))
+                )}
               </section>
             </div>
           </>
@@ -218,7 +217,7 @@ function AdminPersonaInner() {
 
 export function AdminPersonaScreen() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-nara-crema" />}>
+    <Suspense fallback={<NaraLoadingScreen />}>
       <AdminPersonaInner />
     </Suspense>
   );

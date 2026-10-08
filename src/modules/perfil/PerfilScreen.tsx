@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
 import { RoleNav } from "@/components/shared/role-nav/RoleNav";
@@ -198,7 +199,7 @@ export function PerfilScreen() {
   }, [sessionId, hydratedId, router, store]);
 
   if (!session) {
-    return <div className="min-h-0 flex-1 bg-nara-crema font-texto" />;
+    return <NaraLoadingScreen />;
   }
 
   const kind = kindOf(session);

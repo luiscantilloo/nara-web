@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
+import { RouteLoadingProvider } from "@/components/shared/nara-loading/RouteLoadingProvider";
 
 /**
  * Shell de roles: viewport bloqueado.
@@ -29,7 +30,9 @@ export function ShellLayout({
       data-shell-root
       className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-nara-crema"
     >
-      {children}
+      <Suspense fallback={null}>
+        <RouteLoadingProvider>{children}</RouteLoadingProvider>
+      </Suspense>
     </div>
   );
 }

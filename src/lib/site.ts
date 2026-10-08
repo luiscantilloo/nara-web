@@ -16,7 +16,13 @@ export function getSiteUrl(): string {
 }
 
 /** Rutas públicas indexables (el resto de la app es privada). */
-export const PUBLIC_PATHS = ["/ingreso"] as const;
+export const PUBLIC_PATHS = [
+  "/",
+  "/landing",
+  "/landing/privacidad",
+  "/landing/tratamiento-de-datos",
+  "/ingreso",
+] as const;
 
 /** Prefijos que no deben indexarse ni listarse en el sitemap. */
 export const PRIVATE_PATH_PREFIXES = [

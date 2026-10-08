@@ -111,10 +111,6 @@ export function useAdminUsuariosScreen() {
     const isEdit = !!(f && f.id);
     const setF = (k: keyof FormState) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setState({ f: Object.assign({}, f, { [k]: e.target.value }), err: "" });
-    const MN = A.OBS_MODULES.reduce((a: Record<string, string>, m: any) => {
-      a[m.id] = m.name;
-      return a;
-    }, {});
     const open = (u: any) =>
       setState({
         sel: u.id,
@@ -135,10 +131,14 @@ export function useAdminUsuariosScreen() {
           derived: u.derived,
         },
       });
-    const mods = (f && f.modules) || [];
+    const orgType = (f && f.orgType) || "Financiador";
+    const modsFromType: string[] = A.OBS_TEMPLATES[orgType]
+      ? A.OBS_TEMPLATES[orgType].slice()
+      : A.OBS_TEMPLATES.Financiador.slice();
+    /** En Observador los módulos salen del Tipo (plantilla del enfoque), no se editan a mano. */
+    const mods =
+      f?.role === "Observador" ? modsFromType : (f && f.modules) || [];
     const needEthics = mods.includes("datos");
-    const tplMatch = (k: string) =>
-      JSON.stringify(A.OBS_TEMPLATES[k].slice().sort()) === JSON.stringify(mods.slice().sort());
     const terrOpts = Array.from(
       new Set(
         ["Todos"]
@@ -158,14 +158,19 @@ export function useAdminUsuariosScreen() {
         return setState({ err: "Defina una contraseña para el nuevo usuario." });
       if ((f.password || "").trim() && (f.password || "").trim().length < 8)
         return setState({ err: "La contraseña debe tener al menos 8 caracteres." });
-      if (f.role === "Observador" && !mods.length)
-        return setState({ err: "Active al menos un módulo para el observador." });
       if (f.role === "Observador" && !f.org.trim())
         return setState({ err: "Escriba la organización del observador." });
+      if (f.role === "Observador" && !["Financiador", "Investigación", "Institución de salud"].includes(f.orgType))
+        return setState({ err: "Elija el tipo de observador (Financiador, Investigación o Institución de salud)." });
       if (needEthics && f.role === "Observador" && !/\w{2,}-?\d/.test(f.ethics || ""))
         return setState({ err: "Datos seudonimizados exige el número de aprobación ética." });
       if (f.role === "Paciente" && !(f.patientModules || []).length)
         return setState({ err: "Active al menos un módulo para la app del paciente." });
+
+      const obsModules =
+        f.role === "Observador"
+          ? (A.OBS_TEMPLATES[f.orgType] || A.OBS_TEMPLATES.Financiador).slice()
+          : undefined;
 
       const payload: any = {
         id: f.id || undefined,
@@ -177,7 +182,7 @@ export function useAdminUsuariosScreen() {
         terr: f.terr,
         org: f.role === "Observador" ? f.org.trim() : "Programa NARA",
         orgType: f.role === "Observador" ? f.orgType : undefined,
-        modules: f.role === "Observador" ? mods.slice() : undefined,
+        modules: obsModules,
         patientModules: f.role === "Paciente" ? (f.patientModules || []).slice() : undefined,
         ethics: needEthics ? f.ethics : undefined,
         status: f.status || "Activo",
@@ -262,7 +267,10 @@ export function useAdminUsuariosScreen() {
         name: u.name + (u.lead ? " · líder clínica" : ""),
         contact: u.contact || "",
         role: u.role,
-        mods: u.role === "Observador" ? (u.modules || []).map((m: string) => MN[m]).join(" · ") : "",
+        mods:
+          u.role === "Observador"
+            ? `Observador · ${u.orgType || "Observador"}`
+            : "",
         org: u.org,
         terr: u.terr,
         status: u.status,
@@ -300,18 +308,22 @@ export function useAdminUsuariosScreen() {
         password: setF("password"),
         role: (e: ChangeEvent<HTMLSelectElement>) => {
           const role = e.target.value;
-          setState({
-            f: Object.assign({}, f, {
-              role,
-              patientModules:
-                role === "Paciente"
-                  ? f?.patientModules?.length
-                    ? f.patientModules
-                    : DEFAULT_PATIENT_MODULES.slice()
-                  : f?.patientModules || DEFAULT_PATIENT_MODULES.slice(),
-            }),
-            err: "",
-          });
+          const next: FormState = Object.assign({}, f, {
+            role,
+            patientModules:
+              role === "Paciente"
+                ? f?.patientModules?.length
+                  ? f.patientModules
+                  : DEFAULT_PATIENT_MODULES.slice()
+                : f?.patientModules || DEFAULT_PATIENT_MODULES.slice(),
+          }) as FormState;
+          if (role === "Observador") {
+            const tipo = next.orgType && A.OBS_TEMPLATES[next.orgType] ? next.orgType : "Financiador";
+            next.orgType = tipo;
+            next.modules = A.OBS_TEMPLATES[tipo].slice();
+            if (!next.terr) next.terr = "Todos";
+          }
+          setState({ f: next, err: "" });
         },
         terr: setF("terr"),
         org: setF("org"),
@@ -320,8 +332,11 @@ export function useAdminUsuariosScreen() {
           setState({
             f: Object.assign({}, f, {
               orgType: val,
-              modules: A.OBS_TEMPLATES[val] ? A.OBS_TEMPLATES[val].slice() : mods,
+              modules: A.OBS_TEMPLATES[val]
+                ? A.OBS_TEMPLATES[val].slice()
+                : A.OBS_TEMPLATES.Financiador.slice(),
             }),
+            err: "",
           });
         },
         ethics: setF("ethics"),
@@ -329,34 +344,13 @@ export function useAdminUsuariosScreen() {
       terrOpts,
       isObs: !!f && f.role === "Observador",
       isPaciente: !!f && f.role === "Paciente",
-      tpls: Object.keys(A.OBS_TEMPLATES).map((k) => ({
-        key: k,
-        label: k,
-        bd: tplMatch(k) ? C.verde : C.lineas,
-        bg: tplMatch(k) ? "#FFF4CC" : "#fff",
-        go: () =>
-          setState({
-            f: Object.assign({}, f, { modules: A.OBS_TEMPLATES[k].slice(), orgType: k }),
-            err: "",
-          }),
-      })),
-      mods: A.OBS_MODULES.map((m: any) => {
-        const on = mods.includes(m.id);
-        return {
+      obsVistas: A.OBS_MODULES.filter((m: { id: string }) => mods.includes(m.id)).map(
+        (m: { id: string; name: string; desc: string }) => ({
           key: m.id,
           name: m.name,
           desc: m.desc,
-          swBg: on ? C.verde : "#C4BDB3",
-          x: on ? "21px" : "3px",
-          toggle: () =>
-            setState({
-              f: Object.assign({}, f, {
-                modules: on ? mods.filter((x: string) => x !== m.id) : mods.concat([m.id]),
-              }),
-              err: "",
-            }),
-        };
-      }),
+        }),
+      ),
       patientMods: PATIENT_APP_MODULES.map((m) => {
         const list = (f && f.patientModules) || DEFAULT_PATIENT_MODULES;
         const on = list.includes(m.id);

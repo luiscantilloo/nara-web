@@ -3,6 +3,7 @@
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { AdminUsuariosContent } from "./AdminUsuariosContent";
 import { useAdminUsuariosScreen } from "./useAdminUsuariosScreen";
 
@@ -10,7 +11,7 @@ export function AdminUsuariosScreen() {
   const { v } = useAdminUsuariosScreen();
 
   if (!v) {
-    return <div className="min-h-screen bg-nara-crema font-texto" />;
+    return <NaraLoadingScreen />;
   }
 
   return (

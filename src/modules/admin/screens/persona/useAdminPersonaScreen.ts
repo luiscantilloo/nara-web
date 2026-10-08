@@ -4,11 +4,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useNaraStore } from "@/providers/nara-provider";
-import {
-  DEFAULT_PATIENT_MODULES,
-  PATIENT_APP_MODULES,
-  type PatientModuleId,
-} from "@/lib/db/patientModules";
 
 export function useAdminPersonaScreen() {
   const store = useNaraStore();
@@ -18,7 +13,6 @@ export function useAdminPersonaScreen() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
-  const [saving, setSaving] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -102,63 +96,30 @@ export function useAdminPersonaScreen() {
     }
 
     const id = String(person?.id || patient?.id || "");
-    const profile = String(person?.profile || patient?.profile || "P01");
-    const parsed = store.parseCode(profile);
-    const risk = store.RISK[parsed.r] || store.RISK[0];
-    const dig = store.DIG[parsed.d] || store.DIG[0];
+    const rawProfile = person?.profile ?? patient?.profile;
+    const hasProfile = !!(rawProfile && /^P\d+$/i.test(String(rawProfile)));
+    const profile = hasProfile ? String(rawProfile) : "Sin perfil";
+    const parsed = hasProfile ? store.parseCode(profile) : { r: -1, d: -1 };
+    const risk = parsed.r >= 0 ? store.RISK[parsed.r] || store.RISK[0] : null;
+    const dig = parsed.d >= 0 ? store.DIG[parsed.d] || store.DIG[0] : null;
     const week = Number(person?.week || 0);
     const weeks = Number(person?.weeks || 13);
     const pct = weeks ? Math.round((week / weeks) * 100) : 0;
 
-    const enabled: PatientModuleId[] = Array.isArray(patient?.modulesEnabled)
-      ? patient.modulesEnabled
-      : DEFAULT_PATIENT_MODULES.slice();
-    const visible: PatientModuleId[] = Array.isArray(patient?.modulesVisible)
-      ? patient.modulesVisible.filter((m: string) => enabled.includes(m as PatientModuleId))
-      : enabled.slice();
-
-    const toggleModule = async (modId: PatientModuleId) => {
-      if (!id || saving) return;
-      const next = enabled.includes(modId)
-        ? enabled.filter((m) => m !== modId)
-        : enabled.concat([modId]);
-      if (!next.length) {
-        setErr("Deje al menos un módulo activo.");
-        return;
-      }
-      setSaving(true);
-      setErr("");
-      try {
-        const res = await fetch("/api/patients/modules", {
-          method: "PATCH",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ patientId: id, modulesEnabled: next }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          setErr(data.error || "No se pudieron guardar los módulos.");
-          return;
-        }
-        store.set((s: any) => {
-          s.patients = s.patients || {};
-          const prev = s.patients[id] || patient || { id, name: person?.name || id };
-          s.patients[id] = {
-            ...prev,
-            modulesEnabled: data.modulesEnabled,
-            modulesVisible: data.modulesVisible,
-          };
-        });
-        setMsg(
-          "Módulos guardados. En la app del paciente (tras recargar) solo verá lo que quedó en verde.",
-        );
-        setTick((t) => t + 1);
-      } catch {
-        setErr("No se pudo conectar con la base de datos.");
-      } finally {
-        setSaving(false);
-      }
+    // Misma fuente que Rutas → Servicios por perfil: solo los activos de la ruta.
+    const ctx = (patient?.ctx || person?.ctx || { dano: 0, perdida: 0 }) as {
+      dano?: number;
+      perdida?: number;
     };
+    const pathServices = hasProfile
+      ? (store.pathList(parsed.r, parsed.d, null, ctx) as Array<{
+          id: string;
+          name: string;
+          freq: string;
+          channel?: string;
+          main?: boolean;
+        }>)
+      : [];
 
     return {
       ready: true,
@@ -176,9 +137,10 @@ export function useAdminPersonaScreen() {
       clin: person?.clin || patient?.clin || "Sin clínico",
       status: person?.status || patient?.signal || "Activa",
       profile,
-      riskLabel: risk.k,
-      riskColor: risk.c,
-      digLabel: dig.k,
+      hasProfile,
+      riskLabel: risk?.k || "—",
+      riskColor: risk?.c || "#C4BDB3",
+      digLabel: dig?.k || "—",
       week,
       weeks,
       pct: pct + "%",
@@ -188,21 +150,15 @@ export function useAdminPersonaScreen() {
       genero: patient?.genero || "",
       estadoCivil: patient?.estadoCivil || "",
       estrato: patient?.estrato || "",
-      modules: PATIENT_APP_MODULES.map((m) => {
-        const on = enabled.includes(m.id);
-        const patientHid = on && !visible.includes(m.id);
-        return {
-          key: m.id,
-          name: m.name,
-          desc: m.desc,
-          on,
-          patientHid,
-          swBg: on ? "#2F6F4E" : "#C4BDB3",
-          x: on ? "21px" : "3px",
-          toggle: () => void toggleModule(m.id),
-        };
-      }),
-      saving,
+      modules: pathServices.map((s) => ({
+        key: s.id,
+        name: s.name + (s.main ? " · servicio principal" : ""),
+        desc: [s.freq, s.channel].filter(Boolean).join(" · "),
+        on: true,
+        patientHid: false,
+        swBg: "#2F6F4E",
+        x: "21px",
+      })),
       agentOpen,
       openAgent: () => setAgentOpen(true),
       closeAgent: () => setAgentOpen(false),
@@ -212,7 +168,7 @@ export function useAdminPersonaScreen() {
       clearMsg: () => setMsg(""),
       clearErr: () => setErr(""),
     };
-  }, [store, code, tick, agentOpen, msg, err, saving, router]);
+  }, [store, code, tick, agentOpen, msg, err, router]);
 
   return { v };
 }

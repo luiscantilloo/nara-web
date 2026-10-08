@@ -9,7 +9,14 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/ingreso"],
+        allow: [
+          "/",
+          "/landing",
+          "/landing/",
+          "/landing/privacidad",
+          "/landing/tratamiento-de-datos",
+          "/ingreso",
+        ],
         disallow,
       },
     ],

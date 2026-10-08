@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { adminPathForView } from "@/modules/admin/routes";
 
 /** Compat: /admin y /admin?view=team → rutas en español. */
@@ -20,13 +21,5 @@ export default function AdminRedirectPage() {
     router.replace("/inicio");
   }, [router, searchParams]);
 
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#F0ECE6",
-        fontFamily: "Figtree, system-ui, sans-serif",
-      }}
-    />
-  );
+  return <NaraLoadingScreen />;
 }

@@ -29,7 +29,13 @@ const KEY = 'nara-memory-v1';
   const riskIdx = t => RISK.findIndex(r => t >= r.min && t <= r.max);
   const digIdx = t => DIG.findIndex(r => t >= r.min && t <= r.max);
   const code = (r, d) => 'P' + String(r * 3 + d + 1).padStart(2, '0');
-  const parseCode = p => { const n = parseInt(p.slice(1), 10) - 1; return { r: Math.floor(n / 3), d: n % 3 }; };
+  const parseCode = (p) => {
+    const s = p != null ? String(p) : '';
+    if (!/^P\d+$/i.test(s)) return { r: -1, d: -1 };
+    const n = parseInt(s.slice(1), 10) - 1;
+    if (!Number.isFinite(n) || n < 0) return { r: -1, d: -1 };
+    return { r: Math.floor(n / 3), d: n % 3 };
+  };
 
   const PHQ = [
     'Poco interés o placer en hacer las cosas',
@@ -57,21 +63,23 @@ const KEY = 'nara-memory-v1';
     { q: 'Perdió a un familiar o allegado', o: ['No', 'Sí'] }
   ];
 
+  // Por ahora solo estos 6 servicios (el resto del catálogo queda oculto en toda la app).
   const SERVICES = [
-    { id: 'mood', name: 'Estado de ánimo', freqs: ['Diario'], note: 'Check-in «¿Cómo se siente hoy?» en la app' },
-    { id: 'clin', name: 'Psicólogo clínico', freqs: ['Semanal', 'Quincenal', 'Mensual'] },
-    { id: 'ia', name: 'Acompañante con IA (TEO)', freqs: ['Acceso libre', 'Entre sesiones'] },
     { id: 'wa', name: 'Check-ins por WhatsApp', freqs: ['3 veces por semana', '1 vez por semana'] },
-    { id: 'call', name: 'Llamada de seguimiento', freqs: ['Semanal', 'Mensual'] },
     { id: 'bracelet', name: 'Manilla de monitoreo', freqs: ['6 meses', '12 meses'] },
     { id: 'videos', name: 'Videos psicoeducativos', freqs: ['Serie completa', 'Selección'] },
     { id: 'tech', name: 'Técnicas guiadas', freqs: ['En audio', 'Material impreso'] },
     { id: 'revisit', name: 'Revisita del experto', freqs: ['Cada 2 semanas', 'Mensual'] },
-    { id: 'pmplus', name: 'Problem Management Plus (PM+)', freqs: ['5 sesiones semanales'], by: 'Experto de campo capacitado' },
-    { id: 'group', name: 'Grupo de apoyo en la vereda', freqs: ['Quincenal', 'Mensual'], by: 'Experto de campo o facilitador comunitario' },
-    { id: 'social', name: 'Vinculación a ayudas sociales', freqs: ['Según el caso'], by: 'Experto de campo', auto: true },
     { id: 'cursos', name: 'Cursos y cuentos', freqs: ['Curso guiado por TEO', 'Curso con el experto', 'Asignado por la psicóloga'] }
   ];
+  const SERVICE_IDS = new Set(SERVICES.map((x) => x.id));
+  const prunePathS = (s) => {
+    const out = {};
+    Object.keys(s || {}).forEach((k) => {
+      if (SERVICE_IDS.has(k)) out[k] = s[k];
+    });
+    return out;
+  };
   const CLIN_CH = ['En persona', 'Por teléfono', 'Videollamada o teléfono'];
 
   // ---------- v7 · Recursos de tratamiento: cuentos, videos, técnicas y cursos ----------
@@ -143,32 +151,29 @@ const KEY = 'nara-memory-v1';
   function courseProgress(s, pid) { const p = recPerson(s, pid); if (!p || !p.course) return null; const c = REC.curso(p.course); const done = (p.doneMods || []).length; return { p, c, done, pct: Math.round(done / c.weeks * 100), week: p.week, mod: c.mods[Math.min(p.week, c.weeks) - 1] }; }
   function defaultPath(r, d) {
     const p = basePath(r, d);
-    p.s.mood = p.s.mood || 'Diario';
-    p.s.cursos = cursosFreq(r);
-    if (r === 1 || r === 2) p.s.pmplus = '5 sesiones semanales';
-    if (d <= 1 && r <= 3) p.s.group = r >= 2 ? 'Quincenal' : 'Mensual';
+    p.s = prunePathS(p.s);
+    p.s.cursos = p.s.cursos || cursosFreq(r);
     return p;
   }
   function basePath(r, d) {
-    const s = { mood: 'Diario' };
+    const s = {};
     const on = (id, freq) => { s[id] = freq; };
     if (r <= 1) {
-      if (d === 0) { on('call', 'Mensual'); on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
+      if (d === 0) { on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
       if (d === 1) { on('wa', '1 vez por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
-      if (d === 2) { on('ia', 'Acceso libre'); on('wa', '1 vez por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
+      if (d === 2) { on('wa', '1 vez por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
       return { s, months: 3 };
     }
     if (r === 2) {
-      on('clin', 'Mensual'); on('bracelet', '6 meses');
-      if (d === 0) { on('call', 'Semanal'); on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
+      on('bracelet', '6 meses');
+      if (d === 0) { on('tech', 'Material impreso'); on('revisit', 'Mensual'); }
       if (d === 1) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
-      if (d === 2) { on('ia', 'Entre sesiones'); on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
+      if (d === 2) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
       return { s, months: 6 };
     }
-    on('clin', r === 3 ? 'Quincenal' : 'Semanal'); on('bracelet', '12 meses'); on('revisit', 'Cada 2 semanas');
-    if (d === 0) { on('call', 'Semanal'); on('tech', 'Material impreso'); }
+    on('bracelet', '12 meses'); on('revisit', 'Cada 2 semanas');
+    if (d === 0) { on('tech', 'Material impreso'); }
     if (d >= 1) { on('wa', '3 veces por semana'); on('videos', 'Serie completa'); on('tech', 'En audio'); }
-    if (r === 3 && d === 2) on('ia', 'Entre sesiones');
     return { s, months: 12 };
   }
   // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 } → activa «Vinculación a ayudas sociales» en ruta por defecto
@@ -180,25 +185,21 @@ const KEY = 'nara-memory-v1';
     return x;
   }
   function pathList(r, d, override, ctx) {
+    if (r < 0 || d < 0 || r > 4 || d > 2) return [];
     const storeOv = cache && cache.pathOverrides && cache.pathOverrides[code(r, d)];
     const explicit = asPathDraft(override) || asPathDraft(storeOv);
     const usingDefault = !explicit;
     const p0 = explicit || defaultPath(r, d);
-    const p = { s: Object.assign({}, p0.s || {}), months: p0.months != null ? p0.months : 3 };
+    const p = { s: prunePathS(p0.s || {}), months: p0.months != null ? p0.months : 3 };
 
     if (usingDefault) {
-      // Plantilla base: completar mood/cursos y social por contexto
-      delete p.s.social;
-      if (needsSocial(ctx)) p.s.social = 'Según el caso';
       if (!p.s.cursos) p.s.cursos = cursosFreq(r);
-      if (!p.s.mood) p.s.mood = 'Diario';
     }
-    // Override aprobado: respetar exactamente lo marcado (si s está vacío, no se fuerza nada).
 
     return SERVICES.filter(x => p.s[x.id]).map(x => ({
       id: x.id, name: x.name, freq: p.s[x.id],
-      channel: x.id === 'mood' ? 'App · check-in diario' : x.id === 'clin' ? CLIN_CH[d] : x.id === 'wa' ? 'Audio primero' : x.id === 'ia' ? 'App' : x.id === 'call' ? 'Teléfono' : x.id === 'revisit' ? 'Visita en casa' : x.id === 'bracelet' ? 'Sueño y ritmo cardiaco' : x.id === 'pmplus' ? 'En casa · experto capacitado' : x.id === 'group' ? 'En la vereda · con facilitador' : x.id === 'cursos' ? REC.channel(d) : x.id === 'social' ? (ctx && ctx.dano === 2 ? 'Vivienda y reconstrucción' : ctx && ctx.dano === 1 ? 'Reparación de vivienda' : 'Apoyo por pérdida familiar') : '',
-      main: x.id === 'clin' && r >= 2
+      channel: x.id === 'wa' ? 'Audio primero' : x.id === 'revisit' ? 'Visita en casa' : x.id === 'bracelet' ? 'Sueño y ritmo cardiaco' : x.id === 'cursos' ? REC.channel(d) : x.id === 'videos' ? 'App' : x.id === 'tech' ? 'App o impreso' : '',
+      main: false
     }));
   }
   const HEAT = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
@@ -500,6 +501,8 @@ const KEY = 'nara-memory-v1';
       terr: (a.terr && a.terr !== '—') ? a.terr : (a.orgType || a.org || ''),
       href, nk, contact: a.contact || a.email || '', org: a.org || '',
       patientId: a.patientId || undefined,
+      orgType: a.orgType || undefined,
+      modules: Array.isArray(a.modules) ? a.modules : undefined,
     };
   }
   function session() {
@@ -515,7 +518,7 @@ const KEY = 'nara-memory-v1';
   function logout() {
     if (typeof window === 'undefined') return;
     sessionId = null;
-    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .catch(() => {})
       .finally(() => { location.href = '/ingreso'; });
   }

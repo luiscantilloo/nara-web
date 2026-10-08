@@ -279,12 +279,13 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
     return { text: t.trim(), dots: wl.map(w => ({ ok: w.status === 'validada' || w.status === 'crisis' })), revisits: S.revisits[ex] || [], crisis: (S.notices[ex] || []).filter(n => n.kind === 'crisis') };
   }
 
+  // El saludo con nombre lo arma AgentPanel desde store.session() (login).
   const ROLE = {
-    admin: { name: 'TEO · Asistente de datos', greet: 'Buenos días, Paula.', sub: 'Pregúnteme por territorios, equipos, rutas o activos. Respondo con los datos del programa.' },
-    clin: { name: 'TEO · Asistente clínico', greet: 'Buenos días, Dra. Marín.', sub: 'Le ayudo a preparar sesiones y a ver patrones en su carga de casos. No doy diagnósticos ni cambio rutas.' },
-    fin: { name: 'TEO · Asistente de datos', greet: 'Buenos días.', sub: 'Respondo con datos agregados del programa. Nunca muestro datos personales.' },
-    inv: { name: 'TEO · Asistente de datos', greet: 'Buenos días.', sub: 'Respondo sobre datos seudonimizados, con el n y el método. Aprobación ética CEI-2026-114.' },
-    inst: { name: 'TEO · Asistente de datos', greet: 'Buenos días.', sub: 'Solo conozco los casos remitidos a esta institución. No sé nada del resto de la cohorte.' },
+    admin: { name: 'TEO · Asistente de datos', greet: '', sub: 'Pregúnteme por territorios, equipos, rutas o activos. Respondo con los datos del programa.' },
+    clin: { name: 'TEO · Asistente clínico', greet: '', sub: 'Le ayudo a preparar sesiones y a ver patrones en su carga de casos. No doy diagnósticos ni cambio rutas.' },
+    fin: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo con datos agregados del programa. Nunca muestro datos personales.' },
+    inv: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo sobre datos seudonimizados, con el n y el método. Aprobación ética CEI-2026-114.' },
+    inst: { name: 'TEO · Asistente de datos', greet: '', sub: 'Solo conozco los casos remitidos a esta institución. No sé nada del resto de la cohorte.' },
     expert: { name: 'TEO · Asistente de datos', greet: '', sub: '' }
   };
   const list = role => role.indexOf('expert') === 0 ? expertQ(role.split(':')[1]) : Q[role];

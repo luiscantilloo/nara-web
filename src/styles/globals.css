@@ -460,3 +460,21 @@ a {
   border-color: var(--nara-amarillo, #fdcd22) !important;
   color: var(--nara-tinta, #161413) !important;
 }
+
+@keyframes nara-kenburns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes nara-float {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: 0 -10px;
+  }
+}
