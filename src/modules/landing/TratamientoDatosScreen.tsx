@@ -2,12 +2,6 @@ import Link from "next/link";
 import { LandingFooter, LandingHeader } from "./LandingChrome";
 import { landingAssets } from "./assets";
 
-function Mark({ children }: { children: React.ReactNode }) {
-  return (
-    <mark className="rounded bg-nara-amarillo px-1.5 py-px font-semibold text-nara-tinta">{children}</mark>
-  );
-}
-
 function H2({ id, children }: { id: string; children: React.ReactNode }) {
   return (
     <h2
@@ -54,17 +48,6 @@ function Ol({ items }: { items: React.ReactNode[] }) {
         </li>
       ))}
     </ol>
-  );
-}
-
-function InfoRow({ label, value, first }: { label: string; value: React.ReactNode; first?: boolean }) {
-  return (
-    <div
-      className={`grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-x-5 gap-y-1 px-5 py-3.5 ${first ? "" : "border-t border-linea"}`}
-    >
-      <div className="font-texto text-base leading-[1.5] text-texto-secundario">{label}</div>
-      <div className="font-texto text-lg leading-[1.5]">{value}</div>
-    </div>
   );
 }
 
@@ -128,7 +111,7 @@ export function TratamientoDatosScreen() {
               NARA · Programa de acompañamiento post-sismo del Eje Cafetero
             </strong>
             <br />
-            Versión 1 · Vigente desde <Mark>[FECHA DE VIGENCIA]</Mark>
+            Versión 1
           </P>
 
           <P muted>
@@ -170,19 +153,15 @@ export function TratamientoDatosScreen() {
           </nav>
 
           <H2 id="1-responsable-del-tratamiento">1. Responsable del tratamiento</H2>
-          <div className="overflow-hidden rounded-[20px] border border-linea bg-nara-blanco">
-            <InfoRow first label="Razón social" value={<Mark>[RAZÓN SOCIAL DEL RESPONSABLE]</Mark>} />
-            <InfoRow label="NIT" value={<Mark>[NIT]</Mark>} />
-            <InfoRow label="Domicilio y dirección" value={<Mark>[DIRECCIÓN, CIUDAD, DEPARTAMENTO]</Mark>} />
-            <InfoRow label="Correo para asuntos de privacidad" value={<Mark>[CORREO DE PRIVACIDAD]</Mark>} />
-            <InfoRow label="Teléfono" value={<Mark>[TELÉFONO DE ATENCIÓN]</Mark>} />
-            <InfoRow
-              label="Área o persona encargada de atender consultas y reclamos"
-              value={<Mark>[ÁREA O CARGO RESPONSABLE DE PRIVACIDAD]</Mark>}
-            />
-          </div>
           <P>
-            En esta política, «NARA», «nosotros» y «el programa» se refieren al responsable indicado.
+            El responsable del tratamiento es{" "}
+            <strong className="font-bold">la entidad que ejecuta el programa NARA</strong>. Su razón social, NIT y
+            domicilio constan en el documento de autorización que cada persona recibe y firma en la visita, y se
+            informan a quien los solicite por los canales de la sección 12.
+          </P>
+          <P>Las consultas y reclamos las atiende el área responsable de protección de datos del programa.</P>
+          <P>
+            En esta política, «NARA», «nosotros» y «el programa» se refieren a esa entidad.
           </P>
 
           <H2 id="2-definiciones">2. Definiciones</H2>
@@ -431,10 +410,7 @@ export function TratamientoDatosScreen() {
             <strong className="font-bold">Transmisión y transferencia internacional.</strong> Algunos proveedores pueden
             estar o almacenar datos fuera de Colombia. En esos casos lo hacemos conforme a la ley: solo con países que
             ofrezcan niveles adecuados de protección o, en su defecto, con las autorizaciones, contratos o excepciones
-            que la ley permita.{" "}
-            <strong className="font-bold">
-              <Mark>[PAÍSES Y PROVEEDORES, SI SE DEFINEN]</Mark>
-            </strong>
+            que la ley permita.
           </P>
           <P>
             <strong className="font-bold">Autoridades.</strong> Entregamos datos cuando una autoridad competente lo
@@ -496,42 +472,20 @@ export function TratamientoDatosScreen() {
           <Ul
             items={[
               <>
-                Por correo:{" "}
-                <strong className="font-bold">
-                  <Mark>[CORREO DE PRIVACIDAD]</Mark>
-                </strong>
-                .
-              </>,
-              <>
-                Por teléfono:{" "}
-                <strong className="font-bold">
-                  <Mark>[TELÉFONO DE ATENCIÓN]</Mark>
-                </strong>
-                .
-              </>,
-              <>
-                Por escrito en:{" "}
-                <strong className="font-bold">
-                  <Mark>[DIRECCIÓN DE CORRESPONDENCIA]</Mark>
-                </strong>
-                .
-              </>,
-              <>
-                <strong className="font-bold">Con su experto de campo,</strong> en una visita o llamada. Él recibe la
-                solicitud, deja constancia y nos la hace llegar tan pronto tenga conexión.{" "}
+                <strong className="font-bold">Con su experto de campo,</strong> en una visita o en una llamada. Él
+                recibe la solicitud, deja constancia y nos la hace llegar tan pronto tenga conexión.{" "}
                 <strong className="font-bold">
                   El plazo para responderle cuenta desde que el experto la recibe.
                 </strong>
               </>,
+              <>
+                Por el mismo canal que ya usa con el programa: la app, WhatsApp o una llamada. La persona del equipo que
+                lo atienda recibe la solicitud, deja constancia y la hace llegar al área responsable.
+              </>,
+              "Si es personal del programa, a través de la administración del programa.",
             ]}
           />
-          <P>
-            Las solicitudes se atienden por el{" "}
-            <strong className="font-bold">
-              <Mark>[ÁREA O CARGO RESPONSABLE DE PRIVACIDAD]</Mark>
-            </strong>
-            .
-          </P>
+          <P>Las solicitudes las atiende el área responsable de protección de datos del programa.</P>
           <P>
             <strong className="font-bold">Qué debe incluir:</strong> nombre y documento del titular, descripción de lo
             que pide, un medio para responderle y, si actúa en nombre de otra persona, el documento que lo acredita. Si
@@ -585,22 +539,13 @@ export function TratamientoDatosScreen() {
           <P>
             Conservamos los datos solo durante el tiempo necesario para las finalidades de esta política y para cumplir
             las obligaciones legales que apliquen (por ejemplo, las de conservación de la historia clínica). Cumplido
-            ese tiempo, los eliminamos o los anonimizamos de forma que no se pueda identificar a la persona.{" "}
-            <strong className="font-bold">
-              <Mark>[PLAZO DE CONSERVACIÓN, SI SE DEFINE]</Mark>
-            </strong>
+            ese tiempo, los eliminamos o los anonimizamos de forma que no se pueda identificar a la persona.
           </P>
 
           <H2 id="15-vigencia-cambios-y-bases-de-datos">15. Vigencia, cambios y bases de datos</H2>
           <Ul
             items={[
-              <>
-                Esta política rige desde{" "}
-                <strong className="font-bold">
-                  <Mark>[FECHA DE VIGENCIA]</Mark>
-                </strong>
-                .
-              </>,
+              "Esta política rige desde su publicación en esta página.",
               "Las bases de datos del programa estarán vigentes mientras dure el programa y el tiempo adicional que exijan la ley o la finalidad del tratamiento.",
               "Si hacemos cambios sustanciales, se lo informaremos por el canal que usted usa y publicaremos la nueva versión en esta página con su fecha. Si el cambio afecta las finalidades de datos sensibles, volveremos a pedir su autorización.",
               "Esta página pública no usa cookies de seguimiento ni herramientas de análisis.",

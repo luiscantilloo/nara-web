@@ -2,12 +2,6 @@ import Link from "next/link";
 import { landingAssets } from "./assets";
 import { LandingFooter, LandingHeader } from "./LandingChrome";
 
-function Mark({ children }: { children: React.ReactNode }) {
-  return (
-    <mark className="rounded bg-nara-amarillo px-1.5 py-px font-semibold text-nara-tinta">{children}</mark>
-  );
-}
-
 function H2({ id, children }: { id: string; children: React.ReactNode }) {
   return (
     <h2
@@ -66,7 +60,7 @@ export function PrivacidadScreen() {
               NARA · Programa de acompañamiento post-sismo del Eje Cafetero
             </strong>
             <br />
-            Versión 1 · Vigente desde <Mark>[FECHA DE VIGENCIA]</Mark>
+            Versión 1
           </P>
 
           <P muted>
@@ -109,29 +103,14 @@ export function PrivacidadScreen() {
           <H2 id="quien-cuida-sus-datos">Quién cuida sus datos</H2>
           <P>
             El responsable de sus datos es{" "}
-            <strong className="font-bold">
-              <Mark>[RAZÓN SOCIAL DEL RESPONSABLE]</Mark>
-            </strong>
-            , con{" "}
-            <strong className="font-bold">
-              NIT <Mark>[NIT]</Mark>
-            </strong>
-            , ubicado en{" "}
-            <strong className="font-bold">
-              <Mark>[DIRECCIÓN Y CIUDAD]</Mark>
-            </strong>
-            .
+            <strong className="font-bold">la entidad que ejecuta el programa NARA</strong>. Su nombre y sus datos
+            aparecen en el documento de autorización que usted recibe y firma en la visita.
           </P>
           <P>
-            Para cualquier pregunta sobre sus datos, escriba a{" "}
-            <strong className="font-bold">
-              <Mark>[CORREO DE PRIVACIDAD]</Mark>
-            </strong>{" "}
-            o llame al{" "}
-            <strong className="font-bold">
-              <Mark>[TELÉFONO DE ATENCIÓN]</Mark>
-            </strong>
-            . También puede decírselo a su experto de campo en una visita: él nos hará llegar su solicitud.
+            Para cualquier pregunta sobre sus datos, hable con su{" "}
+            <strong className="font-bold">experto de campo</strong>, en una visita o en una llamada. También puede
+            pedirlo por el mismo canal que ya usa con el programa (la app o WhatsApp). La persona que lo atienda
+            recibirá su solicitud y la hará llegar al área responsable de proteger sus datos.
           </P>
 
           <H2 id="que-datos-usamos">Qué datos usamos</H2>
@@ -258,16 +237,10 @@ export function PrivacidadScreen() {
             ]}
           />
           <P>
-            <strong className="font-bold">Cómo pedirlo:</strong> escriba a{" "}
-            <strong className="font-bold">
-              <Mark>[CORREO DE PRIVACIDAD]</Mark>
-            </strong>
-            , llame al{" "}
-            <strong className="font-bold">
-              <Mark>[TELÉFONO DE ATENCIÓN]</Mark>
-            </strong>{" "}
-            o dígaselo a su experto de campo. Si es una pregunta, le respondemos en máximo 10 días hábiles. Si es un
-            reclamo, en máximo 15 días hábiles. Si necesitamos más tiempo, se lo avisamos antes con la razón.
+            <strong className="font-bold">Cómo pedirlo:</strong> dígaselo a su experto de campo, en una visita o en una
+            llamada, o pídalo por el mismo canal que ya usa con el programa (la app o WhatsApp). Si es una pregunta, le
+            respondemos en máximo 10 días hábiles. Si es un reclamo, en máximo 15 días hábiles. Si necesitamos más
+            tiempo, se lo avisamos antes con la razón.
           </P>
           <P>
             Si usa la app, también puede ver y cambiar sus permisos en la sección{" "}
