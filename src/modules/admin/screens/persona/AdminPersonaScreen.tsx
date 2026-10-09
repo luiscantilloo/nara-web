@@ -106,7 +106,7 @@ function AdminPersonaInner() {
               {[
                 { label: "Territorio", val: v.terr },
                 { label: "Vereda o barrio", val: v.place },
-                { label: "Edad", val: String(v.age) },
+                { label: "Fecha de nacimiento", val: v.birthDate || (v.age != null && v.age !== "—" ? `${v.age} años` : "—") },
                 { label: "Avance", val: v.prog },
               ].map((k) => (
                 <div
@@ -126,7 +126,14 @@ function AdminPersonaInner() {
                   {[
                     ["Código", v.code],
                     ["Id interno", v.id],
-                    v.showName ? ["Nombre", v.name] : null,
+                    v.firstName || v.lastName
+                      ? ["Nombre", v.firstName || "—"]
+                      : v.showName
+                        ? ["Nombre", v.name]
+                        : null,
+                    v.firstName || v.lastName
+                      ? ["Apellido", v.lastName || "—"]
+                      : null,
                     ["Correo", v.email],
                     ["Teléfono", v.phone],
                     ["Experto", v.expert],

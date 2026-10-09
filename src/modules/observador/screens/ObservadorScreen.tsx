@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Observador = un solo rol (sin tipos Financiador / Investigación / Institución).
- * Por ahora la vista queda en blanco: solo topbar (org + TEO + menú), sin nav.
+ * Observador = un solo rol.
+ * Inicio = saludo TEO (igual que administrador), sin módulos laterales.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -47,29 +47,23 @@ function ObservadorInner() {
     return <NaraLoadingScreen />;
   }
 
+  const openAgent = (q = "") => {
+    setPendingAsk(q);
+    setAgentOpen(true);
+  };
+
   const header = (
     <header className="box-border flex h-16 w-full min-w-0 shrink-0 items-center justify-between gap-2 border-0 border-b border-linea bg-nara-blanco px-3 sm:gap-3 sm:px-5 md:px-6">
-      <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-        <img
-          src="/nara/marca/logo/nara-logo.svg"
-          alt="NARA"
-          className="block h-7 w-auto shrink-0 sm:h-[34px]"
-        />
-        <div className="flex min-w-0 flex-col border-l border-linea py-0.5 pl-3 leading-tight sm:pl-4">
-          <span className="truncate text-[15px] font-medium text-nara-tinta">
-            {orgName}
-          </span>
-          <span className="truncate text-xs text-texto-secundario">Observador</span>
-        </div>
-      </div>
+      <img
+        src="/nara/marca/logo/nara-logo.svg"
+        alt="NARA"
+        className="block h-7 w-auto shrink-0 sm:h-[34px]"
+      />
 
       <div className="flex shrink-0 items-center gap-2.5 sm:gap-3.5">
         <button
           type="button"
-          onClick={() => {
-            setPendingAsk("");
-            setAgentOpen(true);
-          }}
+          onClick={() => openAgent("")}
           aria-label="Abrir TEO"
           className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-nara-tinta bg-nara-blanco px-2.5 font-texto text-sm font-medium text-nara-tinta sm:h-11 sm:px-3.5 sm:text-[15px]"
         >
@@ -111,7 +105,46 @@ function ObservadorInner() {
         />
       }
     >
-      <div className="nara-page flex min-h-0 flex-1 flex-col bg-nara-crema" />
+      <div className="nara-page flex min-h-0 flex-1 flex-col bg-nara-crema">
+        <div
+          className={`nara-home-grid${agentOpen ? " nara-home-grid--teo" : ""}`}
+          style={{ paddingTop: "var(--nara-page-pad-y, 20px)" }}
+        >
+          {agentOpen ? (
+            <div className="nara-home-teo-standin">
+              <button
+                type="button"
+                onClick={() => openAgent("")}
+                aria-label="TEO está conversando. Mantener asistente abierto"
+                className="group flex cursor-pointer flex-col items-center gap-4 border-none bg-transparent p-4"
+              >
+                <span className="grid size-[200px] place-items-center rounded-[52px] bg-nara-rosa shadow-[0_16px_48px_rgba(255,163,208,0.4)] transition group-hover:scale-[1.03] group-active:scale-[0.98] motion-safe:animate-[nara-float_3.6s_ease-in-out_infinite_alternate] sm:size-[260px] sm:rounded-[64px]">
+                  <img
+                    src="/nara/marca/logo/teo-isotipo.svg"
+                    alt=""
+                    className="block size-[148px] sm:size-[196px]"
+                  />
+                </span>
+                <span className="font-titulos text-2xl font-semibold text-nara-tinta sm:text-[28px]">
+                  TEO
+                </span>
+                <span className="max-w-[280px] text-center font-texto text-base text-texto-secundario">
+                  Aquí estoy, cuando quiera.
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="nara-home-main">
+              <AgentPanel
+                role="obs"
+                mode="home"
+                onOpenDrawer={(q) => openAgent(q)}
+                style={{ flex: 1, minWidth: 0, width: "100%" }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
     </AgentDrawerShell>
   );
 }

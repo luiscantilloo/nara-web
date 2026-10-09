@@ -2,16 +2,80 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { needsClosingEval } from "@/lib/clinical/patientStates";
 import { useRequireSession } from "@/hooks/useRequireSession";
-import { useNaraStore } from "@/providers/nara-provider";
+import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
+import {
+  expertoPathForScreen,
+  expertoScreenForPath,
+} from "@/modules/experto/routes";
 
 const blank = (n: number) =>
   Array.from({ length: n }, () => ({ v: null as number | null, st: "none" as const }));
 const OK_BG = "#FFF4CC";
+const DEFAULT_CLIN = "Dra. Lucía Marín";
+
+const GENERO_OPTS = ["Femenino", "Masculino", "No binario", "Otro", "Prefiere no decir"];
+const CIVIL_OPTS = ["Soltero/a", "Casado/a", "Unión libre", "Separado/a", "Divorciado/a", "Viudo/a"];
+const ESTRATO_OPTS = ["1", "2", "3", "4", "5", "6"];
+
+function ageFromBirth(iso: string): number {
+  if (!iso) return 0;
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return 0;
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age -= 1;
+  return Math.max(0, age);
+}
+
+function splitFullName(full: string): { firstName: string; lastName: string } {
+  const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0]!, lastName: "" };
+  return { firstName: parts[0]!, lastName: parts.slice(1).join(" ") };
+}
+
+/** Clínico por territorio (departamento del Eje Cafetero). */
+function clinForTerr(terr: string): string {
+  const t = String(terr || "").toLowerCase();
+  if (/pereira|dosquebradas|santa rosa|risaralda/.test(t)) return "Dr. Felipe Ruiz";
+  if (/manizales|chinchiná|chinchina|villamaría|villamaria|caldas/.test(t)) {
+    return "Dra. Carolina Úsuga";
+  }
+  return DEFAULT_CLIN;
+}
+
+function emptyPersonForm(partial: Record<string, string> = {}) {
+  return {
+    id: "",
+    code: "",
+    firstName: "",
+    lastName: "",
+    birthDate: "",
+    age: "",
+    phone: "",
+    email: "",
+    place: "",
+    terr: "",
+    genero: "",
+    estadoCivil: "",
+    estrato: "",
+    expert: "",
+    clin: DEFAULT_CLIN,
+    ...partial,
+  };
+}
 
 export function useExpertoScreen() {
   const store = useNaraStore();
+  const live = useNaraLive();
   const session = useRequireSession(["experto"]);
+  const router = useRouter();
+  const pathname = usePathname();
   const ex = session?.id || "andres";
   const expertName = session?.name || "Experto de campo";
   const terrName = session?.terr && session.terr !== "—" ? session.terr : "Salento";
@@ -58,7 +122,7 @@ export function useExpertoScreen() {
     reason: "",
     reasonErr: "",
     toast: "",
-    nf: { name: "", age: "", phone: "", place: "" },
+    nf: emptyPersonForm(),
     newForm: false,
     /** Si hay id, el modal es «Evaluar» sobre persona asignada (no alta nueva). */
     editPid: null as string | null,
@@ -72,9 +136,75 @@ export function useExpertoScreen() {
     er: null as { slug: string; page: number } | null,
   });
 
+  const pendingPathRef = useRef<string | null>(null);
+
   const setState = useCallback((u: Record<string, unknown> | ((s: typeof st) => Record<string, unknown>)) => {
-    setStateRaw((prev) => ({ ...prev, ...(typeof u === "function" ? u(prev) : u) }));
-  }, []);
+    setStateRaw((prev) => {
+      const patch = typeof u === "function" ? u(prev) : u;
+      const next = { ...prev, ...patch };
+      const screenChanged =
+        patch.screen !== undefined ||
+        patch.newForm !== undefined ||
+        (patch.pid !== undefined &&
+          (next.screen === "consent" ||
+            next.screen === "eval" ||
+            next.screen === "result"));
+      if (screenChanged) {
+        const path = expertoPathForScreen(next.screen, {
+          pid: next.pid,
+          newForm: next.newForm,
+        });
+        if (path !== pathname) pendingPathRef.current = path;
+      }
+      return next;
+    });
+  }, [pathname]);
+
+  useEffect(() => {
+    const path = pendingPathRef.current;
+    if (!path) return;
+    pendingPathRef.current = null;
+    if (path !== pathname) router.push(path);
+  }, [st.screen, st.pid, st.newForm, pathname, router]);
+
+  // URL → estado (deep link / back-forward)
+  useEffect(() => {
+    const parsed = expertoScreenForPath(pathname || "/experto");
+    setStateRaw((prev) => {
+      if (parsed.newForm) {
+        if (prev.newForm && prev.screen === "list") return prev;
+        return { ...prev, screen: "list", newForm: true };
+      }
+      if (parsed.pid && parsed.screen) {
+        if (
+          prev.screen === parsed.screen &&
+          prev.pid === parsed.pid &&
+          !prev.newForm
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          screen: parsed.screen,
+          pid: parsed.pid,
+          newForm: false,
+          editPid: null,
+        };
+      }
+      if (prev.screen === "list" && !prev.newForm && !prev.pid) return prev;
+      // Volver a lista solo si la URL es /experto (no pisar estado al montar visita)
+      if ((pathname || "").replace(/\/$/, "") === "/experto") {
+        return {
+          ...prev,
+          screen: "list",
+          newForm: false,
+          pid: null,
+          editPid: null,
+        };
+      }
+      return prev;
+    });
+  }, [pathname]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -82,6 +212,11 @@ export function useExpertoScreen() {
   const visitStartRef = useRef(Date.now());
   const shortRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Último nf escrito: evita validar con un cierre de React obsoleto al pulsar «Empezar visita». */
+  const nfRef = useRef(st.nf);
+  const editPidRef = useRef(st.editPid);
+  nfRef.current = st.nf;
+  editPidRef.current = st.editPid;
 
   const sigInit = useCallback(
     (el: HTMLCanvasElement | null) => {
@@ -146,7 +281,9 @@ const SCRIPT = [
     reply: 'Borradores de capacidad digital: las seis respuestas valen 1 punto (total 6, nivel Media). Revise cada sección y confirme.' }
 ];
 
-  function go(screen) { setState({ screen }); }
+  function go(screen) {
+    setState({ screen, newForm: false });
+  }
   function flash(t) { setState({ toast: t }); clearTimeout(toastTimerRef.current); toastTimerRef.current = setTimeout(() => setState({ toast: '' }), 4200); }
   /** Ids con los que este experto aparece en people / worklists (cuenta, ficha y nombre). */
   function expertKeys(S: any) {
@@ -196,15 +333,8 @@ const SCRIPT = [
     const items = JSON.parse(JSON.stringify(st.items));
     items[sec][i] = { v, st: stItem };
     setState({ items });
-    // Crisis solo al confirmar (ok), no al marcar borrador.
-    if (sec === 'phq' && i === 8 && stItem === 'ok' && v > 0) triggerCrisis();
-  }
-  function triggerCrisis() {
-    if (st.crisis) return;
-    const p = person(); const S = store.get();
-    const id = 'a-' + p.id;
-    store.addAlert({ id, sev: 'crisis', pid: store.PATIENTS[p.id] ? p.id : null, name: p.name, age: p.age, place: p.place + (ex === 'mj' ? ', Armenia' : ', Salento'), profile: 'Suspendido', what: 'Respondió ' + st.items.phq[8].v + ' en la pregunta 9 del cuestionario durante la visita de campo.', source: 'Visita de campo · ' + (ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo') + ' sigue con él en la casa', phone: (store.PATIENTS[p.id] || {}).phone || '310 000 0000', expert: ex });
-    setState({ crisis: true });
+    // La pregunta 9 se registra como cualquier otra; la crisis solo sale
+    // del botón «Estoy en crisis» en la app del paciente.
   }
   function applyDrafts(list: [string, number, number][]) {
     const items = JSON.parse(JSON.stringify(st.items));
@@ -274,92 +404,417 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
   }
   function saveVisit() {
     const res = calcResult();
-    const p = person(); const crisis = st.crisis; const cons = st.consent;
+    const p = person();
+    const crisis = st.crisis;
+    const cons = st.consent;
     const terr = terrName;
     const expName = expertName;
-    const mins = Math.max(1, Math.round((Date.now() - (visitStartRef.current || Date.now())) / 60000));
-    const short = !crisis && mins < 20;
-    const wlStatus = crisis ? 'crisis' : short ? 'revision' : 'validada';
-    const personCode = p.code || ((store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase()) + '-' + String(1000 + (store.get().people || []).length + 1);
-    let flagPayload: Record<string, unknown> | null = null;
+    const S0 = store.get();
+    const people0 = store.people ? store.people(S0) : S0.people || [];
+    // Ficha canónica en people (el worklist a veces trae otro id).
+    const canonical =
+      people0.find(
+        (x: { id?: string; code?: string; name?: string }) =>
+          (p.id && x.id === p.id) ||
+          (p.code && x.code === p.code) ||
+          (st.pid && (x.id === st.pid || x.code === st.pid)) ||
+          (p.name && x.name === p.name),
+      ) || null;
+    const personId = String(canonical?.id || p.id || st.pid || '');
+    const personCode = String(
+      canonical?.code ||
+        p.code ||
+        ((store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase()) +
+          '-' +
+          String(1000 + people0.length + 1),
+    );
+    const personName = String(canonical?.name || p.name || '');
+    const personAge = canonical?.age ?? p.age;
+    const personPlace = String(canonical?.place || p.place || '');
+    const personRural = canonical?.rural !== undefined ? canonical.rural !== false : p.rural !== false;
+    const personPhone = String(canonical?.phone || p.phone || '');
+    const personClin = String(canonical?.clin || clinForTerr(terr));
+    const prevProfile = canonical?.profile || p.profile || null;
+    const profileCode = crisis ? null : res.code;
+    const prog0 =
+      store.courseProgress &&
+      (store.courseProgress(S0, String(canonical?.id || p.id || '')) ||
+        store.courseProgress(S0, String(canonical?.code || p.code || '')));
+    const closingEval =
+      !crisis &&
+      needsClosingEval(
+        {
+          status: canonical?.status || p.status,
+          profile: canonical?.profile || p.profile,
+          week: canonical?.week ?? p.week,
+          weeks: canonical?.weeks ?? p.weeks,
+          finalEvalAt: canonical?.finalEvalAt ?? p.finalEvalAt,
+        },
+        {
+          courseDone: prog0 ? Number(prog0.done) || 0 : null,
+          courseWeeks: prog0?.c?.weeks != null ? Number(prog0.c.weeks) : null,
+        },
+      );
+    // Evaluación inicial → Por aprobar (sigue en lista del experto). Cierre → validada.
+    const wlStatus = crisis ? 'crisis' : closingEval ? 'validada' : 'por_aprobar';
+    // Evaluación inicial → Por aprobar. Evaluación de cierre (Terminado blanco) → Terminado negro.
+    const nextStatus = crisis ? 'Crisis' : closingEval ? 'Terminado negro' : 'Por aprobar';
+    const flagPayload: Record<string, unknown> | null = null;
+    shortRef.current = 0;
+    const evalAt = Date.now();
 
-    store.set(s => {
+    store.set((s) => {
       if (store.ensureExpertBuckets) store.ensureExpertBuckets(s, ex);
-      const w = (s.worklists[ex] || []).find(x => x.id === p.id);
-      if (w) { w.status = wlStatus; w.profile = crisis ? 'Ruta de crisis' : res.code; }
-      if (short) {
-        const now = new Date(), hh = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
-        s.flags = (s.flags || []).filter(f => f.wid !== p.id);
-        flagPayload = { id: 'fv-' + p.id + Date.now(), wid: p.id, fromVisit: true, expert: ex, expertName: expName, territory: terr, person: p.name, when: 'Hoy · ' + hh, reasons: ['Entrevista de ' + mins + (mins === 1 ? ' minuto' : ' minutos') + ' (mínimo 20)'], status: 'pending' };
-        s.flags.unshift(flagPayload);
-        store.pushNotif(s, 'admin', 'Visita marcada: ' + p.name + ' · entrevista de ' + mins + ' min (' + expName + ')', '/equipos');
-        shortRef.current = mins;
-      } else shortRef.current = 0;
-      if (s.consents[p.id]) s.consents[p.id] = { contacto: !!cons.o0, remision: !!cons.o2, investigacion: false };
-      s.visits[p.id] = { code: res.code, phq: res.phqT, dig: res.digT, crisis, override: 'keep', reason: '' };
+      const matchWl = (x: { id?: string; code?: string; name?: string }) =>
+        (personId && x.id === personId) ||
+        (p.id && x.id === p.id) ||
+        (st.pid && x.id === st.pid) ||
+        (personCode && x.code === personCode) ||
+        (p.code && x.code === p.code) ||
+        (personName && x.name === personName);
+      expertKeys(s).forEach((k) => {
+        (s.worklists[k] || []).forEach(
+          (w: {
+            status?: string;
+            profile?: string | null;
+            id?: string;
+            code?: string;
+            at?: number;
+            validatedAt?: number;
+            rural?: boolean;
+            age?: number;
+          }) => {
+            if (!matchWl(w)) return;
+            w.status = wlStatus;
+            w.profile = crisis ? 'Ruta de crisis' : res.code;
+            w.validatedAt = evalAt;
+            w.at = evalAt;
+            if (personId) w.id = personId;
+            if (personCode) w.code = personCode;
+            if (personAge != null) w.age = Number(personAge);
+            w.rural = personRural;
+          },
+        );
+      });
+      if (s.consents[personId]) {
+        s.consents[personId] = {
+          contacto: !!cons.o0,
+          remision: !!cons.o2,
+          investigacion: false,
+        };
+      }
+      s.visits[personId] = {
+        code: res.code,
+        phq: res.phqT,
+        dig: res.digT,
+        crisis,
+        override: 'keep',
+        reason: '',
+      };
       s.people = s.people || [];
-      const existing = s.people.find(x => x.id === p.id || x.code === p.code);
+      const existing = s.people.find(
+        (x: { id?: string; code?: string; name?: string }) =>
+          x.id === personId ||
+          x.code === personCode ||
+          (personName && x.name === personName),
+      );
       if (existing) {
-        const prevProfile = existing.profile || null;
         Object.assign(existing, {
+          id: personId || existing.id,
+          code: personCode || existing.code,
+          name: personName || existing.name,
           previousProfile: crisis ? existing.previousProfile : prevProfile,
-          profile: crisis ? existing.profile : res.code,
-          status: crisis ? 'Crisis' : 'Por aprobar',
+          profile: crisis ? existing.profile : profileCode,
+          status: nextStatus,
           expert: expName,
           expertId: ex,
           terr: existing.terr || terr,
           week: existing.week || 0,
           weeks: existing.weeks || (res.r <= 1 ? 13 : res.r === 2 ? 26 : 52),
-          pendingEval: !crisis,
-          evalAt: crisis ? existing.evalAt : Date.now(),
+          pendingEval: !crisis && !closingEval,
+          needsReeval: false,
+          evalAt: crisis ? existing.evalAt : evalAt,
           evalBy: crisis ? existing.evalBy : expName,
           evalPhq: crisis ? existing.evalPhq : res.phqT,
           evalDig: crisis ? existing.evalDig : res.digT,
+          finalEvalAt: closingEval ? evalAt : existing.finalEvalAt || null,
+          clin: existing.clin || personClin,
         });
       } else if (!crisis) {
         s.people.push({
-          id: p.id, code: personCode, name: p.name, age: p.age, place: p.place, rural: p.rural, terr,
-          profile: res.code, previousProfile: null, week: 0, weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52,
-          expert: expName, expertId: ex, status: 'Por aprobar', clin: 'Dra. Lucía Marín', phone: p.phone || '',
-          pendingEval: true, evalAt: Date.now(), evalBy: expName, evalPhq: res.phqT, evalDig: res.digT,
+          id: personId,
+          code: personCode,
+          name: personName,
+          age: personAge,
+          place: personPlace,
+          rural: personRural,
+          terr,
+          profile: profileCode,
+          previousProfile: null,
+          week: 0,
+          weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52,
+          expert: expName,
+          expertId: ex,
+          status: nextStatus,
+          clin: personClin,
+          phone: personPhone,
+          pendingEval: true,
+          evalAt,
+          evalBy: expName,
+          evalPhq: res.phqT,
+          evalDig: res.digT,
         });
       }
       if (!crisis) {
         s.patients = s.patients || {};
-        if (!s.patients[p.id]) s.patients[p.id] = store.emptyPatient ? store.emptyPatient(p.id, p.name, p.age) : { id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phone: p.phone || '', phq: [res.phqT], phqDates: ['Hoy'], sleep: null, braceletStatus: '', adherence: null, next: 'Primera llamada dentro de 7 días', nextShort: 'Primera llamada', consent: true, consentKey: p.id, signal: 'Por aprobar', summary: null, audios: 0, timeline: [], ctx: { dano: 0, perdida: 0 }, lastCheckin: '', checkinDays: null };
-        else {
-          s.patients[p.id].previousProfile = s.patients[p.id].profile || null;
-          s.patients[p.id].profile = res.code;
-          s.patients[p.id].phq = (s.patients[p.id].phq || []).concat([res.phqT]);
-          s.patients[p.id].phqDates = (s.patients[p.id].phqDates || []).concat(['Hoy']);
-          s.patients[p.id].signal = 'Por aprobar';
-          s.patients[p.id].status = 'Por aprobar';
+        const patKey = personId;
+        if (!s.patients[patKey]) {
+          s.patients[patKey] = store.emptyPatient
+            ? store.emptyPatient(patKey, personName, personAge)
+            : {
+                id: patKey,
+                name: personName,
+                age: personAge,
+                place: personPlace + ', ' + terr,
+                profile: profileCode,
+                phone: personPhone,
+                phq: [res.phqT],
+                phqDates: ['Hoy'],
+                sleep: null,
+                braceletStatus: '',
+                adherence: null,
+                next: 'Primera llamada dentro de 7 días',
+                nextShort: 'Primera llamada',
+                consent: true,
+                consentKey: patKey,
+                signal: nextStatus,
+                summary: null,
+                audios: 0,
+                timeline: [],
+                ctx: { dano: 0, perdida: 0 },
+                lastCheckin: '',
+                checkinDays: null,
+              };
         }
-        if (s.patients[p.id]) {
-          s.patients[p.id].status = 'Por aprobar';
-          s.patients[p.id].pendingEval = true;
-          s.patients[p.id].previousProfile = s.patients[p.id].previousProfile ?? null;
+        const pat = s.patients[patKey];
+        pat.previousProfile = pat.profile || null;
+        pat.profile = profileCode;
+        pat.phq = (pat.phq || []).concat([res.phqT]);
+        pat.phqDates = (pat.phqDates || []).concat(['Hoy']);
+        pat.signal = nextStatus;
+        pat.status = nextStatus;
+        pat.pendingEval = !closingEval;
+        pat.needsReeval = false;
+        pat.expert = expName;
+        pat.clin = pat.clin || personClin;
+        pat.code = personCode;
+        pat.evalAt = evalAt;
+        pat.evalBy = expName;
+        pat.evalPhq = res.phqT;
+        pat.evalDig = res.digT;
+        if (closingEval) pat.finalEvalAt = evalAt;
+        // Servicios de la app: solo al aprobar el clínico (no al terminar la visita).
+        if (!crisis && !closingEval) {
+          pat.modulesEnabled = [];
+          pat.modulesVisible = [];
         }
       }
-      if (!crisis && s.recursos) { const cpk = coursePick(res); s.recursos.people = s.recursos.people || {}; if (!s.recursos.people[p.id]) s.recursos.people[p.id] = { course: cpk.id, week: 1, channel: ['impreso', 'whatsapp', 'app'][res.d], by: store.cursosMod(res.r, res.d), pending: res.r >= 3, read: {}, page: {}, tech: {}, tech4w: {}, doneMods: [], answers: [] }; }
-      if (!crisis) {
-        s.alerts = s.alerts.filter(a => a.id !== 'a-new-' + p.id);
-        store.pushNotif(s, 'clin', 'Evaluación por aprobar: ' + p.name + ' (' + res.code + ')', '/clinico?view=approvals');
-        if (!store.PATIENTS[p.id]) s.caseload = (s.caseload || []).filter(x => x.id !== p.id).concat([{ id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phq: res.phqT, expert: expName, status: 'Por aprobar' }]);
-        s.alerts.push({ id: 'a-new-' + p.id, sev: 'info', pid: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, what: 'Evaluación y perfil ' + res.code + ' pendientes de aprobación clínica.', source: 'Visita de campo · ' + expName, at: Date.now(), status: 'open' });
+      if (!crisis && s.recursos) {
+        const cpk = coursePick(res);
+        s.recursos.people = s.recursos.people || {};
+        if (!s.recursos.people[personId]) {
+          s.recursos.people[personId] = {
+            course: cpk.id,
+            week: 1,
+            channel: ['impreso', 'whatsapp', 'app'][res.d],
+            by: store.cursosMod(res.r, res.d),
+            pending: res.r >= 3,
+            read: {},
+            page: {},
+            tech: {},
+            tech4w: {},
+            doneMods: [],
+            answers: [],
+          };
+        }
+      }
+      if (!crisis && !closingEval) {
+        s.alerts = s.alerts.filter((a: { id?: string }) => a.id !== 'a-new-' + personId);
+        store.pushNotif(
+          s,
+          'clin',
+          'Evaluación por aprobar: ' + personName + ' (' + res.code + ')',
+          '/clinico/aprobaciones',
+        );
+        const caseloadRow = {
+          id: personId,
+          name: personName,
+          age: personAge,
+          place: personPlace + ', ' + terr,
+          profile: profileCode,
+          phq: res.phqT,
+          expert: expName,
+          status: nextStatus,
+          pendingEval: true,
+        };
+        s.caseload = (s.caseload || [])
+          .filter((x: { id?: string }) => x.id !== personId)
+          .concat([caseloadRow]);
+        s.alerts.push({
+          id: 'a-new-' + personId,
+          sev: 'info',
+          pid: personId,
+          name: personName,
+          age: personAge,
+          place: personPlace + ', ' + terr,
+          profile: profileCode,
+          what:
+            'Evaluación y perfil ' +
+            res.code +
+            ' pendientes de aprobación clínica.',
+          source: 'Visita de campo · ' + expName,
+          at: evalAt,
+          status: 'open',
+        });
+      } else if (closingEval) {
+        s.caseload = (s.caseload || []).map((x: { id?: string; status?: string; pendingEval?: boolean; profile?: string }) =>
+          x.id === personId
+            ? { ...x, status: nextStatus, pendingEval: false, profile: profileCode || x.profile }
+            : x,
+        );
       }
     });
 
-    // Persistencia Mongo (no bloquea la UI)
+    const peopleBody = {
+      id: personId,
+      code: personCode,
+      name: personName,
+      age: personAge,
+      place: personPlace,
+      rural: personRural,
+      terr,
+      profile: crisis ? null : res.code,
+      expert: expName,
+      expertId: ex,
+      status: nextStatus,
+      phone: personPhone,
+      weeks: closingEval
+        ? Number(canonical?.weeks) || 13
+        : res.r <= 1
+          ? 13
+          : res.r === 2
+            ? 26
+            : 52,
+      clin: personClin,
+      pendingEval: !crisis && !closingEval,
+      previousProfile: prevProfile,
+      evalPhq: res.phqT,
+      evalDig: res.digT,
+      evalBy: expName,
+      evalAt,
+      ...(closingEval ? { finalEvalAt: evalAt } : {}),
+    };
+    pauseLiveHydrate(5_000);
     void Promise.all([
-      fetch('/api/people', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, code: personCode, name: p.name, age: p.age, place: p.place, rural: p.rural !== false, terr, profile: crisis ? 'P01' : res.code, expert: expName, expertId: ex, status: crisis ? 'Crisis' : 'Por aprobar', phone: p.phone || '', weeks: res.r <= 1 ? 13 : res.r === 2 ? 26 : 52, clin: 'Dra. Lucía Marín', pendingEval: !crisis, previousProfile: p.profile || null, evalPhq: res.phqT, evalDig: res.digT, evalBy: expName }) }),
-      fetch('/api/worklists', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, expertId: ex, time: 'Ahora', name: p.name, age: p.age, place: p.place, rural: p.rural !== false, status: wlStatus, profile: crisis ? null : res.code, code: personCode, phone: p.phone || '' }) }),
-      !crisis ? fetch('/api/patients', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, name: p.name, age: p.age, place: p.place + ', ' + terr, profile: res.code, phone: p.phone || '', phq: [res.phqT], phqDates: ['Hoy'], expert: expName, clin: 'Dra. Lucía Marín', signal: 'Por aprobar', status: 'Por aprobar', pendingEval: true, previousProfile: p.profile || null, timeline: [{ d: 'Hoy', t: 'Visita de campo · ' + expName, x: 'Evaluación inicial. PHQ-9 ' + res.phqT + '. Perfil ' + res.code + ' · pendiente de aprobación clínica.' }], ctx: { dano: (st.items.ctx[0] && st.items.ctx[0].v) || 0, perdida: (st.items.ctx[1] && st.items.ctx[1].v) || 0 } }) }) : Promise.resolve(),
-      flagPayload ? fetch('/api/flags', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flagPayload) }) : Promise.resolve(),
+      fetch('/api/people', {
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(peopleBody),
+      }),
+      fetch('/api/worklists', {
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: personId,
+          expertId: ex,
+          time: 'Ahora',
+          name: personName,
+          age: personAge,
+          place: personPlace,
+          rural: personRural,
+          status: wlStatus,
+          profile: crisis ? null : res.code,
+          code: personCode,
+          phone: personPhone,
+          at: evalAt,
+          validatedAt: evalAt,
+        }),
+      }),
+      !crisis
+        ? fetch('/api/patients', {
+            credentials: 'same-origin',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: personId,
+              code: personCode,
+              name: personName,
+              age: personAge,
+              place: personPlace + ', ' + terr,
+              terr,
+              profile: res.code,
+              phone: personPhone,
+              expert: expName,
+              clin: personClin,
+              signal: nextStatus,
+              status: nextStatus,
+              pendingEval: !closingEval,
+              previousProfile: prevProfile,
+              evalPhq: res.phqT,
+              evalDig: res.digT,
+              evalBy: expName,
+              evalAt,
+              ...(closingEval ? { finalEvalAt: evalAt } : {}),
+              // Vacío hasta aprobación clínica (evita activar la app del paciente antes).
+              ...(!crisis && !closingEval
+                ? { modulesEnabled: [], modulesVisible: [] }
+                : {}),
+              timeline: [
+                {
+                  d: 'Hoy',
+                  t: closingEval
+                    ? 'Evaluación de cierre · ' + expName
+                    : 'Visita de campo · ' + expName,
+                  x: closingEval
+                    ? 'Evaluación de cierre. PHQ-9 ' +
+                      res.phqT +
+                      '. Perfil ' +
+                      res.code +
+                      ' · Terminado negro.'
+                    : 'Evaluación inicial. PHQ-9 ' +
+                      res.phqT +
+                      '. Perfil ' +
+                      res.code +
+                      ' · pendiente de aprobación clínica.',
+                },
+              ],
+              ctx: {
+                dano: (st.items.ctx[0] && st.items.ctx[0].v) || 0,
+                perdida: (st.items.ctx[1] && st.items.ctx[1].v) || 0,
+              },
+            }),
+          })
+        : Promise.resolve(),
+      flagPayload
+        ? fetch('/api/flags', {
+            credentials: 'same-origin',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(flagPayload),
+          })
+        : Promise.resolve(),
     ]).catch(() => {});
 
-    setState({ screen: 'list', pid: null });
-    flash((shortRef.current ? 'La entrevista duró ' + shortRef.current + ' min (mínimo 20): la visita va a revisión y no cuenta para la cuota hasta que se apruebe. ' : '') + 'Visita guardada' + (short ? ' y enviada a control de calidad.' : '.'));
+    setState({ screen: 'list', pid: null, newForm: false, editPid: null });
+    flash(
+      crisis
+        ? 'Crisis registrada.'
+        : closingEval
+          ? 'Evaluación de cierre · perfil ' + res.code + ' · Terminado negro.'
+          : 'Evaluación guardada · perfil ' + res.code + ' · por aprobar.',
+    );
   }
   function rv() {
     const A = store;
@@ -378,45 +833,132 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     }
     const scr = st.screen;
     const q = A.quotas(S, ex);
-    const pct = (a, b) => Math.min(100, Math.round(a / b * 100)) + '%';
+    const pct = (a: number, b: number) => {
+      if (!b || b <= 0) return a > 0 ? '100%' : '0%';
+      return Math.min(100, Math.round((a / b) * 100)) + '%';
+    };
     const offline = false;
     const pend = S.pendingSync[ex] || 0;
     const STATUS: Record<string, [string, string, string]> = {
       validada: ['Validada', '#E3F1E8', C.tinta],
+      por_aprobar: ['Por aprobar', '#F7E2D2', '#7A3A10'],
       siguiente: ['Siguiente', C.verde, '#fff'],
       curso: ['En curso · falta 1 pregunta', '#E6E1D9', C.azul],
       programada: ['Programada', C.niebla, C.texto2],
       revision: ['En revisión · no cuenta aún', '#F7E2D2', '#7A3A10'],
-      rechazada: ['Rechazada en revisión', '#EFDCDA', '#9C2F25'],
+      rechazada: ['Rechazada · reevaluar', '#EFDCDA', '#9C2F25'],
       ausente: ['No estaba en casa · reprogramar', '#F9EBC8', '#161413'],
       crisis: ['Crisis · alerta enviada', C.rojoBg, '#8A1C14'],
       asignada: ['Nueva asignada · por programar', '#E6E1D9', '#161413'],
       sin_evaluacion: ['Sin evaluación', '#FFF4CC', '#161413'],
+      cierre: ['Terminado blanco · evaluación de cierre', '#F7F5F1', '#161413'],
     };
     const expName = expertName;
     const keys = expertKeys(S);
-    // Ya evaluadas (validada / en revisión) pasan a clínico · por aprobar — no listar aquí.
-    const DONE_STATUSES = new Set(['validada', 'revision']);
-    const hasEvalProfile = (p: any) => !!(p?.profile && /^P\d+$/i.test(String(p.profile)));
+    // Siguen en lista: sin evaluación, por aprobar, rechazada, cierre, crisis.
+    // Salen de la lista del experto solo cuando el clínico ya aprobó (Activo) o egreso.
+    const LEFT_EXPERT = new Set([
+      'activo', 'aprobado', 'en seguimiento', 'alta', 'egreso',
+      'terminado negro', 'terminado_negro',
+    ]);
+    const courseOptsFor = (p: any) => {
+      const prog =
+        A.courseProgress &&
+        (A.courseProgress(S, p?.id) || A.courseProgress(S, p?.code));
+      return {
+        courseDone: prog ? Number(prog.done) || 0 : null,
+        courseWeeks: prog?.c?.weeks != null ? Number(prog.c.weeks) : null,
+      };
+    };
+    const needsReeval = (p: any) =>
+      /rechazad/i.test(String(p?.status || '')) ||
+      String(p?.status || '').toLowerCase() === 'rechazada' ||
+      p?.needsReeval === true;
+    const needsCierre = (p: any) => p && needsClosingEval(p, courseOptsFor(p));
+    const isPendingApproval = (p: any) =>
+      !!p &&
+      (p.pendingEval === true ||
+        /por\s*aprobar/i.test(String(p.status || '')) ||
+        String(p.status || '').toLowerCase() === 'por_aprobar');
+    /** Crisis abierta: estado Crisis o alerta de crisis sin cerrar. Solo lectura en la lista. */
+    const inOpenCrisis = (p: any, w?: any) => {
+      if (w && String(w.status || '').toLowerCase() === 'crisis') return true;
+      if (!p) return false;
+      if (/^crisis$/i.test(String(p.status || '')) || /^crisis$/i.test(String(p.signal || ''))) {
+        return true;
+      }
+      const pid = String(p.id || p.code || '');
+      return (S.alerts || []).some(
+        (a: { pid?: string; id?: string; sev?: string; status?: string }) =>
+          a.sev === 'crisis' &&
+          a.status !== 'closed' &&
+          (a.pid === pid ||
+            a.pid === p.code ||
+            (a.id && pid && String(a.id).includes(pid))),
+      );
+    };
+    /** Ya no debe aparecer en la cola del experto (aprobada / egreso). Crisis abierta sí se muestra. */
+    const leftExpertQueue = (p: any) => {
+      if (!p || needsReeval(p) || needsCierre(p) || isPendingApproval(p) || inOpenCrisis(p)) {
+        return false;
+      }
+      const st = String(p?.status || '').trim().toLowerCase();
+      if (LEFT_EXPERT.has(st)) return true;
+      // Perfil formalizado sin pendiente = el clínico ya aceptó.
+      return (
+        !!(p?.profile && /^P\d+$/i.test(String(p.profile))) &&
+        p.pendingEval !== true &&
+        !/por\s*aprobar|rechazad|sin\s*evalu|crisis/i.test(st) &&
+        (/activo|aprobad/i.test(st) || (!st && !!p.evalAt))
+      );
+    };
+    const peopleList = A.people ? A.people(S) : S.people || [];
+    const findPerson = (w: any) =>
+      peopleList.find(
+        (p: any) =>
+          (w.id && (p.id === w.id || p.code === w.id)) ||
+          (w.code && (p.code === w.code || p.id === w.code)) ||
+          (w.name && p.name === w.name),
+      );
     const wlRows: any[] = [];
     const seen = new Set<string>();
     keys.forEach((k) => {
       (S.worklists[k] || []).forEach((w: any) => {
-        if (DONE_STATUSES.has(String(w.status || ''))) return;
+        const pe = findPerson(w);
+        // Rechazada / Terminado blanco → vuelven a cola (reeval o cierre).
+        if (needsReeval(pe) || needsReeval(w)) {
+          w.status = 'rechazada';
+          w.profile = null;
+        } else if (needsCierre(pe) || needsCierre(w)) {
+          w.status = 'cierre';
+        } else if (inOpenCrisis(pe, w)) {
+          // Solo para ver: no acciones mientras esté en crisis.
+          w.status = 'crisis';
+          if (pe?.profile) w.profile = pe.profile;
+        } else if (leftExpertQueue(pe)) {
+          // Ya Activo / egreso (y sin crisis) → fuera de la cola del experto.
+          return;
+        } else if (isPendingApproval(pe) || w.status === 'validada' || w.status === 'por_aprobar') {
+          w.status = 'por_aprobar';
+          if (pe?.profile) w.profile = pe.profile;
+        } else if (w.status === 'crisis') {
+          // Crisis ya cerrada: no mostrar fila residual de worklist.
+          return;
+        }
         const sid = String(w.id || w.code || w.name);
         if (seen.has(sid)) return;
         seen.add(sid);
         wlRows.push(w);
       });
     });
-    // Asignados pendientes de visita + cuestionario (sin evaluación).
-    const assignedPeople = (A.people ? A.people(S) : S.people || []).filter((p: any) => {
+    // Asignados: sin evaluación, por aprobar, rechazada, cierre o crisis (solo ver).
+    const assignedPeople = peopleList.filter((p: any) => {
       const eid = p.expertId != null ? String(p.expertId) : '';
       const en = p.expert != null ? String(p.expert) : '';
       return (eid && keys.has(eid)) || (en && keys.has(en));
     });
     assignedPeople.forEach((p: any) => {
-      if (hasEvalProfile(p)) return; // ya evaluada → clínico
+      if (leftExpertQueue(p)) return;
       const sid = String(p.id || p.code || p.name);
       const already = wlRows.some(
         (w) =>
@@ -424,7 +966,29 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           String(w.code) === String(p.code) ||
           String(w.name) === String(p.name),
       );
-      if (already) return;
+      if (already) {
+        wlRows.forEach((w) => {
+          if (
+            String(w.id) === String(p.id) ||
+            String(w.code) === String(p.code) ||
+            String(w.name) === String(p.name)
+          ) {
+            if (inOpenCrisis(p, w)) {
+              w.status = 'crisis';
+              if (p.profile) w.profile = p.profile;
+            } else if (needsReeval(p)) {
+              w.status = 'rechazada';
+              w.profile = null;
+            } else if (needsCierre(p)) {
+              w.status = 'cierre';
+            } else if (isPendingApproval(p)) {
+              w.status = 'por_aprobar';
+              if (p.profile) w.profile = p.profile;
+            }
+          }
+        });
+        return;
+      }
       wlRows.push({
         id: p.id || p.code,
         time: '—',
@@ -432,9 +996,20 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         age: p.age,
         place: p.place,
         rural: p.rural !== false,
-        status: 'sin_evaluacion',
+        status: inOpenCrisis(p)
+          ? 'crisis'
+          : needsReeval(p)
+            ? 'rechazada'
+            : needsCierre(p)
+              ? 'cierre'
+              : isPendingApproval(p)
+                ? 'por_aprobar'
+                : 'sin_evaluacion',
         code: p.code,
-        profile: null,
+        profile:
+          inOpenCrisis(p) || needsCierre(p) || isPendingApproval(p)
+            ? p.profile || null
+            : null,
         phone: p.phone || '',
       });
       seen.add(sid);
@@ -443,7 +1018,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     Object.keys(S.personOv || {}).forEach((c) => {
       if (S.personOv[c].expert !== expName) return;
       const p = A.person(S, c);
-      if (!p || hasEvalProfile(p)) return;
+      if (!p || leftExpertQueue(p)) return;
       if (wlRows.some((w) => w.name === p.name || w.code === p.code)) return;
       wlRows.push({
         id: 'as-' + (p.code || c),
@@ -452,25 +1027,42 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         age: p.age,
         place: p.place,
         rural: p.rural,
-        status: 'sin_evaluacion',
+        status: isPendingApproval(p) ? 'por_aprobar' : 'sin_evaluacion',
         code: p.code,
-        profile: null,
+        profile: isPendingApproval(p) ? p.profile || null : null,
       });
     });
     const rank = (s: string) =>
-      ({ sin_evaluacion: 0, siguiente: 1, curso: 2, programada: 3, asignada: 4, ausente: 5, crisis: 6, rechazada: 7 }[s] ?? 50);
+      ({
+        sin_evaluacion: 0,
+        cierre: 1,
+        siguiente: 2,
+        curso: 3,
+        programada: 4,
+        asignada: 5,
+        ausente: 6,
+        crisis: 7,
+        rechazada: 8,
+        por_aprobar: 9,
+        validada: 10,
+      }[s] ?? 50);
     wlRows.sort((a, b) => rank(a.status) - rank(b.status) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
     const worklist = wlRows.map((w) => {
       const crisisDone = (S.closedToday || []).some((x: any) => (x.pid === w.id || x.id === 'a-' + w.id) && x.sev === 'crisis');
       const [tag, tagBg, tagFg] = w.reassignedTo
         ? ['Reasignada a ' + w.reassignedTo, C.niebla, C.texto2]
         : crisisDone
-          ? ['Crisis atendida · revisita en 48 h', '#E3F1E8', '#161413']
+          ? ['Crisis atendida', '#E3F1E8', '#161413']
           : (STATUS[w.status] || ['Pendiente', C.niebla, C.texto2]);
-      const act = w.reassignedTo || crisisDone
+      // Crisis: solo ver (sin botón). Por aprobar / validada: también sin acción.
+      const act = w.reassignedTo || crisisDone || w.status === 'crisis'
         ? ''
-        : w.status === 'sin_evaluacion'
-          ? 'Evaluar'
+        : w.status === 'sin_evaluacion' || w.status === 'rechazada' || w.status === 'cierre'
+          ? w.status === 'rechazada'
+            ? 'Reevaluar'
+            : w.status === 'cierre'
+              ? 'Evaluación de cierre'
+              : 'Evaluar'
           : w.status === 'asignada'
             ? 'Programar'
             : w.status === 'siguiente'
@@ -481,16 +1073,26 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
                   ? 'Reprogramar'
                   : w.status === 'programada'
                     ? 'Empezar'
-                    : w.status === 'validada'
+                    : w.status === 'por_aprobar' || w.status === 'validada'
                       ? ''
                       : '';
-      const primary = w.status === 'siguiente' || w.status === 'curso' || w.status === 'sin_evaluacion';
+      const primary =
+        w.status === 'siguiente' ||
+        w.status === 'curso' ||
+        w.status === 'sin_evaluacion' ||
+        w.status === 'rechazada' ||
+        w.status === 'cierre';
       return Object.assign({}, w, {
         zone: w.rural ? 'Rural' : 'Urbano',
         tag,
         tagBg,
         tagFg,
-        hasProfile: !!w.profile && w.status !== 'crisis' && w.status !== 'sin_evaluacion',
+        hasProfile:
+          !!w.profile &&
+          w.status !== 'crisis' &&
+          w.status !== 'sin_evaluacion' &&
+          w.status !== 'rechazada' &&
+          w.status !== 'cierre',
         rowBg: primary ? '#FFF9E3' : '#fff',
         rowShadow: primary ? 'inset 4px 0 0 #161413' : 'none',
         hasAction: !!act,
@@ -525,21 +1127,40 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
               if (x) x.status = 'programada';
             });
           }
-          // Sin evaluación: primero confirmar datos en el formulario, luego la visita.
-          if (w.status === 'sin_evaluacion') {
+          // Sin evaluación / rechazada / cierre: confirmar datos y (re)hacer la visita.
+          if (w.status === 'sin_evaluacion' || w.status === 'rechazada' || w.status === 'cierre') {
             const fromPeople = (A.people ? A.people(S) : S.people || []).find(
               (p: any) => p.id === w.id || p.code === w.code || p.name === w.name,
             );
             const phone = String(w.phone || fromPeople?.phone || '');
+            const fullName = String(w.name || fromPeople?.name || '');
+            const { firstName, lastName } = splitFullName(fullName);
+            const birthDate = String(fromPeople?.birthDate || '');
+            const terr = String(fromPeople?.terr || w.terr || terrName);
             return setState({
               newForm: true,
               editPid: String(w.id || w.code || ''),
-              nf: {
-                name: String(w.name || ''),
-                age: w.age != null && w.age !== '' ? String(w.age) : '',
+              nf: emptyPersonForm({
+                id: String(w.id || fromPeople?.id || ''),
+                code: String(w.code || fromPeople?.code || ''),
+                firstName: String(fromPeople?.firstName || firstName),
+                lastName: String(fromPeople?.lastName || lastName),
+                birthDate,
+                age: birthDate
+                  ? String(ageFromBirth(birthDate))
+                  : w.age != null && w.age !== ''
+                    ? String(w.age)
+                    : '',
                 phone,
-                place: String(w.place || ''),
-              },
+                email: String(fromPeople?.email || ''),
+                place: String(w.place || fromPeople?.place || ''),
+                terr,
+                genero: String(fromPeople?.genero || ''),
+                estadoCivil: String(fromPeople?.estadoCivil || ''),
+                estrato: String(fromPeople?.estrato || ''),
+                expert: String(fromPeople?.expert || expertName),
+                clin: String(fromPeople?.clin || clinForTerr(terr)),
+              }),
               dupOk: false,
               newMsg: '',
             });
@@ -641,14 +1262,28 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     const months = A.defaultPath(rr, res.d).months;
     if (crisis) path = [
       { name: 'Valoración clínica prioritaria', sub: 'Dra. Lucía Marín · clínica de turno', freq: 'En menos de 24 h', main: true },
-      { name: 'Revisita del experto', sub: 'Visita en casa', freq: 'En menos de 48 h', main: false },
       { name: 'Ruta según perfil', sub: 'Se asigna después de la valoración clínica', freq: 'En pausa', main: false }
     ];
     const dur = Math.max(1, Math.round((Date.now() - (visitStartRef.current || Date.now())) / 60000));
     const evidenceEnd = evidence.concat([{ k: 'Duración', v: dur + ' min' }, { k: 'Consentimiento', v: st.ruego ? 'Firma a ruego' : 'Firmado' }]);
     const nf = st.nf;
-    const dup = nf.phone.replace(/\D/g, '') === '3124550178';
-    const setNf = k => e => setState({ nf: Object.assign({}, st.nf, { [k]: e.target.value }), dupOk: k === 'phone' ? false : st.dupOk, newMsg: '' });
+    const dup = String(nf.phone || '').replace(/\D/g, '') === '3124550178';
+    const setNf = (k: string) => (e: { target: { value: string } }) => {
+      const value = e.target.value;
+      setStateRaw((prev) => {
+        const next = Object.assign({}, prev.nf, { [k]: value }) as Record<string, string>;
+        if (k === 'birthDate') {
+          next.age = value ? String(ageFromBirth(value)) : '';
+        }
+        nfRef.current = next;
+        return {
+          ...prev,
+          nf: next,
+          dupOk: k === 'phone' ? false : prev.dupOk,
+          newMsg: '',
+        };
+      });
+    };
     const codes = { list: 'ExpertWorklist', new: 'NewPersonForm', consent: 'VisitConsent', eval: 'AssessmentForm', result: crisis ? 'AssessmentResult · crisis' : 'AssessmentResult' };
 
     return {
@@ -656,44 +1291,187 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       connText: offline ? 'Sin señal · ' + pend + ' visitas por sincronizar' : 'Sincronizado', connBg: offline ? '#F9EBC8' : '#FFF4CC', connDot: offline ? '#E0A526' : '#4E9A6B',
       scrollRef: scrollRef, chatRef: chatRef, sigRef: sigInit,
       goList: () => setState({ screen: 'list', newForm: false, editPid: null }),
-      goNew: () => setState({ newForm: true, editPid: null, nf: { name: '', age: '', phone: '', place: '' }, dupOk: false, newMsg: '' }),
+      goNew: () => {
+        const id = 'n' + Date.now();
+        const pre = (A.TCODE && A.TCODE[terrName]) || terrName.slice(0, 3).toUpperCase();
+        const code = pre + '-' + String(1000 + ((A.people(A.get()).length) + 1));
+        setState({
+          newForm: true,
+          editPid: null,
+          nf: emptyPersonForm({
+            id,
+            code,
+            terr: terrName,
+            expert: expertName,
+            clin: clinForTerr(terrName),
+          }),
+          dupOk: false,
+          newMsg: '',
+        });
+      },
       closeNewForm: () => setState({ newForm: false, editPid: null, newMsg: '' }),
       isList: scr === 'list', isNew: !!st.newForm, isEditPerson: !!st.editPid,
       formTitle: st.editPid ? 'Datos de la persona' : 'Nueva persona',
       formDesc: st.editPid
         ? 'Confirme o complete los datos antes de empezar la visita.'
-        : 'Datos mínimos para abrir la visita. El teléfono se usa para detectar duplicados.',
+        : 'Complete la ficha. Territorio, experto, clínico y códigos se asignan solos.',
       formSaveLabel: st.editPid ? 'Empezar visita' : 'Agregar y empezar visita',
+      formSize: 'lg',
       isConsent: scr === 'consent', isEval: scr === 'eval', isResult: scr === 'result', inVisit,
       crisisLines: A.crisisLines(ex === 'mj' ? 'Armenia' : 'Salento').map(l => ({ tel: l.tel, label: l.label, sub: l.sub, bg: l.main ? '#B42318' : '#fff', fg: l.main ? '#fff' : '#8A1C14' })),
       notices, worklist, hasGroups: ((S.groupSessions || {})[ex] || []).length > 0,
       groups: ((S.groupSessions || {})[ex] || []).map(g => { const n = Object.values(g.att).filter(v => v === true).length; const GS = { pm1: ['la-bruja-estresona', 'musculos'], gr1: ['el-ladron-de-suenos', 'resp-dormir'], pm2: ['la-bruja-estresona', '54321'], gr2: ['la-carta-del-abuelo', 'bueno-dia'] }[g.id] || ['la-bruja-estresona', 'resp-46'], R = A.REC, gc = R.cuento(GS[0]), gt = R.tecnica(GS[1]), gv = (st.gTab || {})[g.id] === 'guide'; return { isGuide: gv, isAtt: !gv, attBd: gv ? 'transparent' : '#FDCD22', guideBd: gv ? '#FDCD22' : 'transparent', tabAtt: () => setState({ gTab: Object.assign({}, st.gTab, { [g.id]: 'att' }) }), tabGuide: () => setState({ gTab: Object.assign({}, st.gTab, { [g.id]: 'guide' }) }), cover: R.cover(gc.slug), cuento: gc.title, read: () => setState({ er: { slug: gc.slug, page: 1 } }), qs: gc.preguntas.map((t, i) => ({ n: i + 1, t })), tech: gt.title + ' · ' + gt.min + ' min', time: g.time, kind: g.kind === 'pmplus' ? 'Sesión PM+' : 'Grupo de apoyo', title: g.title, place: g.place, attText: g.closed ? n + ' de ' + g.who.length + ' asistieron' : n + ' de ' + g.who.length + ' marcadas · toque cada nombre', canClose: !g.closed, closed: !!g.closed, close: () => A.set(s => { const x = s.groupSessions[ex].find(y => y.id === g.id); x.closed = true; A.pushNotif(s, 'admin', (g.kind === 'pmplus' ? 'Sesión PM+' : 'Grupo de apoyo') + ' registrado por ' + (ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo') + ': ' + n + ' de ' + g.who.length + ' asistieron', '/admin/experto?e=' + encodeURIComponent(ex === 'mj' ? 'María José Vélez' : 'Andrés Ocampo')); }), who: g.who.map(([name]) => { const v = g.att[name]; return { name, mark: v === true ? '✓' : v === false ? '✕' : '·', bd: v === true ? C.verde : v === false ? C.texto2 : C.lineas, bg: v === true ? '#FFF4CC' : '#fff', fg: v === false ? C.texto2 : C.tinta, toggle: () => { if (g.closed) return; A.set(s => { const x = s.groupSessions[ex].find(y => y.id === g.id); x.att[name] = v === true ? false : v === false ? undefined : true; }); } }; }) }; }),
+      quotaDateLabel: (() => {
+        const d = new Date();
+        const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const months = [
+          'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+          'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+        ];
+        return `${days[d.getDay()]} ${d.getDate()} de ${months[d.getMonth()]}`;
+      })(),
       quotaCards: [
         { label: 'Visitas de hoy', val: q.today, target: q.todayT, pct: pct(q.today, q.todayT) },
         { label: 'Semana', val: q.week, target: q.weekT, pct: pct(q.week, q.weekT) },
         { label: 'Cuota rural hoy', val: q.rural, target: q.ruralT, pct: pct(q.rural, q.ruralT) },
         { label: 'Cuota 60+ hoy', val: q.sixty, target: q.sixtyT, pct: pct(q.sixty, q.sixtyT) }
       ],
-      newFields: [
-        { label: 'Nombre completo', value: nf.name, onChange: setNf('name'), ph: 'Nombre y apellidos' },
-        { label: 'Edad', value: nf.age, onChange: setNf('age'), ph: 'Años' },
-        { label: 'Teléfono', value: nf.phone, onChange: setNf('phone'), ph: '3xx xxx xxxx', kind: 'phone' },
-        { label: 'Vereda o barrio', value: nf.place, onChange: setNf('place'), ph: 'Ej.: Vereda Cocora' }
-      ],
+      newSections: (() => {
+        const field = (
+          label: string,
+          key: string,
+          opts?: { kind?: string; ph?: string; options?: string[]; readOnly?: boolean; span?: 1 | 2 },
+        ) => ({
+          label,
+          key,
+          value: String((nf as Record<string, string>)[key] ?? ''),
+          onChange: setNf(key),
+          kind: opts?.kind || (opts?.options ? 'select' : opts?.readOnly ? 'readonly' : 'text'),
+          ph: opts?.ph || '',
+          options: opts?.options,
+          readOnly: !!opts?.readOnly,
+          span: opts?.span || 1,
+        });
+        return [
+          {
+            title: 'Identidad',
+            fields: [
+              field('Nombre', 'firstName', { ph: 'Nombre' }),
+              field('Apellido', 'lastName', { ph: 'Apellidos' }),
+              field('Fecha de nacimiento', 'birthDate', { kind: 'date' }),
+              field('Edad', 'age', { readOnly: true, ph: 'Se calcula sola' }),
+              field('Género', 'genero', { options: GENERO_OPTS }),
+              field('Estado civil', 'estadoCivil', { options: CIVIL_OPTS }),
+            ],
+          },
+          {
+            title: 'Contacto',
+            fields: [
+              field('Teléfono', 'phone', { kind: 'phone', ph: '3xx xxx xxxx' }),
+              field('Correo', 'email', { ph: 'correo@ejemplo.com', kind: 'email' }),
+            ],
+          },
+          {
+            title: 'Ubicación',
+            fields: [
+              field('Vereda o barrio', 'place', { ph: 'Ej.: Vereda Cocora' }),
+              field('Estrato', 'estrato', { options: ESTRATO_OPTS }),
+            ],
+          },
+        ];
+      })(),
       dupShow: dup && !st.dupOk, dupConfirm: () => setState({ dupOk: true, newMsg: 'Marcado como otra persona. Queda registro de la verificación.' }), newMsg: st.newMsg, clearNewMsg: () => setState({ newMsg: '' }),
       newSave: () => {
-        if (!nf.name.trim() || !nf.age.trim() || !nf.place.trim()) return setState({ newMsg: 'Faltan datos: escriba nombre, edad y vereda o barrio.' });
-        if (dup && !st.dupOk) return setState({ newMsg: 'Confirme si es otra persona antes de seguir.' });
+        const draft = { ...(nfRef.current || st.nf) } as Record<string, string>;
+        const editPid = editPidRef.current || st.editPid;
+        // Completar desde ficha en store si el form llegó incompleto (cierre obsoleto / import).
+        if (editPid) {
+          const fromPeople = (A.people ? A.people(A.get()) : A.get().people || []).find(
+            (p: any) =>
+              p.id === editPid ||
+              p.code === editPid ||
+              String(p.id) === String(draft.id) ||
+              String(p.code) === String(draft.code),
+          );
+          if (fromPeople) {
+            const split = splitFullName(String(fromPeople.name || ''));
+            if (!String(draft.firstName || '').trim()) {
+              draft.firstName = String(fromPeople.firstName || split.firstName || '');
+            }
+            if (!String(draft.lastName || '').trim()) {
+              draft.lastName = String(fromPeople.lastName || split.lastName || '');
+            }
+            if (!String(draft.birthDate || '').trim()) {
+              draft.birthDate = String(fromPeople.birthDate || '');
+            }
+            if (!String(draft.place || '').trim()) {
+              draft.place = String(fromPeople.place || '');
+            }
+            if (!String(draft.phone || '').trim()) {
+              draft.phone = String(fromPeople.phone || '');
+            }
+            if (!String(draft.email || '').trim()) {
+              draft.email = String(fromPeople.email || '');
+            }
+          }
+        }
+        // Si solo hay nombre completo en un campo, partirlo.
+        if (!String(draft.lastName || '').trim() && String(draft.firstName || '').includes(' ')) {
+          const split = splitFullName(draft.firstName);
+          draft.firstName = split.firstName;
+          draft.lastName = split.lastName;
+        }
+        if (
+          (!String(draft.firstName || '').trim() || !String(draft.lastName || '').trim()) &&
+          String(draft.name || '').trim()
+        ) {
+          const split = splitFullName(String(draft.name));
+          if (!String(draft.firstName || '').trim()) draft.firstName = split.firstName;
+          if (!String(draft.lastName || '').trim()) draft.lastName = split.lastName;
+        }
+
+        const firstName = String(draft.firstName || '').trim();
+        const lastName = String(draft.lastName || '').trim();
+        const birthDate = String(draft.birthDate || '').trim();
+        const place = String(draft.place || '').trim();
+        const name = [firstName, lastName].filter(Boolean).join(' ');
+        const missing: string[] = [];
+        if (!firstName) missing.push('nombre');
+        if (!lastName) missing.push('apellido');
+        if (!birthDate) missing.push('fecha de nacimiento');
+        if (!place) missing.push('vereda o barrio');
+        if (missing.length) {
+          return setState({
+            newMsg:
+              missing.length === 1
+                ? 'Falta el dato: ' + missing[0] + '.'
+                : 'Faltan datos: ' + missing.join(', ') + '.',
+          });
+        }
+        const phoneDigits = String(draft.phone || '').replace(/\D/g, '');
+        if (phoneDigits === '3124550178' && !st.dupOk) {
+          return setState({ newMsg: 'Confirme si es otra persona antes de seguir.' });
+        }
         const terr = terrName;
-        const name = nf.name.trim();
-        const age = parseInt(nf.age, 10) || 0;
-        const place = nf.place.trim();
-        const phone = nf.phone.trim();
+        const age = ageFromBirth(birthDate) || Number(draft.age) || 0;
+        const phone = String(draft.phone || '').trim();
+        const email = String(draft.email || '').trim().toLowerCase();
         const rural = /vereda/i.test(place);
+        const genero = String(draft.genero || '').trim();
+        const estadoCivil = String(draft.estadoCivil || '').trim();
+        const estrato = String(draft.estrato || '').trim();
+        const clin = clinForTerr(terr);
+        const expName = expertName;
+        const personPayload = {
+          name, firstName, lastName, age, birthDate, place, rural, phone, email, terr,
+          expert: expName, expertId: ex, clin,
+          genero, estadoCivil, estrato,
+        };
+        nfRef.current = { ...draft, firstName, lastName, birthDate, place, age: String(age) };
 
         // Evaluar persona ya asignada: actualizar datos y abrir visita.
-        if (st.editPid) {
-          const pid = st.editPid;
+        if (editPid) {
+          const pid = editPid;
           let visitRow: any = null;
           A.set((s: any) => {
             s.worklists[ex] = s.worklists[ex] || [];
@@ -708,7 +1486,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
                 place,
                 rural,
                 status: 'programada',
-                code: fromP?.code || pid,
+                code: fromP?.code || draft.code || pid,
                 profile: null,
                 phone,
               };
@@ -717,32 +1495,22 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
               Object.assign(w, { name, age, place, rural, phone, status: 'programada', profile: null });
             }
             const pe = (s.people || []).find((p: any) => p.id === pid || p.code === pid || p.name === name);
-            if (pe) Object.assign(pe, { name, age, place, rural, phone, expert: expName, expertId: ex });
+            if (pe) Object.assign(pe, { ...personPayload, expertId: ex });
             visitRow = { ...w };
           });
           void fetch('/api/people', {
             credentials: 'same-origin',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: pid,
-              name,
-              age,
-              place,
-              rural,
-              phone,
-              expert: expName,
-              expertId: ex,
-              terr,
-            }),
+            body: JSON.stringify({ id: pid, code: draft.code || undefined, ...personPayload }),
           }).catch(() => {});
           startVisit(visitRow || { id: pid, name, age, place, rural, phone, status: 'programada' });
           return;
         }
 
-        const id = 'n' + Date.now();
+        const id = draft.id || ('n' + Date.now());
         const pre = (A.TCODE && A.TCODE[terr]) || terr.slice(0, 3).toUpperCase();
-        const code = pre + '-' + String(1000 + ((A.people(A.get()).length) + 1));
+        const code = draft.code || (pre + '-' + String(1000 + ((A.people(A.get()).length) + 1)));
         const w = { id, time: 'Ahora', name, age, place, rural, status: 'sin_evaluacion', code, terr, profile: null, phone };
         A.set((s: any) => {
           s.worklists[ex] = s.worklists[ex] || [];
@@ -750,10 +1518,10 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           s.people = s.people || [];
           if (!s.people.find((x: any) => x.id === id)) {
             s.people.push({
-              id, code, name: w.name, age: w.age, place: w.place, rural: w.rural, terr,
+              id, code, ...personPayload,
               profile: null, week: 0, weeks: 13,
-              expert: expName, expertId: ex,
-              status: 'Sin evaluación', clin: null, phone,
+              expertId: ex,
+              status: 'Sin evaluación',
             });
           }
         });
@@ -762,9 +1530,8 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            id, code, name, age, place, rural, terr,
-            expert: expName, expertId: ex,
-            status: 'Sin evaluación', phone, profile: null,
+            id, code, ...personPayload,
+            status: 'Sin evaluación', profile: null,
           }),
         }).catch(() => {});
         void fetch('/api/worklists', {
@@ -815,13 +1582,11 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       confirmBtnBd: secDraftN ? C.amarillo : C.lineas,
       confirmSection: () => {
         const items = JSON.parse(JSON.stringify(st.items));
-        let q9 = false;
         let n = 0;
-        items[st.sec].forEach((x, i) => {
+        items[st.sec].forEach((x) => {
           if (x.st === 'draft' && x.v != null) {
             x.st = 'ok';
             n += 1;
-            if (st.sec === 'phq' && i === 8 && x.v > 0) q9 = true;
           }
         });
         if (!n) {
@@ -829,7 +1594,6 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           return;
         }
         setState({ items });
-        if (q9) triggerCrisis();
         const secLabel = secDef[st.sec].label;
         flash(n + (n === 1 ? ' respuesta confirmada' : ' respuestas confirmadas') + ' en ' + secLabel + '.');
       },
@@ -849,7 +1613,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
   const v = useMemo(() => {
     if (!session) return null;
     return { ...rv(), ...erVals(), sigRef: sigInit, scrollRef, chatRef };
-  }, [session, st, store, ex, sigInit]);
+  }, [session, st, store, ex, sigInit, live]);
 
   return { v, session, ex };
 }

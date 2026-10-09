@@ -39,44 +39,66 @@ export function useAdminExpertoScreen() {
 
     const eov = (S.expertOv || {})[name] || {};
     const terr = eov.terr || e.terr || "—";
-    const exKey =
-      e.id === "andres" || name === "Andrés Ocampo"
-        ? "andres"
-        : e.id === "mj" || name === "María José Vélez"
-          ? "mj"
-          : null;
+    const exKey = e.id || e.accountId || name;
     const goals = store.teamGoals(S);
     const midWeek = Math.max(1, Math.round(goals.weekly * 34 / 45));
-    const q = exKey
-      ? store.quotas(S, exKey)
-      : {
-          today: e.today || 0,
-          todayT: e.target || goals.daily,
-          week: e.week || 0,
-          weekT: e.weekT || goals.weekly,
-        };
-    const flags = (S.flags || []).filter((f: { expertName?: string; expert?: string }) => f.expertName === name || f.expert === e.id);
-    const pending = flags.filter((f: { status: string }) => f.status === "pending").length;
-    const people = store.people(S).filter((p: { expert?: string }) => p.expert === name);
+    const q = store.quotas(S, exKey);
+    const alertCount =
+      typeof store.expertAlertCount === "function"
+        ? store.expertAlertCount(S, exKey)
+        : 0;
+    const isDurFlag = (f: { reasons?: string[] }) => {
+      const reasons = f.reasons || [];
+      return (
+        reasons.length > 0 &&
+        reasons.every((r) =>
+          /mínimo\s*20|minimo\s*20|menos de\s*20\s*minutos|entrevista de\s+\d+/i.test(
+            String(r || ""),
+          ),
+        )
+      );
+    };
+    const flags = (S.flags || []).filter(
+      (f: {
+        expertName?: string;
+        expert?: string;
+        expertId?: string;
+        reasons?: string[];
+      }) =>
+        (f.expertName === name ||
+          f.expert === e.id ||
+          f.expertId === e.id ||
+          f.expert === e.accountId) &&
+        !isDurFlag(f),
+    );
+    const people = store
+      .people(S)
+      .filter(
+        (p: { expert?: string; expertId?: string }) =>
+          p.expert === name ||
+          p.expert === e.id ||
+          p.expertId === e.id ||
+          p.expertId === e.accountId,
+      );
     const active = eov.active !== false && e.active !== false;
     const training = e.training || "Pendiente";
-    const isNew = !!e.isNew || training === "Pendiente";
-
-    let status = "Al día";
-    let sc = C.alDia;
-    if (!active) {
-      status = "Desactivado";
-      sc = "#8C857C";
-    } else if (pending) {
-      status = "Revisar";
-      sc = C.revisar;
-    } else if (isNew) {
-      status = "Capacitación pendiente";
-      sc = "#8C857C";
-    } else if ((q.week || 0) < midWeek) {
-      status = "Bajo meta";
-      sc = C.bajoMeta;
-    }
+    const statusKey =
+      typeof store.expertTeamStatus === "function"
+        ? store.expertTeamStatus(S, exKey, e)
+        : (q.week || 0) >= midWeek
+          ? "ok"
+          : "low";
+    const statusMap: Record<string, { label: string; sc: string }> = {
+      ok: { label: "Al día", sc: C.alDia },
+      low: { label: "Bajo meta", sc: C.bajoMeta },
+      rev: { label: "Revisar", sc: C.revisar },
+      new: { label: "Capacitación pendiente", sc: "#8C857C" },
+      off: { label: "Desactivado", sc: "#8C857C" },
+    };
+    const statusMeta = statusMap[statusKey] || statusMap.low;
+    const status = statusMeta.label;
+    const sc = statusMeta.sc;
+    const pending = alertCount;
 
     const terrNames = (S.territories || []).map((t: { name: string }) => t.name);
 
@@ -100,7 +122,14 @@ export function useAdminExpertoScreen() {
       kpis: [
         { label: "Visitas hoy", val: String(q.today || 0) + " / " + (q.todayT || e.target || goals.daily), sub: "Meta diaria" },
         { label: "Semana", val: String(q.week || 0) + " / " + (q.weekT || goals.weekly), sub: "Visitas validadas" },
-        { label: "Alertas QC", val: String(pending), sub: flags.length ? flags.length + " en total" : "Sin marcas" },
+        {
+          label: "Alertas",
+          val: String(pending),
+          sub:
+            flags.filter((f: { status: string }) => f.status === "pending").length
+              ? "Incluye QC y crisis abiertas"
+              : "Crisis / cola / fichas abiertas",
+        },
         { label: "Personas", val: String(people.length), sub: "Asignadas a este experto" },
       ],
       people: people.slice(0, 50).map((p: { code?: string; name: string; place?: string; status?: string; profile?: string }) => ({

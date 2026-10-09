@@ -9,12 +9,9 @@ import React, {
   createElement,
 } from "react";
 import { IoClose } from "react-icons/io5";
-import { naraAlert } from "@/components/shared/nara-alert/naraAlert";
 import { useNaraStore } from "@/providers/nara-provider";
 import { TeoRichText } from "./TeoRichText";
 import { pickTeoSuggestions } from "./teoSuggestions";
-
-const SHARE: Record<string, string> = { clin: "team" };
 
 type Props = {
   role?: string;
@@ -39,7 +36,6 @@ export function AgentPanel({
   open = true,
   contextLabel = "",
   initialAsk = "",
-  onAction,
   onOpenDrawer,
   onClose,
   style,
@@ -48,20 +44,24 @@ export function AgentPanel({
   const [conv, setConv] = useState<ConvItem[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [shareOpen, setShareOpen] = useState<Record<string, boolean>>({});
   const [ready, setReady] = useState(false);
   const [suggestQs, setSuggestQs] = useState<string[]>(() => pickTeoSuggestions(role));
   const scrollRef = useRef<HTMLDivElement>(null);
-  const askedRef = useRef(false);
+  const lastAskedRef = useRef("");
   const wasOpenRef = useRef(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ChartRef = useRef<any>(null);
 
   useEffect(() => {
+    if (mode === "home") {
+      setSuggestQs(pickTeoSuggestions(role));
+      return;
+    }
     if (mode !== "drawer") return;
     if (open && !wasOpenRef.current) {
       setSuggestQs(pickTeoSuggestions(role));
     }
+    if (!open) lastAskedRef.current = "";
     wasOpenRef.current = open;
   }, [open, mode, role]);
 
@@ -90,12 +90,12 @@ export function AgentPanel({
   }, [mode, onClose]);
 
   useEffect(() => {
-    if (mode === "drawer" && initialAsk && ready && !askedRef.current) {
-      askedRef.current = true;
-      void ask(initialAsk);
-    }
+    if (mode !== "drawer" || !open || !initialAsk || !ready) return;
+    if (lastAskedRef.current === initialAsk) return;
+    lastAskedRef.current = initialAsk;
+    void ask(initialAsk);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialAsk, mode, ready]);
+  }, [initialAsk, mode, ready, open]);
 
   useEffect(() => {
     if (mode === "drawer" && scrollRef.current) scrollRef.current.scrollTop = 1e6;
@@ -133,8 +133,8 @@ export function AgentPanel({
           id,
           q: text,
           text: data.text,
-          basis: `TEO · ${data.provider || "openai"} (${data.model || "gpt-6-luna"})`,
-          method: "Respuesta generada con el modelo a partir del contexto autorizado del programa.",
+          basis: "Según los datos actuales del programa NARA",
+          method: "TEO resume e interpreta lo registrado en el programa, en lenguaje claro.",
           none: false,
         };
       } else {
@@ -161,65 +161,35 @@ export function AgentPanel({
     setLoading(false);
   };
 
-  const act = (action: string, payload: unknown) => onAction?.(action, payload);
-
   if (!ready || !ChartRef.current) {
     return <div style={{ ...style, minHeight: 120 }} />;
   }
 
   const G = (window as unknown as { AlientoAgent: typeof import("@/lib/agent/agent.js") extends infer T ? T : never }).AlientoAgent;
   const S = store.get();
-  const R = G.ROLE[role.split(":")[0] as keyof typeof G.ROLE];
+  const roleKey = role.split(":")[0];
+  const roleAlias: Record<string, string> = {
+    obs: "obs",
+    observador: "obs",
+    clinico: "clin",
+    clin: "clin",
+    experto: "expert",
+    expert: "expert",
+  };
+  const R =
+    (G?.ROLE &&
+      (G.ROLE[(roleAlias[roleKey] || roleKey) as keyof typeof G.ROLE] ||
+        G.ROLE.admin)) ||
+    {
+      name: "TEO · Asistente de datos",
+      greet: "",
+      sub: "Pregunte sobre lo que ve en pantalla.",
+    };
   const chips = suggestQs.map((q) => ({ q, go: () => void ask(q) }));
   const pins = (S.pins[role] || []) as string[];
   const mk = (spec: unknown, key: string) => createElement(ChartRef.current, { spec, key });
 
-  const convUi = conv.map((a) => {
-    const id = a.id;
-    const pinned = pins.includes(a.qid as string);
-    const buttons: { label: string; go: () => void; bd?: string; bg?: string; fg?: string }[] = [];
-    if (!a.none && !a.err) {
-      if (a.detail) buttons.push({ label: "Ver detalle", go: () => act("detail", a.detail) });
-      ((a.extra as { label: string; action: string }[]) || []).forEach((e) =>
-        buttons.push({
-          label: e.label,
-          go: () => {
-            act(e.action, a);
-            if (e.action === "add-board") void naraAlert("Agregado al informe mensual.");
-          },
-        }),
-      );
-      if (a.qid)
-        buttons.push({
-          label: pinned ? "Fijada ✓" : "Fijar",
-          go: () => {
-            store.set((s: { pins: Record<string, string[]> }) => {
-              const p = (s.pins[role] = s.pins[role] || []);
-              const i = p.indexOf(a.qid as string);
-              if (i > -1) p.splice(i, 1);
-              else p.push(a.qid as string);
-            });
-            void naraAlert(pinned ? "Quitada de su inicio." : "Fijada en su inicio.");
-          },
-        });
-      if (SHARE[role.split(":")[0]] === "team")
-        buttons.push({ label: "Compartir", go: () => setShareOpen((o) => ({ ...o, [id]: !o[id] })) });
-    }
-    buttons.forEach((b) => {
-      const prim = b.label === "Ver detalle" || b.label === "Preparar sesión";
-      b.bd = "#161413";
-      b.bg = prim ? "#161413" : "#fff";
-      b.fg = prim ? "#fff" : "#161413";
-    });
-    const shareTo = ["Otro clínico del equipo", "Líder clínica"].map((label) => ({
-      label,
-      go: () => {
-        setShareOpen((o) => ({ ...o, [id]: false }));
-        void naraAlert("Compartido con: " + label.toLowerCase() + ". Queda registrado.");
-      },
-    }));
-    return { a, id, buttons, shareTo };
-  });
+  const convUi = conv.map((a) => ({ a, id: a.id }));
 
   const pinList =
     mode === "home"
@@ -393,14 +363,19 @@ export function AgentPanel({
           </div>
         ) : null}
 
-        {mode === "drawer" ? (
+        {mode === "home" || mode === "drawer" ? (
           <div className="flex w-full min-w-0 flex-col gap-2">
-            {contextLabel ? (
+            {mode === "drawer" && contextLabel ? (
               <span className="text-[13px] font-medium text-[#5E5750]">{contextLabel}</span>
             ) : null}
             <div className="flex w-full min-w-0 flex-wrap gap-2">
               {chips.map((c, i) => (
-                <button key={`${c.q}-${i}`} type="button" onClick={c.go} style={{ ...chipStyle, background: "#fff" }}>
+                <button
+                  key={`${c.q}-${i}`}
+                  type="button"
+                  onClick={c.go}
+                  style={{ ...chipStyle, background: mode === "home" ? "#FFF4CC" : "#fff" }}
+                >
                   {c.q}
                 </button>
               ))}
@@ -408,7 +383,7 @@ export function AgentPanel({
           </div>
         ) : null}
 
-        {convUi.map(({ a, id, buttons, shareTo }) => (
+        {convUi.map(({ a, id }) => (
           <div key={id} className="flex flex-col gap-2.5">
             <div className="max-w-[80%] self-end rounded-[14px_4px_14px_14px] bg-[#FFF4CC] px-3.5 py-2.5 text-[15px]">
               {a.q as string}
@@ -434,35 +409,6 @@ export function AgentPanel({
                   {a.aiNote ? (
                     <div className="rounded-[10px] border-[1.5px] border-dashed border-nara-curiosidad bg-[#D8FBE3] px-3 py-2.5 text-[15px] leading-[1.45]">
                       {a.aiNote as string}
-                    </div>
-                  ) : null}
-                  {buttons.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {buttons.map((b, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={b.go}
-                          className="h-[38px] cursor-pointer rounded-[9px] border-[1.5px] px-3.5 font-texto text-sm font-medium"
-                          style={{
-                            borderColor: b.bd,
-                            background: b.bg,
-                            color: b.fg,
-                          }}
-                        >
-                          {b.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  {shareOpen[id] ? (
-                    <div className="flex flex-wrap gap-2 rounded-[10px] bg-nara-crema p-2.5">
-                      <span className="self-center text-sm">Compartir con:</span>
-                      {shareTo.map((s, i) => (
-                        <button key={i} type="button" onClick={s.go} style={shareBtnStyle}>
-                          {s.label}
-                        </button>
-                      ))}
                     </div>
                   ) : null}
                 </div>
@@ -526,8 +472,12 @@ export function AgentPanel({
         ) : null}
       </div>
 
-      {mode === "drawer" ? (
-        <div className="flex shrink-0 flex-col gap-2 border-t border-linea bg-nara-blanco p-3 sm:flex-row sm:items-center sm:gap-2 sm:px-4 sm:py-3">
+      {mode === "drawer" || mode === "home" ? (
+        <div
+          className={`flex shrink-0 flex-col gap-2 p-3 sm:flex-row sm:items-center sm:gap-2 sm:px-4 sm:py-3 ${
+            mode === "drawer" ? "border-t border-linea bg-nara-blanco" : "border-t border-linea/80 pt-4"
+          }`}
+        >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -546,6 +496,7 @@ export function AgentPanel({
               fontSize: 15,
               fontFamily: "Figtree, system-ui, sans-serif",
               color: "#161413",
+              background: "#fff",
             }}
           />
           <button
@@ -588,17 +539,6 @@ const moreBtnStyle: CSSProperties = {
   color: "#161413",
   cursor: "pointer",
   textDecoration: "underline",
-};
-
-const shareBtnStyle: CSSProperties = {
-  fontFamily: "Figtree, system-ui, sans-serif",
-  fontSize: 14,
-  height: 36,
-  padding: "0 12px",
-  borderRadius: 8,
-  border: "1px solid #DCD6CD",
-  background: "#fff",
-  cursor: "pointer",
 };
 
 const sendBtnStyle: CSSProperties = {

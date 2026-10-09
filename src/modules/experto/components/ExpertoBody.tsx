@@ -212,8 +212,8 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                         Visitas de hoy
                       </span>
                       <span style={{ fontSize: 16, color: "#5E5750" }}>
-                        Martes 29 de septiembre · Solo cuentan las visitas
-                        validadas
+                        {(v.quotaDateLabel as string) || "Hoy"} · Solo cuentan
+                        las visitas validadas
                       </span>
                     </div>
                     <button
@@ -698,8 +698,8 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                 open={!!v.isNew}
                 onClose={() => v.closeNewForm?.()}
                 title={v.formTitle || "Nueva persona"}
-                description={v.formDesc || "Datos mínimos para abrir la visita. El teléfono se usa para detectar duplicados."}
-                size="md"
+                description={v.formDesc || "Complete la ficha. Territorio, experto, clínico y códigos se asignan solos."}
+                size={v.formSize || "lg"}
                 footer={(
                   <>
                     <button
@@ -719,25 +719,57 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                   </>
                 )}
               >
-                <div className="flex flex-col gap-4">
-                  {(v.newFields || []).map((f: Record<string, any>, fi: number) => (
-                    <label key={fi} className="flex w-full flex-col gap-1.5 font-medium">
-                      <span className="leading-5">{f.label}</span>
-                      {f.kind === "phone" ? (
-                        <PhoneInput
-                          value={f.value}
-                          onChange={f.onChange}
-                          placeholder={f.ph}
-                        />
-                      ) : (
-                        <input
-                          value={f.value}
-                          onChange={f.onChange}
-                          placeholder={f.ph}
-                          className="h-11 w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta outline-none"
-                        />
-                      )}
-                    </label>
+                <div className="flex flex-col gap-6">
+                  {(v.newSections || []).map((sec: { title: string; fields: Record<string, any>[] }) => (
+                    <section key={sec.title} className="flex flex-col gap-3">
+                      <h3 className="font-titulos text-base font-semibold text-nara-tinta">{sec.title}</h3>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {sec.fields.map((f: Record<string, any>) => {
+                          const inputClass =
+                            "h-11 w-full rounded-[9px] border-[1.5px] border-linea px-3 font-texto text-[15px] text-nara-tinta outline-none " +
+                            (f.readOnly || f.kind === "readonly"
+                              ? "cursor-default bg-nara-crema"
+                              : "bg-nara-blanco");
+                          return (
+                            <label
+                              key={f.key || f.label}
+                              className={`flex w-full flex-col gap-1.5 font-medium ${f.span === 2 ? "sm:col-span-2" : ""}`}
+                            >
+                              <span className="leading-5">{f.label}</span>
+                              {f.kind === "phone" ? (
+                                <PhoneInput
+                                  value={f.value}
+                                  onChange={f.onChange}
+                                  placeholder={f.ph}
+                                />
+                              ) : f.kind === "select" ? (
+                                <select
+                                  value={f.value}
+                                  onChange={f.onChange}
+                                  className={inputClass}
+                                >
+                                  <option value="">Seleccione…</option>
+                                  {(f.options || []).map((o: string) => (
+                                    <option key={o} value={o}>
+                                      {o}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type={f.kind === "date" ? "date" : f.kind === "email" ? "email" : "text"}
+                                  value={f.value}
+                                  onChange={f.readOnly || f.kind === "readonly" ? undefined : f.onChange}
+                                  readOnly={!!f.readOnly || f.kind === "readonly"}
+                                  placeholder={f.ph}
+                                  className={inputClass}
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </section>
                   ))}
                 </div>
                 {v.dupShow ? (
@@ -1608,6 +1640,18 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                     gap: 16,
                   }}
                 >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                    <button
+                      type="button"
+                      onClick={() => v.saveVisit?.()}
+                      className="h-[58px] w-full shrink-0 cursor-pointer rounded-[14px] border-0 bg-[#FDCD22] px-6 font-texto text-lg font-medium text-[#161413] sm:w-auto sm:min-w-[220px]"
+                    >
+                      Guardar visita
+                    </button>
+                    <span className="text-[15px] text-[#5E5750]">
+                      {v.saveNote as string}
+                    </span>
+                  </div>
                   {v.crisis ? (
                     <div
                       className="flex flex-wrap items-center gap-5"

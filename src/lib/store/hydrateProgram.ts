@@ -1,6 +1,38 @@
 import { apiFetch } from "@/lib/api/client";
 import { hydrateAppState, pausePersist } from "@/lib/store/persist";
 
+/** Marca Crisis en fichas con alerta de crisis abierta (fuente de verdad operativa). */
+function applyOpenCrisisToPatients(store: Store) {
+  const S = store.get() as {
+    alerts?: Array<{ sev?: string; status?: string; pid?: string }>;
+    patients?: Record<string, Record<string, unknown>>;
+    people?: Array<Record<string, unknown> & { id?: string }>;
+  };
+  const openPids = new Set(
+    (S.alerts || [])
+      .filter(
+        (a) =>
+          a.sev === "crisis" &&
+          a.status !== "closed" &&
+          a.pid,
+      )
+      .map((a) => String(a.pid)),
+  );
+  if (!openPids.size) return;
+  store.set((s: typeof S) => {
+    s.patients = s.patients || {};
+    openPids.forEach((pid) => {
+      if (s.patients![pid]) {
+        s.patients![pid].status = "Crisis";
+        s.patients![pid].signal = "Crisis";
+        s.patients![pid].crisisLock = true;
+      }
+      const pe = (s.people || []).find((p) => String(p.id) === pid);
+      if (pe) pe.status = "Crisis";
+    });
+  });
+}
+
 type Store = typeof import("@/lib/store/store").default;
 
 async function hydrateTerritories(store: Store) {
@@ -70,6 +102,46 @@ async function hydrateAccounts(store: Store) {
   }
 }
 
+let lastStaffLiveSig = "";
+
+function staffPayloadSig(input: {
+  people?: Record<string, unknown>[];
+  flags?: Record<string, unknown>[];
+  worklists?: Record<string, unknown>[];
+  patients?: Record<string, unknown>[];
+  assets?: Record<string, unknown>[];
+}): string {
+  const pe = (input.people || []).map((p) => [
+    p.id,
+    p.status,
+    p.signal,
+    p.profile,
+    p.pendingEval === true,
+    p.evalAt,
+    p.expert,
+  ]);
+  const pa = (input.patients || []).map((p) => [
+    p.id,
+    p.status,
+    p.signal,
+    p.profile,
+    p.pendingEval === true,
+    p.modulesEnabled,
+    p.modulesVisible,
+    Array.isArray(p.timeline) ? p.timeline.length : 0,
+    p.phq,
+    p.crisisLock === true,
+    p.crisisAttendedAt ?? null,
+  ]);
+  return JSON.stringify({
+    pe,
+    pa,
+    flags: (input.flags || []).length,
+    wl: (input.worklists || []).length,
+    assets: (input.assets || []).length,
+  });
+}
+
 async function hydratePeopleFlagsWorklists(store: Store) {
   try {
     const [peopleRes, flagsRes, wlRes, patientsRes, assetsRes] = await Promise.all([
@@ -101,6 +173,16 @@ async function hydratePeopleFlagsWorklists(store: Store) {
     };
     const assetsData = (await assetsRes.json()) as { ok?: boolean; assets?: Record<string, unknown>[] };
 
+    const nextSig = staffPayloadSig({
+      people: peopleRes.ok && peopleData.ok ? peopleData.people : undefined,
+      flags: flagsRes.ok && flagsData.ok ? flagsData.flags : undefined,
+      worklists: wlRes.ok && wlData.ok ? wlData.items : undefined,
+      patients: patientsRes.ok && patientsData.ok ? patientsData.patients : undefined,
+      assets: assetsRes.ok && assetsData.ok ? assetsData.assets : undefined,
+    });
+    if (nextSig === lastStaffLiveSig) return;
+    lastStaffLiveSig = nextSig;
+
     store.set((s: {
       people: Record<string, unknown>[];
       flags: Record<string, unknown>[];
@@ -130,16 +212,116 @@ async function hydratePeopleFlagsWorklists(store: Store) {
       if (patientsRes.ok && patientsData.ok && Array.isArray(patientsData.patients)) {
         s.patients = s.patients || {};
         s.caseload = [];
+        const peopleRows = Array.isArray(s.people) ? s.people : [];
+        const peopleById: Record<string, Record<string, unknown>> = {};
+        const peopleByCode: Record<string, Record<string, unknown>> = {};
+        peopleRows.forEach((pe) => {
+          if (pe?.id) peopleById[String(pe.id)] = pe;
+          if (pe?.code) peopleByCode[String(pe.code)] = pe;
+        });
+        const isProfile = (v: unknown) =>
+          !!(v && /^P\d+$/i.test(String(v)));
         patientsData.patients.forEach((p) => {
-          s.patients[p.id] = p;
+          const pe =
+            peopleById[p.id] ||
+            (p.code ? peopleByCode[String(p.code)] : null) ||
+            null;
+          const merged = { ...p } as Record<string, unknown> & {
+            id: string;
+            name: string;
+            profile?: string | null;
+            status?: string;
+            signal?: string;
+            pendingEval?: boolean;
+            phq?: number[];
+            expert?: string;
+            place?: string;
+            age?: number;
+          };
+          if (pe) {
+            if (!isProfile(merged.profile) && isProfile(pe.profile)) {
+              merged.profile = String(pe.profile);
+            }
+            if (
+              (!merged.status || /^(nueva|activo|activa)$/i.test(String(merged.status))) &&
+              pe.status
+            ) {
+              merged.status = String(pe.status);
+            }
+            // No pisar señales clínicas (Aceptado / Rechazado / Crisis) con el estado.
+            const keepSignal = /^(Aceptado|Rechazado|Crisis)/i.test(
+              String(merged.signal || ""),
+            );
+            if (!keepSignal) {
+              // Legado: signal == status Activo tras aprobar → mostrar Aceptado.
+              if (
+                /^(activo|activa)$/i.test(String(merged.signal || merged.status || "")) &&
+                /^(activo|activa)$/i.test(String(merged.status || pe.status || "")) &&
+                isProfile(merged.profile)
+              ) {
+                merged.signal = "Aceptado";
+              }
+            }
+            if (pe.pendingEval === true) merged.pendingEval = true;
+            if (pe.activeAt != null && merged.activeAt == null) {
+              merged.activeAt = pe.activeAt;
+            }
+            if (pe.inactiveLock === true) merged.inactiveLock = true;
+            if (pe.evalAt != null && merged.evalAt == null) merged.evalAt = pe.evalAt;
+            if (pe.evalBy != null && !merged.evalBy) merged.evalBy = pe.evalBy;
+            if (pe.evalPhq != null && merged.evalPhq == null) merged.evalPhq = pe.evalPhq;
+            if (pe.evalDig != null && merged.evalDig == null) merged.evalDig = pe.evalDig;
+            if (pe.code && !merged.code) merged.code = pe.code;
+            if (pe.expert && !merged.expert) merged.expert = pe.expert;
+          }
+          s.patients[merged.id] = {
+            ...(s.patients[merged.id] || {}),
+            ...merged,
+          };
           s.caseload.push({
-            id: p.id,
-            name: p.name,
-            age: p.age,
-            place: p.place,
-            profile: p.profile,
-            phq: Array.isArray(p.phq) ? p.phq[p.phq.length - 1] : 0,
-            expert: p.expert,
+            id: merged.id,
+            name: merged.name,
+            age: merged.age,
+            place: merged.place,
+            profile: merged.profile,
+            phq: Array.isArray(merged.phq) ? merged.phq[merged.phq.length - 1] : 0,
+            expert: merged.expert,
+            status: merged.status || merged.signal || null,
+            pendingEval: merged.pendingEval === true,
+          });
+        });
+        // Personas evaluadas en people sin ficha patients aún → caseload clínico.
+        peopleRows.forEach((pe) => {
+          const id = pe?.id ? String(pe.id) : "";
+          if (!id || s.patients[id]) return;
+          const pending =
+            pe.pendingEval === true ||
+            /por\s*aprobar/i.test(String(pe.status || ""));
+          if (!pending && !isProfile(pe.profile)) return;
+          s.patients[id] = {
+            id,
+            name: pe.name,
+            age: pe.age || 0,
+            place: pe.place || pe.terr || "",
+            profile: isProfile(pe.profile) ? String(pe.profile) : null,
+            status: pe.status || "Por aprobar",
+            signal: pe.status || "Por aprobar",
+            pendingEval: pe.pendingEval === true || pending,
+            expert: pe.expert || "",
+            code: pe.code || "",
+            phq: pe.evalPhq != null ? [Number(pe.evalPhq)] : [],
+            clin: pe.clin || null,
+          };
+          s.caseload.push({
+            id,
+            name: pe.name,
+            age: pe.age || 0,
+            place: pe.place || pe.terr || "",
+            profile: isProfile(pe.profile) ? String(pe.profile) : null,
+            phq: pe.evalPhq != null ? Number(pe.evalPhq) : 0,
+            expert: pe.expert || "",
+            status: pe.status || "Por aprobar",
+            pendingEval: true,
           });
         });
       }
@@ -152,20 +334,105 @@ async function hydratePeopleFlagsWorklists(store: Store) {
   }
 }
 
+/** Firma de campos que la UI del paciente debe reflejar en vivo. */
+function patientLiveSig(p: Record<string, unknown> | undefined | null): string {
+  if (!p) return "";
+  return JSON.stringify({
+    profile: p.profile ?? null,
+    status: p.status ?? null,
+    signal: p.signal ?? null,
+    pendingEval: p.pendingEval === true,
+    modulesEnabled: p.modulesEnabled ?? null,
+    modulesVisible: p.modulesVisible ?? null,
+    phq: p.phq ?? null,
+    next: p.next ?? null,
+    nextShort: p.nextShort ?? null,
+    braceletStatus: p.braceletStatus ?? null,
+    lastSession: p.lastSession ?? null,
+    consent: p.consent ?? null,
+    plan: p.plan ?? null,
+    timelineLen: Array.isArray(p.timeline) ? p.timeline.length : 0,
+    crisisLock: p.crisisLock === true,
+    crisisAttendedAt: p.crisisAttendedAt ?? null,
+    crisisAttendedOutcome: p.crisisAttendedOutcome ?? null,
+    crisisBtnReady: p.crisisBtnReady === true,
+  });
+}
+
 async function hydratePatientSelf(store: Store) {
   try {
     const res = await apiFetch("/api/patients/me");
     const data = (await res.json()) as {
       ok?: boolean;
-      patient?: Record<string, unknown> & { id: string };
+      patient?: Record<string, unknown> & { id: string; accountId?: string };
     };
     if (res.ok && data.ok && data.patient?.id) {
+      const id = data.patient.id;
+      const accountId = data.patient.accountId
+        ? String(data.patient.accountId)
+        : "";
+      const prev = (store.get().patients || {})[id] as Record<string, unknown> | undefined;
+      const merged = { ...(prev || {}), ...data.patient };
+      // Normalizar attendedAt (API / BSON).
+      if (merged.crisisAttendedAt != null) {
+        const n = Number(merged.crisisAttendedAt);
+        merged.crisisAttendedAt = Number.isFinite(n) && n > 0 ? n : null;
+      }
+      const openCrisis = (
+        (store.get() as { alerts?: Array<{ sev?: string; status?: string; pid?: string }> })
+          .alerts || []
+      ).some(
+        (a) =>
+          a.sev === "crisis" &&
+          a.status !== "closed" &&
+          (a.pid === id || a.pid === accountId || String(a.pid) === id),
+      );
+      const remoteCleared =
+        data.patient.crisisLock === false &&
+        /^activo$/i.test(String(data.patient.status || ""));
+      // Tras «estoy bien» local: no dejar que un /me obsoleto vuelva a Crisis.
+      const localJustCleared =
+        Date.now() < suppressLiveUntil &&
+        prev?.crisisLock === false &&
+        /^activo$/i.test(String(prev?.status || ""));
+      if (localJustCleared && !remoteCleared) {
+        merged.status = "Activo";
+        merged.signal = "Activo";
+        merged.crisisLock = false;
+        merged.crisisAttendedAt = null;
+        merged.crisisAttendedOutcome = null;
+        merged.crisisBtnReady = true;
+      } else if (!remoteCleared) {
+        const stillLocked =
+          openCrisis ||
+          merged.crisisLock === true ||
+          (prev?.crisisLock === true && data.patient.crisisLock !== false);
+        if (stillLocked) {
+          merged.status = "Crisis";
+          merged.signal = "Crisis";
+          merged.crisisLock = true;
+        }
+        // Remoto gana si ya marcó atendido; si no, conservar local.
+        if (data.patient.crisisAttendedAt != null) {
+          const n = Number(data.patient.crisisAttendedAt);
+          if (Number.isFinite(n) && n > 0) {
+            merged.crisisAttendedAt = n;
+            merged.crisisAttendedOutcome =
+              data.patient.crisisAttendedOutcome ?? merged.crisisAttendedOutcome;
+          }
+        } else if (prev?.crisisAttendedAt && stillLocked) {
+          merged.crisisAttendedAt = prev.crisisAttendedAt;
+          merged.crisisAttendedOutcome = prev.crisisAttendedOutcome ?? null;
+        }
+      }
+      if (patientLiveSig(prev) === patientLiveSig(merged)) return;
       store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
         s.patients = s.patients || {};
-        s.patients[data.patient!.id] = {
-          ...(s.patients[data.patient!.id] || {}),
-          ...data.patient!,
-        };
+        s.patients[id] = merged;
+        // Alias por accountId para lecturas con id de sesión.
+        if (accountId && accountId !== id) {
+          s.patients[accountId] = { ...merged, id };
+        }
       });
     }
   } catch {
@@ -175,6 +442,14 @@ async function hydratePatientSelf(store: Store) {
 
 let inFlight: Promise<void> | null = null;
 let lastHydratedSessionId: string | null = null;
+/** Evita que un poll pise un write local recién enviado a la API. */
+let suppressLiveUntil = 0;
+
+/** Pausar el sync forzado unos segundos tras mutaciones locales. */
+export function pauseLiveHydrate(ms = 4_000) {
+  suppressLiveUntil = Date.now() + ms;
+  lastStaffLiveSig = "";
+}
 
 /** Carga territorios, expertos, personas, etc. según el rol de la sesión activa. */
 export async function hydrateProgramData(
@@ -186,6 +461,8 @@ export async function hydrateProgramData(
     lastHydratedSessionId = null;
     return;
   }
+
+  if (opts?.force && Date.now() < suppressLiveUntil) return;
 
   if (!opts?.force && lastHydratedSessionId === session.id && !inFlight) return;
   if (inFlight) {
@@ -211,7 +488,7 @@ export async function hydrateProgramData(
         hydrateAppState(store),
       ];
 
-      if (roleId === "admin") {
+      if (roleId === "admin" || roleId === "clinico") {
         programJobs.push(hydrateAccounts(store));
       }
 
@@ -236,6 +513,9 @@ export async function hydrateProgramData(
       }
 
       await Promise.all(programJobs);
+      if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
+        applyOpenCrisisToPatients(store);
+      }
       lastHydratedSessionId = session.id!;
     } finally {
       pausePersist(false);
@@ -248,4 +528,5 @@ export async function hydrateProgramData(
 
 export function resetHydrateProgramCache() {
   lastHydratedSessionId = null;
+  lastStaffLiveSig = "";
 }

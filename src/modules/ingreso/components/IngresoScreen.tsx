@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
@@ -163,33 +164,36 @@ export function IngresoScreen() {
   return (
     <div
       data-screen-label="Ingresar"
+      onClick={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (tapTimer.current) clearTimeout(tapTimer.current);
+        const n = taps + 1;
+        if (n >= 5) {
+          setTaps(0);
+          setPanel((p) => !p);
+          setDone(false);
+        } else {
+          setTaps(n);
+          tapTimer.current = setTimeout(() => setTaps(0), 1500);
+        }
+      }}
       className="box-border flex min-h-screen flex-col items-center justify-center gap-6 bg-nara-crema px-5 py-8 font-texto text-nara-tinta"
     >
       <NaraMsgAlert msg={err} onClear={() => setErr("")} />
       <NaraMsgAlert msg={okMsg} onClear={() => setOkMsg("")} />
       <div className="flex w-full max-w-[420px] flex-col gap-7">
         <div className="flex flex-col items-center gap-2.5">
-          <div
-            onClick={() => {
-              if (tapTimer.current) clearTimeout(tapTimer.current);
-              const n = taps + 1;
-              if (n >= 5) {
-                setTaps(0);
-                setPanel((p) => !p);
-                setDone(false);
-              } else {
-                setTaps(n);
-                tapTimer.current = setTimeout(() => setTaps(0), 1500);
-              }
-            }}
-            className="flex cursor-default select-none items-center gap-3 text-nara-tinta"
+          <Link
+            href="/landing"
+            aria-label="NARA, ir al inicio"
+            className="flex items-center gap-3 text-nara-tinta"
           >
             <img
               src="/nara/marca/logo/nara-logo.svg"
               alt="NARA"
               className="block h-16 w-auto"
             />
-          </div>
+          </Link>
         </div>
 
         <div className="flex flex-col gap-4 rounded-[20px] border border-linea bg-nara-blanco px-6 py-[26px]">

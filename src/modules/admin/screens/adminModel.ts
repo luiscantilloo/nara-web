@@ -1,16 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Auto-ported from Admin.dc.html — keep in sync with prototype logic.
-import { pickRepresentativePeople } from "@/lib/clinical/representativePeople";
-import { normalizePatientState, patientStateLabel } from "@/lib/clinical/patientStates";
-import { CHECKS, NOTES, type AdminUiState } from "./adminConstants";
+import {
+  DEFAULT_INACTIVE_MINUTES,
+  patientStateLabel,
+  resolveAdminPersonState,
+} from "@/lib/clinical/patientStates";
+import { CHECKS, type AdminUiState } from "./adminConstants";
 import type { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { resolvePlaceLatLng, terrCenter } from "@/lib/geo/quindioPlaces";
+import { buildPathServiceRows } from "@/modules/admin/rutas/servicios";
 
 export type AdminModelApi = {
   setState: (patch: Partial<AdminUiState> | ((s: AdminUiState) => AdminUiState)) => void;
   go: (view: string, extra?: Partial<AdminUiState>) => void;
-  draft: (code: string) => { s: Record<string, string>; months: number };
-  setDraft: (code: string, fn: (d: { s: Record<string, string>; months: number }) => void) => void;
+  draft: (code: string) => { s: Record<string, string>; months: number; inactiveMinutes?: number };
+  setDraft: (code: string, fn: (d: { s: Record<string, string>; months: number; inactiveMinutes?: number }) => void) => void;
   router: AppRouterInstance;
 };
 
@@ -19,22 +23,48 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const allowed = new Set((A.SERVICES || []).map((x: { id: string }) => x.id));
     const out: Record<string, string> = {};
     Object.keys(s || {}).forEach((k) => {
-      if (allowed.has(k)) out[k] = s[k];
+      if (!allowed.has(k)) return;
+      // Conservar '' = apagado explícito (para no reactivar desde defaultPath).
+      out[k] = s[k];
     });
     if (out.cursos) out.cursos = 'Biblioteca';
     return out;
   }
   function draft(code: string) {
     if (st.drafts[code]) {
-      const d = st.drafts[code];
-      return { s: pruneDraftS(d.s || {}), months: d.months };
+      const dr = st.drafts[code];
+      return {
+        // Respetar apagados: no rellenar desde defaultPath.
+        s: pruneDraftS(dr.s || {}),
+        months: dr.months,
+        inactiveMinutes: dr.inactiveMinutes != null ? dr.inactiveMinutes : DEFAULT_INACTIVE_MINUTES,
+      };
     }
-    const { r, d } = A.parseCode(code);
     const S0 = A.get();
-    const p = (S0.pathOverrides && S0.pathOverrides[code]) || A.defaultPath(r, d);
-    return { s: pruneDraftS(Object.assign({}, p.s)), months: p.months };
+    const { r, d } = A.parseCode(code);
+    const full = A.defaultPath(r, d);
+    const ov = S0.pathOverrides && S0.pathOverrides[code];
+    // Override incompleto: claves ausentes = activas (default); '' = apagado.
+    const mergedS: Record<string, string> = Object.assign({}, full.s || {});
+    if (ov && ov.s && typeof ov.s === "object") {
+      Object.keys(ov.s).forEach((k) => {
+        const v = ov.s[k];
+        if (v === "" || v == null) delete mergedS[k];
+        else mergedS[k] = v;
+      });
+    }
+    return {
+      s: pruneDraftS(mergedS),
+      months: ov && ov.months != null ? ov.months : full.months,
+      inactiveMinutes:
+        ov && ov.inactiveMinutes != null
+          ? ov.inactiveMinutes
+          : full.inactiveMinutes != null
+            ? full.inactiveMinutes
+            : DEFAULT_INACTIVE_MINUTES,
+    };
   }
-  function setDraft(code: string, fn: (d: { s: Record<string, string>; months: number }) => void) {
+  function setDraft(code: string, fn: (d: { s: Record<string, string>; months: number; inactiveMinutes?: number }) => void) {
     const d = JSON.parse(JSON.stringify(draft(code)));
     fn(d);
     d.s = pruneDraftS(d.s || {});
@@ -146,7 +176,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         code,
         label: rs[ri].k + ' × digital ' + digLabel,
         bg: rs[ri].c + '33',
-        crisis: !!st.simQ9,
+        crisis: false,
         months: A.defaultPath(ri2, di2).months,
         services: A.pathList(ri2, di2, dr, { dano: +(st.simDano || 0), perdida: st.simLoss ? 1 : 0 }).map(s => ({ name: s.name, freq: s.freq + (s.channel ? ' · ' + s.channel : '') })),
       };
@@ -163,7 +193,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       digMax, rulesErr: !!err && changed, rulesErrText: err, sendRulesBg: err || !changed ? '#8C857C' : C.verde,
       rulesFlash: st.rulesMsg || '', clearRulesFlash: () => api.setState({ rulesMsg: '' }),
       rulesStatus: pend ? 'Hay un cambio esperando aprobación de la Dra. Lucía Marín (líder clínica), enviado ' + A.agoText(pend.at) + '. Mientras tanto siguen las reglas vigentes.' : changed ? 'Tiene cambios sin enviar.' : 'Reglas vigentes · versión ' + ((S.rules.versions && S.rules.versions[0] && S.rules.versions[0].v) || 1) + '.',
-      sendRules: () => { if (err) return api.setState({ rulesMsg: err }); if (!changed) return; const clean = JSON.parse(JSON.stringify(rd)); clean.risk.forEach(r => { r.min = +r.min; r.max = +r.max; }); clean.dig.cuts.forEach(c => { c.min = +c.min; c.max = +c.max; }); clean.dig.q.forEach(q => q.o.forEach(o => { o.p = +o.p; })); A.set(s => { const who = (A.session() && A.session().name) || 'Administrador'; s.rules.pending = { draft: clean, at: Date.now(), by: who }; A.pushNotif(s, 'clin', 'Cambio en las reglas de clasificación esperando su aprobación', '/clinico?view=approvals'); A.logActivity(s, (A.session()?.id || "admin"), 'Envió a aprobación un cambio en las reglas de clasificación'); }); api.setState({ rd: null, rulesMsg: 'Enviado a la líder clínica. Se aplicará cuando lo apruebe.' }); },
+      sendRules: () => { if (err) return api.setState({ rulesMsg: err }); if (!changed) return; const clean = JSON.parse(JSON.stringify(rd)); clean.risk.forEach(r => { r.min = +r.min; r.max = +r.max; }); clean.dig.cuts.forEach(c => { c.min = +c.min; c.max = +c.max; }); clean.dig.q.forEach(q => q.o.forEach(o => { o.p = +o.p; })); A.set(s => { const who = (A.session() && A.session().name) || 'Administrador'; s.rules = s.rules || {}; s.rules.pending = { draft: clean, at: Date.now(), by: who }; s.rules.pendingClearedAt = 0; A.pushNotif(s, 'clin', 'Cambio en las reglas de clasificación esperando su aprobación', '/clinico/aprobaciones'); A.pushNotif(s, 'clinico', 'Cambio en las reglas de clasificación esperando su aprobación', '/clinico/aprobaciones'); A.logActivity(s, (A.session()?.id || "admin"), 'Envió a aprobación un cambio en las reglas de clasificación'); }); void import('@/lib/store/persist').then(m => m.flushPersistWhenReady(A)); api.setState({ rd: null, rulesMsg: 'Enviado a la líder clínica. Se aplicará cuando lo apruebe.' }); },
       resetRules: () => api.setState({ rd: null, rulesMsg: '' }),
       autoV: au, autoSet: { expert: e => api.setState({ au: Object.assign({}, au, { expert: e.target.value }), autoMsg: '' }), clin: e => api.setState({ au: Object.assign({}, au, { clin: e.target.value }), autoMsg: '' }), review: e => api.setState({ au: Object.assign({}, au, { review: e.target.value }), autoMsg: '' }) },
       autoBg: auChanged ? C.verde : '#8C857C', autoMsg: st.autoMsg || '', clearAutoMsg: () => api.setState({ autoMsg: '' }),
@@ -179,12 +209,80 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
   function moreVals(A, S, C, st) {
     const fmt = n => n.toLocaleString('es-CO');
     const full = A.people(S);
-    const sampleOn = st.peopleSample !== false;
-    const sample = pickRepresentativePeople(full);
-    // Depuración: KPIs, heat, funnel, roster y export usan como máx. 15 perfiles P01–P15.
-    const all = sampleOn ? sample : full;
+    const all = full;
     const classified = (p) => !!(p.profile && /^P\d+$/i.test(String(p.profile)));
-    const estadoDe = (p) => patientStateLabel(normalizePatientState(p.status, { hasProfile: classified(p) }));
+    const patientsMap = S.patients || {};
+    const accountsList = S.accounts || [];
+    const accountForPerson = (p) => {
+      const pat =
+        patientsMap[p.id] ||
+        Object.values(patientsMap).find(
+          (x: { id?: string; code?: string; email?: string; accountId?: string }) =>
+            x.id === p.id ||
+            (p.code && x.code === p.code) ||
+            (p.email && x.email === p.email),
+        );
+      return (
+        accountsList.find((a: { id?: string; email?: string; roleId?: string; role?: string }) => {
+          const isPatient = a.roleId === "paciente" || /Paciente/i.test(a.role || "");
+          if (!isPatient) return false;
+          return (
+            (p.accountId && a.id === p.accountId) ||
+            (pat?.accountId && a.id === pat.accountId) ||
+            (p.email && a.email && a.email === p.email) ||
+            (pat?.email && a.email && a.email === pat.email)
+          );
+        }) || null
+      );
+    };
+    const courseMetaFor = (p) => {
+      const prog =
+        (A.courseProgress && (A.courseProgress(S, p.id) || A.courseProgress(S, p.code))) ||
+        null;
+      if (!prog) return { courseDone: null, courseWeeks: null };
+      return {
+        courseDone: Number(prog.done) || 0,
+        courseWeeks: Number(prog.c?.weeks) || null,
+      };
+    };
+    const inactiveMinutesFor = (p) => {
+      const code = String(p?.profile || '');
+      if (!/^P\d+$/i.test(code)) return DEFAULT_INACTIVE_MINUTES;
+      try {
+        const { r, d } = A.parseCode(code);
+        const path = (S.pathOverrides && S.pathOverrides[code]) || A.defaultPath(r, d);
+        const m = Number(path?.inactiveMinutes);
+        return Number.isFinite(m) && m > 0 ? m : DEFAULT_INACTIVE_MINUTES;
+      } catch {
+        return DEFAULT_INACTIVE_MINUTES;
+      }
+    };
+    const estadoDe = (p) => {
+      const { courseDone, courseWeeks } = courseMetaFor(p);
+      const pat =
+        patientsMap[p.id] ||
+        Object.values(patientsMap).find(
+          (x: { id?: string; code?: string; email?: string }) =>
+            x.id === p.id ||
+            (p.code && x.code === p.code) ||
+            (p.email && x.email === p.email),
+        );
+        return patientStateLabel(
+        resolveAdminPersonState(
+          {
+            ...p,
+            inactiveLock: !!(p.inactiveLock || pat?.inactiveLock),
+            activeAt: p.activeAt ?? pat?.activeAt,
+          },
+          {
+            account: accountForPerson(p),
+            inactiveMinutes: inactiveMinutesFor(p),
+            courseDone,
+            courseWeeks,
+          },
+        ),
+      );
+    };
     const heatGrid = A.RISK.map(() => [0, 0, 0]);
     all.forEach(p => {
       if (!classified(p)) return;
@@ -193,38 +291,71 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     });
     const heatMax = Math.max(1, ...heatGrid.flat());
     const heat = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const v = heatGrid[ri][di]; const a = v ? (0.1 + v / heatMax * 0.85) : 0.05; return { v, code: A.code(ri, di), bg: 'rgba(30,94,72,' + a.toFixed(2) + ')', fg: a > 0.45 ? '#fff' : C.tinta }; }) }));
-    const evaluadas = all.length;
+    // Pendientes de evaluación: sin evaluación inicial, o rechazadas que deben reevaluarse.
+    // No cuentan Activo / Por aprobar / Crisis / Terminados (ya pasaron por el cuestionario).
+    const porEvaluar = all.filter((p) => {
+      const st = estadoDe(p);
+      if (st === 'Sin evaluación' || st === 'Rechazado') return true;
+      if (
+        st === 'Por aprobar' ||
+        st === 'Activo' ||
+        st === 'Crisis' ||
+        st === 'Inactivo' ||
+        st === 'Terminado blanco' ||
+        st === 'Terminado negro' ||
+        st === 'Aprobado'
+      ) {
+        return false;
+      }
+      return !classified(p) && !p.evalAt && p.pendingEval !== true;
+    });
+    const evaluadas = all.filter((p) => {
+      const st = estadoDe(p);
+      return (
+        classified(p) ||
+        st === 'Por aprobar' ||
+        st === 'Activo' ||
+        st === 'Crisis' ||
+        st === 'Rechazado' ||
+        st === 'Terminado blanco' ||
+        st === 'Terminado negro' ||
+        !!p.evalAt ||
+        p.pendingEval === true
+      );
+    }).length;
     const conRuta = all.filter(p => classified(p)).length;
     const primer = all.filter(p => (p.week || 0) > 0).length;
     const activas = all.filter(p => estadoDe(p) === 'Activo').length;
-    const completadas = all.filter(p => /terminar|complet/i.test(p.status || '')).length;
-    // Pacientes sin ingreso a la app en 3+ días (por lastLoginAt de la cuenta).
-    const INACTIVE_MS = 3 * 24 * 60 * 60 * 1000;
-    const nowMs = Date.now();
-    const sinContacto = (S.accounts || []).filter((a: { roleId?: string; role?: string; status?: string; lastLoginAt?: number; createdAt?: number; updatedAt?: number }) => {
-      const isPatient = a.roleId === 'paciente' || /Paciente/i.test(a.role || '');
-      if (!isPatient) return false;
-      if (a.status && a.status !== 'Activo') return false;
-      const last = Number(a.lastLoginAt || 0);
-      if (last > 0) return nowMs - last >= INACTIVE_MS;
-      const created = Number(a.createdAt || a.updatedAt || 0);
-      if (created > 0) return nowMs - created >= INACTIVE_MS;
-      return true;
-    }).length;
-    // Pacientes que tocaron «Estoy en crisis» (alertas abiertas, una por persona).
+    const terminadoBlanco = all.filter((p) => estadoDe(p) === 'Terminado blanco').length;
+    const terminadoNegro = all.filter((p) => estadoDe(p) === 'Terminado negro').length;
+    // KPI: personas en estado Inactivo (umbral del perfil; default = 1 día).
+    const sinContacto = all.filter((p) => estadoDe(p) === 'Inactivo').length;
+    // Crisis abiertas: botón «Estoy en crisis», visita de campo, o estado Crisis en la ficha.
     const crisisPids = new Set();
     (S.alerts || []).forEach((a: { sev?: string; status?: string; pid?: string; name?: string; source?: string; id?: string; what?: string }) => {
       if (a.sev !== 'crisis') return;
-      if (/closed|cerrada/i.test(String(a.status || ''))) return;
-      const fromBtn = /Estoy en crisis|crisis-btn/i.test(
-        String(a.source || '') + ' ' + String(a.id || '') + ' ' + String(a.what || ''),
-      );
-      if (!fromBtn) return;
-      crisisPids.add(a.pid || a.name || a.id);
+      if (/closed|cerrada|other/i.test(String(a.status || ''))) return;
+      crisisPids.add(String(a.pid || a.name || a.id || ''));
     });
+    all.forEach((p) => {
+      if (estadoDe(p) !== 'Crisis' && !/crisis/i.test(String(p.status || ''))) return;
+      crisisPids.add(String(p.id || p.code || p.name || ''));
+    });
+    Object.values(patientsMap).forEach((p: { id?: string; code?: string; name?: string; status?: string; signal?: string }) => {
+      if (!/crisis/i.test(String(p.status || p.signal || ''))) return;
+      crisisPids.add(String(p.id || p.code || p.name || ''));
+    });
+    crisisPids.delete('');
     const crisisMes = crisisPids.size;
-    const F = [['Evaluadas', evaluadas], ['Con ruta asignada', conRuta], ['Primer contacto de la ruta', primer], ['Activas últimos 14 días', activas], ['Ruta completada', completadas]];
-    const denom = Math.max(1, evaluadas);
+    const F = [
+      ['Evaluadas', evaluadas],
+      ['Con ruta asignada', conRuta],
+      ['Primer contacto de la ruta', primer],
+      ['Activas', activas],
+      ['Terminado blanco', terminadoBlanco],
+      ['Terminado negro', terminadoNegro],
+    ];
+    const denom = Math.max(1, all.length);
     const brRows = (S.territories || []).map(t => {
       const info = A.terrInfo(S, t.name) || t;
       const a = info.brA || t.br || 0, d = info.brD || 0, s = Math.min(d, a), av = (info.brAv != null ? info.brAv : t.br || 0) + (((S.terrOv || {})[t.name] || {}).extraBr || 0);
@@ -365,12 +496,20 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       return hay(p);
     };
     const list = all.filter(rOk);
+    const expertNameForTerr = (terr: string) => {
+      if (!terr) return '';
+      const e = A.experts(S).find((x: { terr?: string; active?: boolean; name?: string }) => x.terr === terr && x.active !== false);
+      return e?.name || '';
+    };
     const roster = list.slice(0, 300).map((p) => {
       const ri = safeParse(p).r;
       const rc = ri >= 0 && A.RISK[ri] ? A.RISK[ri].c : '#C4BDB3';
+      const expertLabel = p.expert || expertNameForTerr(p.terr) || 'Sin experto';
+      const status = estadoDe(p);
+      const inCrisis = status === 'Crisis' || /crisis/i.test(String(p.status || p.signal || ''));
       return {
         open: () => { api.router.push('/admin/persona?c=' + encodeURIComponent(p.code || p.id || '')); },
-        code: p.code,
+        code: p.code || '—',
         terr: p.terr,
         place: p.place,
         age: p.age,
@@ -378,9 +517,10 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         rc,
         pct: p.weeks ? Math.round((p.week || 0) / p.weeks * 100) + '%' : '0%',
         prog: 'Semana ' + (p.week || 0) + ' de ' + (p.weeks || 0),
-        expert: p.expert || 'Sin experto',
-        status: estadoDe(p),
-        fw: /Sin contacto|Sin experto/.test(p.status || '') ? 500 : 400,
+        expert: expertLabel,
+        status,
+        inCrisis,
+        fw: inCrisis || /Sin contacto|Sin experto/.test(p.status || '') || expertLabel === 'Sin experto' ? 500 : 400,
       };
     });
     const opt = (all0, lab) => [{ v: '', l: lab }].concat(all0.map(x => typeof x === 'object' ? x : { v: x, l: x }));
@@ -400,11 +540,9 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       const csv = '\ufeff' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-      a.download = sampleOn ? 'personas-nara-15-perfiles.csv' : 'personas-nara.csv';
+      a.download = 'personas-nara.csv';
       a.click();
-      A.set(s => A.logActivity(s, (A.session()?.id || "admin"), sampleOn
-        ? 'Exportó ' + list.length + ' perfiles representativos (datos de prueba)'
-        : 'Exportó ' + list.length + ' personas'));
+      A.set(s => A.logActivity(s, (A.session()?.id || "admin"), 'Exportó ' + list.length + ' personas'));
     };
     const digDrop = [0, 1, 2].map(di => {
       const group = all.filter(p => classified(p) && A.parseCode(p.profile).d === di);
@@ -412,23 +550,29 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       const pct = group.length ? Math.round(drop / group.length * 100) : 0;
       return [A.DIG[di].k, pct, A.DIG[di].c];
     });
-    const sampleLabel = sampleOn
-      ? sample.length + ' de 15 perfiles representativos (P01–P15)'
-        + (full.length > sample.length ? ' · cohorte completa ' + full.length.toLocaleString('es-CO') : '')
-      : list.length + ' de ' + full.length + ' personas' + (list.length > 300 ? ' · se muestran 300' : '');
+    const rosterCount =
+      list.length + ' de ' + full.length + ' personas' + (list.length > 300 ? ' · se muestran 300' : '');
     return {
       q: st.q || '', setQ: e => api.setState({ q: e.target.value }), roster, noRoster: roster.length === 0,
-      rosterCount: sampleLabel,
-      peopleSample: sampleOn,
-      peopleSampleN: sample.length,
-      peopleFullN: full.length,
-      togglePeopleSample: () => api.setState({ peopleSample: !sampleOn }),
+      rosterCount,
       pFilters, exportRoster, hasPF: Object.values(pf).some(Boolean) || !!q, clearPF: () => api.setState({ pf: {}, q: '' }),
       pk: [
-        { label: 'Personas a evaluar', val: fmt(evaluadas), sub: sampleOn ? 'Modo prueba · máx. 15 perfiles P01–P15' : (Object.keys(S.visits || {}).length ? Object.keys(S.visits).length + ' visitas registradas' : 'Sin visitas aún') },
-        { label: 'Evaluadas con ruta', val: fmt(conRuta), sub: sampleOn ? 'Representativos con perfil' : 'Ya evaluadas y con ruta asignada' },
-        { label: 'Sin contacto +3 días', val: fmt(sinContacto), sub: 'Pacientes sin ingresar a la app en 3 días o más' },
-        { label: 'Alertas de crisis', val: fmt(crisisMes), sub: crisisMes ? 'Pacientes que tocaron «Estoy en crisis»' : 'Sin alertas' },
+        {
+          label: 'Personas a evaluar',
+          val: fmt(porEvaluar.length),
+          sub: porEvaluar.length
+            ? 'Sin evaluación inicial todavía'
+            : 'Nadie pendiente de evaluación',
+        },
+        { label: 'Evaluadas con ruta', val: fmt(conRuta), sub: 'Ya evaluadas y con ruta asignada' },
+        { label: 'Sin contacto +1 día', val: fmt(sinContacto), sub: 'Pacientes sin actividad en la app (login o clics) según el umbral del perfil · estado Inactivo en Personas' },
+        {
+          label: 'Alertas de crisis',
+          val: fmt(crisisMes),
+          sub: crisisMes
+            ? 'Crisis abiertas · botón del paciente o visita de campo'
+            : 'Sin alertas',
+        },
       ],
       heat, funnel: F.map(([label, v]) => ({ label, v: fmt(v), w: (Number(v) / denom * 100).toFixed(1) + '%' })),
       dropout: digDrop.map(([label, v, c]) => ({ label, v: v + ' %', w: (Number(v) / Math.max(20, Number(v)) * 100) + '%', c })),
@@ -474,11 +618,29 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     }).map(t => {
       const info = A.terrInfo(S, t.name) || t;
       const nExp = A.experts(S).filter(e => e.terr === t.name && e.active !== false).length;
-      const cap = info.cap || 0, goal = info.goal || t.goal || 0;
+      const cohort = (A.people ? A.people(S) : S.people || []).filter(
+        (p: { terr?: string }) => p.terr === t.name,
+      );
+      // Captación viva (personas del territorio), no el campo estático t.cap.
+      const cap = cohort.length;
+      const goal = info.goal || t.goal || 0;
+      const ruralN = cohort.filter((p: { rural?: boolean; place?: string }) => {
+        if (p.rural === true) return true;
+        if (p.rural === false) return false;
+        return /vereda/i.test(String(p.place || ''));
+      }).length;
+      const rural = cap ? Math.round((ruralN / cap) * 100) : 0;
+      const hasEval = cohort.some(
+        (p: { profile?: string; evalAt?: unknown; pendingEval?: boolean; status?: string }) =>
+          !!(p.profile && /^P\d+$/i.test(String(p.profile))) ||
+          !!p.evalAt ||
+          p.pendingEval === true ||
+          /por\s*aprobar|activo|crisis|rechazad|terminado/i.test(String(p.status || '')),
+      );
       return {
         name: t.name, dep: info.dep || t.dep, level: info.level || t.level,
-        experts: nExp, cap, goal,
-        rural: info.rural || 0, ruralG: info.ruralG || t.ruralG || 0,
+        experts: nExp, cap, goal, hasEval,
+        rural, ruralG: info.ruralG || t.ruralG || 0,
         br: info.brAv != null ? info.brAv : (t.br || 0),
         insts: Array.isArray(info.insts) ? info.insts.length : (t.insts || 0),
         isNew: !!t.isNew,
@@ -486,10 +648,22 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     });
     const terrQ = String(st.terrQ || '').toLowerCase().trim();
     const terrs = allTerr.filter(t => !st.terrFilter || t.name === st.terrFilter).map(t => {
-      let status = 'En curso', sc = C.alDia;
-      if (!t.cap) { status = 'Sin iniciar'; sc = '#8C857C'; }
-      else if (t.goal && t.cap / t.goal < 0.3) { status = 'Captación lenta'; sc = C.bajoMeta; }
-      else if (t.rural < t.ruralG - 2) { status = 'Bajo cuota rural'; sc = C.revisar; }
+      // Sin iniciar → Iniciado (hay captación o evaluación) → Finalizado (meta de captación cumplida).
+      let status = 'Sin iniciar', sc = '#8C857C';
+      if (t.goal && t.cap >= t.goal) {
+        status = 'Finalizado';
+        sc = C.alDia;
+      } else if (t.cap > 0 || t.hasEval) {
+        status = 'Iniciado';
+        sc = C.alDia;
+        if (t.goal && t.cap / t.goal < 0.3) {
+          status = 'Iniciado · captación lenta';
+          sc = C.bajoMeta;
+        } else if (t.ruralG && t.rural < t.ruralG - 2) {
+          status = 'Iniciado · bajo cuota rural';
+          sc = C.revisar;
+        }
+      }
       const ov = (S.terrOv || {})[t.name] || {}; if (ov.paused) { status = 'En pausa'; sc = '#8C857C'; }
       return { open: () => { api.router.push('/admin/territorio?t=' + encodeURIComponent(t.name)); }, name: t.name, dep: t.dep, level: t.level, experts: t.experts, capText: t.cap.toLocaleString('es-CO') + ' / ' + t.goal.toLocaleString('es-CO'), pct: t.goal ? Math.round(t.cap / t.goal * 100) + '%' : '0%', rural: (t.cap ? t.rural + ' %' : '—') + ' / ' + t.ruralG + ' %', bracelets: t.br, insts: t.insts, status, sc, rowBg: t.isNew ? '#FFF9E3' : '#fff' };
     }).filter((t) => {
@@ -506,22 +680,38 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const goals = A.teamGoals(S);
     const midWeek = Math.max(1, Math.round(goals.weekly * 34 / 45));
     const experts = A.experts(S).map(e => {
-      const exKey = e.id === 'andres' || e.name === 'Andrés Ocampo' ? 'andres' : e.id === 'mj' || e.name === 'María José Vélez' ? 'mj' : null;
-      let today = e.today || 0, week = e.week || 0, flags = 0, status = 'low';
-      if (exKey) { const q = A.quotas(S, exKey); today = q.today; week = q.week; flags = A.openFlags(S, exKey); status = flags ? 'rev' : week >= midWeek ? 'ok' : week > 0 ? 'low' : 'low'; }
-      else {
-        flags = (S.flags || []).filter(x => x.expertName === e.name && x.status === 'pending').length;
-        status = flags ? 'rev' : e.isNew || e.training === 'Pendiente' ? 'new' : week >= midWeek ? 'ok' : 'low';
-      }
+      // Cuotas, alertas y estado desde cola / crisis / QC reales.
+      const exKey = e.id || e.accountId || e.name;
+      const q = A.quotas(S, exKey);
+      const today = q.today || 0;
+      const week = q.week || 0;
+      const flags = A.expertAlertCount
+        ? A.expertAlertCount(S, exKey)
+        : A.openFlags(S, exKey);
+      let status = A.expertTeamStatus
+        ? A.expertTeamStatus(S, exKey, e)
+        : week >= midWeek
+          ? 'ok'
+          : 'low';
       const map = { ok: ['Al día', C.alDia], low: ['Bajo meta', C.bajoMeta], rev: ['Revisar', C.revisar], new: ['Capacitación pendiente', '#8C857C'], off: ['Desactivado', '#8C857C'] };
-      const eov = (S.expertOv || {})[e.name] || {}; if (eov.active === false || e.active === false) { status = 'off'; }
+      const eov = (S.expertOv || {})[e.name] || {};
+      if (eov.active === false || e.active === false) status = 'off';
       const target = e.target || goals.daily;
-      return { open: () => { api.router.push('/admin/experto?e=' + encodeURIComponent(e.name)); }, name: e.name, terr: eov.terr || e.terr, today: today + ' / ' + target, week: week + ' / ' + goals.weekly, flags, status: map[status][0], sc: map[status][1], rowBg: e.isNew ? '#FFF9E3' : '#fff' };
+      return { open: () => { api.router.push('/admin/experto?e=' + encodeURIComponent(e.name)); }, name: e.name, terr: eov.terr || e.terr, today: today + ' / ' + target, week: week + ' / ' + goals.weekly, flags, status: map[status][0], sc: map[status][1], rowBg: e.isNew && status === 'new' ? '#FFF9E3' : '#fff' };
     });
     const ef = st.ef; const setEf = k => e => api.setState({ ef: Object.assign({}, ef, { [k]: e.target.value }) });
     const gf = st.gf || { daily: String(goals.daily), weekly: String(goals.weekly) };
-    const setGf = k => e => api.setState({ gf: Object.assign({}, gf, { [k]: e.target.value.replace(/\D/g, '') }), gfErr: '' });
-    const flags = S.flags.map(f => ({ expertName: f.expertName, territory: f.territory, when: f.when, person: f.person, reasons: f.reasons, pending: f.status === 'pending', done: f.status !== 'pending', doneText: f.status === 'approved' ? 'Aprobada · cuenta para la cuota' : f.fromVisit ? 'Rechazada · no cuenta para la cuota' : 'Rechazada · se restó de la cuota',
+    const setGfDaily = e => {
+      const daily = String(e.target.value || '').replace(/\D/g, '');
+      const weekly = daily === '' ? '' : String(parseInt(daily, 10) * 5);
+      api.setState({ gf: Object.assign({}, gf, { daily, weekly }), gfErr: '' });
+    };
+    const setGfWeekly = e => api.setState({ gf: Object.assign({}, gf, { weekly: e.target.value.replace(/\D/g, '') }), gfErr: '' });
+    const isDurFlag = (f: { reasons?: string[] }) => {
+      const reasons = f.reasons || [];
+      return reasons.length > 0 && reasons.every((r) => /mínimo\s*20|minimo\s*20|menos de\s*20\s*minutos|entrevista de\s+\d+/i.test(String(r || '')));
+    };
+    const flags = S.flags.filter((f) => !isDurFlag(f)).map(f => ({ expertName: f.expertName, territory: f.territory, when: f.when, person: f.person, reasons: f.reasons, pending: f.status === 'pending', done: f.status !== 'pending', doneText: f.status === 'approved' ? 'Aprobada · cuenta para la cuota' : f.fromVisit ? 'Rechazada · no cuenta para la cuota' : 'Rechazada · se restó de la cuota',
       approve: async () => {
         try {
           await fetch('/api/flags', { credentials: 'same-origin', method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, status: 'approved' }) });
@@ -546,46 +736,33 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const cellFor = (ri, di) => { const code = A.code(ri, di); const dr = api.draft(code); return { code, n: Object.keys(dr.s).length }; };
     const pm = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const x = cellFor(ri, di); const on = st.sel === x.code; return Object.assign(x, { bg: on ? C.verde : r.bg, fg: on ? '#fff' : C.tinta, bd: on ? C.amarillo : 'transparent', pick: () => api.setState({ sel: x.code }) }); }) }));
     const { r: sr, d: sd } = A.parseCode(st.sel); const dr = api.draft(st.sel);
-    const req = S.pathRequests.find(x => x.code === st.sel && x.scope === st.scope);
+    const req = (S.pathRequests || []).find(
+      (x) =>
+        x.code === st.sel &&
+        x.scope === st.scope &&
+        String(x.status || 'pending') === 'pending',
+    );
     const pe = {
       title: st.sel + ' · ' + A.RISK[sr].k + ' × digital ' + A.DIG[sd].k.toLowerCase(), people: A.people(S).filter(p => p.profile === st.sel).length,
-      rows: A.SERVICES.map(sv => {
-        const on = !!dr.s[sv.id];
-        const isCursos = sv.id === 'cursos';
-        return {
-          id: sv.id,
-          name: sv.name,
-          note: NOTES[sv.id] || '',
-          op: on ? 1 : 0.6,
-          swBg: on ? C.verde : '#C4BDB3',
-          x: on ? '25px' : '3px',
-          cur: 'pointer',
-          toggle: () => {
-            api.setDraft(st.sel, d => {
-              if (d.s[sv.id]) delete d.s[sv.id];
-              else d.s[sv.id] = isCursos ? 'Biblioteca' : (sv.freqs[0] || 'Activo');
-            });
-          },
-          freqs: isCursos
-            ? []
-            : sv.freqs.map(label => {
-                const sel = dr.s[sv.id] === label;
-                return {
-                  label,
-                  bd: sel ? C.verde : C.lineas,
-                  bg: sel ? '#FFF4CC' : '#fff',
-                  fg: on ? C.tinta : C.texto2,
-                  pick: () => { api.setDraft(st.sel, d => { d.s[sv.id] = label; }); },
-                };
-              }),
-          // Mueve la pestaña Biblioteca aquí: abre el mismo panel de recursos.
-          libBtn: isCursos
-            ? { label: 'Biblioteca', go: () => api.setState({ pathTab: '3' }) }
-            : null,
-        };
-      }),
+      rows: buildPathServiceRows(dr, C, api, st.sel),
       warn: false,
       durs: [3, 6, 12].map(m => ({ label: m + ' meses', bd: dr.months === m ? C.verde : C.lineas, bg: dr.months === m ? '#FFF4CC' : '#fff', fg: C.tinta, pick: () => api.setDraft(st.sel, d => { d.months = m; }) })),
+      inactiveMins: [
+        { label: '5 minutos', minutes: 5 },
+        { label: '1 día', minutes: 1440 },
+        { label: '5 días', minutes: 7200 },
+        { label: '10 días', minutes: 14400 },
+      ].map((opt) => {
+        const cur = dr.inactiveMinutes != null ? Number(dr.inactiveMinutes) : DEFAULT_INACTIVE_MINUTES;
+        const sel = cur === opt.minutes;
+        return {
+          label: opt.label,
+          bd: sel ? C.verde : C.lineas,
+          bg: sel ? '#FFF4CC' : '#fff',
+          fg: C.tinta,
+          pick: () => api.setDraft(st.sel, (d) => { d.inactiveMinutes = opt.minutes; }),
+        };
+      }),
       sendBg: C.verde,
       status: req ? 'Enviado a aprobación clínica · pendiente de la líder clínica. Al aprobarse, aplica a personas nuevas y a las actuales en su próxima revisión de ruta.' : 'Los cambios no se aplican de inmediato: la líder clínica debe aprobarlos.'
     };
@@ -607,7 +784,15 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       hasMsg: !!st.msg, msg: st.msg, msgActions: st.msgActions,
       clearMsg: () => api.setState({ msg: '', msgActions: [] }),
       vTerr: st.view === 'terr', vTeam: st.view === 'team', vPaths: st.view === 'paths', vPeople: st.view === 'people', vAssets: st.view === 'assets',
-      totalCap: allTerr.reduce((a, t) => a + t.cap, 0).toLocaleString('es-CO'), terrs,
+      totalCap: allTerr.reduce((a, t) => a + t.cap, 0).toLocaleString('es-CO'),
+      totalEvaluadas: (A.people ? A.people(S) : S.people || []).filter(
+        (p: { profile?: string; evalAt?: unknown; pendingEval?: boolean; status?: string }) =>
+          !!(p.profile && /^P\d+$/i.test(String(p.profile))) ||
+          !!p.evalAt ||
+          p.pendingEval === true ||
+          /por\s*aprobar|activo|crisis|rechazad|terminado/i.test(String(p.status || '')),
+      ).length.toLocaleString('es-CO'),
+      terrs,
       terrQ: st.terrQ || '', setTerrQ: (e) => api.setState({ terrQ: e.target.value }),
       terrCountLabel,
       terrForm: st.terrForm, terrFormBtn: '+ Crear territorio', toggleTerrForm: () => api.setState({ terrForm: true }), closeTerrForm: () => api.setState({ terrForm: false }),
@@ -645,12 +830,17 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       goalsForm: st.goalsForm,
       openGoalsForm: () => api.setState({ goalsForm: true, gf: { daily: String(goals.daily), weekly: String(goals.weekly) }, gfErr: '' }),
       closeGoalsForm: () => api.setState({ goalsForm: false, gfErr: '' }),
-      gf, gfSet: { daily: setGf('daily'), weekly: setGf('weekly') }, gfErr: st.gfErr || '', clearGfErr: () => api.setState({ gfErr: '' }),
+      gf, gfSet: { daily: setGfDaily, weekly: setGfWeekly }, gfErr: st.gfErr || '', clearGfErr: () => api.setState({ gfErr: '' }),
       teamGoalsDaily: goals.daily, teamGoalsWeekly: goals.weekly,
       saveGoals: async () => {
+        if (gf.daily === '' || gf.weekly === '') {
+          return api.setState({ gfErr: 'Indique metas diarias y semanales (mínimo 1).' });
+        }
         const daily = parseInt(gf.daily, 10);
         const weekly = parseInt(gf.weekly, 10);
-        if (!(daily > 0) || !(weekly > 0)) return api.setState({ gfErr: 'Indique metas diarias y semanales mayores que cero.' });
+        if (!Number.isFinite(daily) || !Number.isFinite(weekly) || daily < 1 || weekly < 1) {
+          return api.setState({ gfErr: 'Indique metas diarias y semanales válidas (mínimo 1).' });
+        }
         if (weekly < daily) return api.setState({ gfErr: 'La meta semanal no puede ser menor que la diaria.' });
         try {
           const res = await fetch('/api/experts/goals', {
@@ -720,7 +910,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           api.setState({ msg: 'No se pudo conectar con la base de datos.', msgActions: [] });
         }
       },
-      experts, flags, flagCount: S.flags.filter(f => f.status === 'pending').length + ' por revisar', checks: CHECKS.map(([k, v]) => ({ k, v })),
+      experts, flags, flagCount: flags.filter(f => f.pending).length + ' por revisar', checks: CHECKS.map(([k, v]) => ({ k, v })),
       pm, pe, scope: st.scope, setScope: e => api.setState({ scope: e.target.value }),
       sendPath: () => {
         // Copia profunda del borrador actual (incluye s:{} si apagaron todo)
@@ -728,17 +918,20 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         const draft = JSON.parse(JSON.stringify(live));
         if (!draft.s || typeof draft.s !== 'object') draft.s = {};
         A.set(s => {
-          s.pathRequests = (s.pathRequests || []).filter(x => !(x.code === st.sel && x.scope === st.scope));
+          const id = st.sel + '-' + (st.scope || 'all');
+          s.pathRequests = (s.pathRequests || []).filter(x => x.id !== id && !(x.code === st.sel && x.scope === st.scope));
           s.pathRequests.push({
-            id: st.sel + '-' + (st.scope || 'all'),
+            id,
             code: st.sel,
             scope: st.scope,
             draft,
             at: Date.now(),
             status: 'pending',
           });
-          A.pushNotif(s, 'admin', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/rutas');
+          A.pushNotif(s, 'clin', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/clinico/aprobaciones');
+          A.pushNotif(s, 'clinico', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/clinico/aprobaciones');
         });
+        void import('@/lib/store/persist').then(m => m.flushPersistWhenReady(A));
         const n = Object.keys(draft.s).length;
         api.setState({
           msg: n

@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { adminPathForView } from "@/modules/admin/routes";
-import { useNaraStore } from "@/providers/nara-provider";
+import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 
 const SECS: [string, string][] = [
   ["cap", "Captación"],
@@ -100,6 +100,7 @@ const INITIAL_NF: NfState = {
 
 export function useAdminInformesScreen() {
   const A = useNaraStore();
+  const live = useNaraLive();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [st, setSt] = useState<UiState>({
@@ -568,7 +569,7 @@ export function useAdminInformesScreen() {
         ? "Solo datos agregados: se puede compartir con el financiador."
         : "Incluye detalle operativo: no se puede compartir con el financiador.",
     };
-  }, [A, router, setState, st]);
+  }, [A, router, setState, st, live]);
 
   return { v };
 }

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
-import { useNaraStore } from "@/providers/nara-provider";
+import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { adminPathForView, adminViewForPath } from "../routes";
 import { INITIAL_ADMIN_STATE, type AdminUiState } from "./adminConstants";
 import { buildAdminModel, type AdminModelApi } from "./adminModel";
 
 export function useAdminScreen() {
   const store = useNaraStore();
+  const live = useNaraLive();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -60,12 +61,26 @@ export function useAdminScreen() {
 
   const api = useMemo((): AdminModelApi => {
     const draftFn = (code: string) => {
-      if (state.drafts[code]) return state.drafts[code];
       const { r, d } = store.parseCode(code);
+      const full = store.defaultPath(r, d);
+      // No rellenar servicios faltantes: apagado en la ruta = ausente en `s`.
+      if (state.drafts[code]) {
+        const dr = state.drafts[code];
+        return {
+          ...dr,
+          s: { ...(dr.s || {}) },
+          inactiveMinutes:
+            dr.inactiveMinutes != null ? dr.inactiveMinutes : 1440,
+        };
+      }
       const S0 = store.get();
       const p =
-        (S0.pathOverrides && S0.pathOverrides[code]) || store.defaultPath(r, d);
-      return { s: { ...p.s }, months: p.months };
+        (S0.pathOverrides && S0.pathOverrides[code]) || full;
+      return {
+        s: { ...(p.s || {}) },
+        months: p.months,
+        inactiveMinutes: p.inactiveMinutes != null ? p.inactiveMinutes : 1440,
+      };
     };
     return {
       setState,
@@ -80,7 +95,7 @@ export function useAdminScreen() {
     };
   }, [go, router, setState, state.drafts, store]);
 
-  const v = useMemo(() => buildAdminModel(store, state, api), [api, state, store]);
+  const v = useMemo(() => buildAdminModel(store, state, api), [api, state, store, live]);
 
   return { v, navGo: (key: string) => go(key, { msg: "" }) };
 }

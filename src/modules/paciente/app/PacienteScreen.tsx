@@ -3,8 +3,13 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
-import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
+import {
+  ClinPanel,
+  PacienteHerramientasNav,
+  RevisitPanel,
+  TechPanel,
+} from "@/modules/paciente/herramientas";
 import { BreathExercise } from "./BreathExercise";
 import { naraAsset } from "./naraAsset";
 import { usePacienteScreen } from "./usePacienteScreen";
@@ -224,7 +229,7 @@ function btnFont(): CSSProperties {
 
 function DianaApp({ vm }: { vm: Vm }) {
   return (
-    <>
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         style={{
           flex: "none",
@@ -241,35 +246,39 @@ function DianaApp({ vm }: { vm: Vm }) {
           <img src={naraAsset("marca/logo/nara-logo.svg")} alt="NARA" style={{ height: 34, width: "auto", display: "block" }} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            onClick={vm.openHelp}
-            aria-label="Estoy en crisis"
-            style={{
-              ...btnFont(),
-              fontSize: 14,
-              fontWeight: 600,
-              height: 48,
-              padding: "0 14px 0 10px",
-              borderRadius: 24,
-              border: "none",
-              background: "#B42318",
-              color: "#fff",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <circle cx="12" cy="12" r="3.5" />
-              <path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
-            </svg>
-            Estoy en crisis
-          </button>
-          <UserMenu compact />
+          {!vm.helpOpen && !vm.crisisAlertSent && !vm.inactiveOpen ? (
+            <button
+              type="button"
+              onClick={vm.openHelp}
+              aria-label="Estoy en crisis"
+              style={{
+                ...btnFont(),
+                fontSize: 14,
+                fontWeight: 600,
+                height: 48,
+                padding: "0 14px 0 10px",
+                borderRadius: 24,
+                border: "none",
+                background: "#6B0000",
+                color: "#fff",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="3.5" />
+                <path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
+              </svg>
+              Estoy en crisis
+            </button>
+          ) : null}
+          {!vm.helpOpen && !vm.crisisAlertSent && !vm.inactiveOpen ? (
+            <UserMenu compact />
+          ) : null}
         </div>
       </div>
 
@@ -585,66 +594,44 @@ function DianaApp({ vm }: { vm: Vm }) {
         {vm.tabChat && vm.mods?.ia ? <DianaChat vm={vm} /> : null}
         {vm.tabRes ? <DianaResumen vm={vm} /> : null}
         {vm.tabRoute ? <DianaRoute vm={vm} /> : null}
-        {vm.tabHist ? <DianaHist vm={vm} /> : null}
+        {vm.tabClin ? (
+          <ClinPanel patientId={String(vm.patientId || "")} />
+        ) : null}
+        {vm.tabTech ? (
+          <TechPanel patientId={String(vm.patientId || "")} />
+        ) : null}
+        {vm.tabRevisit ? (
+          <RevisitPanel patientId={String(vm.patientId || "")} />
+        ) : null}
       </div>
 
-      {(vm.tabCount || 0) > 0 ? (
-      <div
-        role="tablist"
-        className="grid shrink-0 border-t border-linea bg-nara-blanco px-1.5 pt-1.5"
-        style={{
-          paddingBottom: 10,
-          gridTemplateColumns: `repeat(${vm.tabCount || vm.tabs.length || 2}, minmax(0, 1fr))`,
-        }}
-      >
-        {vm.tabs.map((t) => (
-          <button
-            key={t.label}
-            type="button"
-            role="tab"
-            aria-selected={t.on}
-            onClick={t.go}
-            className={`relative flex min-h-14 cursor-pointer flex-col items-center justify-center gap-0.5 border-0 bg-transparent px-1 font-texto text-[13px] outline-none after:pointer-events-none after:absolute after:right-2 after:bottom-0 after:left-2 after:h-[3px] after:content-[''] ${
-              t.on
-                ? "font-semibold text-nara-tinta after:bg-[#FDCD22]"
-                : "font-medium text-texto-secundario after:bg-transparent"
-            }`}
-          >
-            <span className="grid h-7 place-items-center">
-              {t.isHome ? (
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 10.5 12 3l9 7.5" />
-                  <path d="M5 9.5V20h5v-6h4v6h5V9.5" />
-                </svg>
-              ) : null}
-              {t.isTeo ? (
-                <img src={naraAsset("marca/logo/teo-isotipo.svg")} alt="" style={{ width: 28, height: 28, display: "block", opacity: t.op }} />
-              ) : null}
-              {t.isRoute ? (
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="6" cy="19" r="2.2" />
-                  <circle cx="18" cy="5" r="2.2" />
-                  <path d="M8.2 19H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.8" />
-                </svg>
-              ) : null}
-              {t.isHist ? (
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 20V4" />
-                  <path d="M4 20h16" />
-                  <path d="M8 16v-4M12 16V8M16 16v-6" />
-                </svg>
-              ) : null}
-            </span>
-            <span>{t.label}</span>
-          </button>
-        ))}
-      </div>
+      {(vm.herramientaNavCount || vm.tabCount || 0) > 0 &&
+      !vm.helpOpen &&
+      !vm.inactiveOpen ? (
+        <PacienteHerramientasNav
+          items={
+            (vm.herramientaNav as
+              | {
+                  id: "mood" | "clin" | "ia" | "tech" | "revisit" | "cursos";
+                  name: string;
+                  navLabel: string;
+                  on: boolean;
+                  go: () => void;
+                }[]
+              | undefined) || []
+          }
+        />
       ) : null}
 
-      {vm.rdOpen && vm.rdView ? <ReaderOverlay vm={vm} /> : null}
-      {vm.plOpen && vm.plView ? <PlayerOverlay vm={vm} /> : null}
-      {vm.helpOpen ? <HelpSheet vm={vm} /> : null}
-    </>
+      {vm.rdOpen && vm.rdView && !vm.helpOpen && !vm.inactiveOpen ? (
+        <ReaderOverlay vm={vm} />
+      ) : null}
+      {vm.plOpen && vm.plView && !vm.helpOpen && !vm.inactiveOpen ? (
+        <PlayerOverlay vm={vm} />
+      ) : null}
+      {vm.helpOpen ? <CrisisLockScreen vm={vm} /> : null}
+      {!vm.helpOpen && vm.inactiveOpen ? <InactiveLockScreen vm={vm} /> : null}
+    </div>
   );
 }
 
@@ -874,6 +861,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
         {vm.lib.empty ? <span style={{ color: "#5E5750" }}>Aún no hay contenido asignado para esta semana.</span> : null}
       </div>
       ) : null}
+      {vm.route.length ? (
       <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: "6px 16px" }}>
         {vm.route.map((r) => (
           <div key={r.name} style={{ padding: "12px 0", borderBottom: "1px solid #E6E1D9", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -889,6 +877,7 @@ function DianaRoute({ vm }: { vm: Vm }) {
           </div>
         ))}
       </div>
+      ) : null}
       {vm.hasRouteChanges ? (
         <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={{ fontWeight: 500 }}>Cambios en su ruta</span>
@@ -901,53 +890,6 @@ function DianaRoute({ vm }: { vm: Vm }) {
         </div>
       ) : null}
       <span style={{ fontSize: 15, color: "#5E5750" }}>Su psicóloga revisa su ruta cada mes.</span>
-    </div>
-  );
-}
-
-function DianaHist({ vm }: { vm: Vm }) {
-  return (
-    <div style={{ animation: "naraTab .22s ease-out", padding: "6px 18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-      <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28 }}>Historial</span>
-      <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <span style={{ fontWeight: 500 }}>Cuestionario de ánimo</span>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 14, height: 120, padding: "0 6px" }}>
-          {vm.hist.map((h) => (
-            <div key={h.d} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, justifyContent: "flex-end", height: "100%" }}>
-              <span style={{ fontWeight: 500 }}>{h.v}</span>
-              <div style={{ width: "100%", height: h.h, background: "#A9D4FF", borderRadius: "6px 6px 2px 2px" }} />
-              <span style={{ fontSize: 13, color: "#5E5750" }}>{h.d}</span>
-            </div>
-          ))}
-        </div>
-        <span style={{ fontSize: 16 }}>Más bajo es mejor. Empezó en 15, hoy está en 9.</span>
-      </div>
-      <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <span style={{ fontWeight: 500 }}>Quién ve sus datos</span>
-        <span style={{ fontSize: 16, lineHeight: 1.45 }}>
-          <b style={{ fontWeight: 500 }}>Su psicóloga</b> ve todo, también sus conversaciones con TEO.
-        </span>
-        <span style={{ fontSize: 16, lineHeight: 1.45 }}>
-          <b style={{ fontWeight: 500 }}>Su experta de campo</b> ve su ruta y sus citas. No ve sus conversaciones.
-        </span>
-        <span style={{ fontSize: 16, lineHeight: 1.45 }}>
-          <b style={{ fontWeight: 500 }}>Los informes del programa</b> usan datos sin su nombre.
-        </span>
-      </div>
-      <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: "6px 16px" }}>
-        {vm.consents.map((c) => (
-          <div key={c.label} role="button" tabIndex={0} onClick={c.toggle} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #E6E1D9", cursor: "pointer", minHeight: 48 }}>
-            <span style={{ fontSize: 16, lineHeight: 1.35 }}>{c.label}</span>
-            <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14, color: "#5E5750" }}>{c.state}</span>
-              <div style={{ width: 52, height: 30, borderRadius: 15, background: c.bg, position: "relative" }}>
-                <div style={{ position: "absolute", top: 3, left: c.x, width: 24, height: 24, borderRadius: 12, background: "#fff" }} />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <NaraMsgAlert msg={vm.consentMsg} onClear={() => vm.clearConsentMsg()} />
     </div>
   );
 }
@@ -1085,30 +1027,108 @@ function PlayerOverlay({ vm }: { vm: Vm }) {
   );
 }
 
-function HelpSheet({ vm }: { vm: Vm }) {
+/** Pantalla amarilla: inactividad · botón redondo «Volví» (mismo lenguaje que «ayuda»). */
+function InactiveLockScreen({ vm }: { vm: Vm }) {
   return (
-    <div style={{ position: "absolute", inset: 0, background: "rgba(22,20,19,.45)", display: "flex", alignItems: "flex-end", zIndex: 66 }}>
-      <div style={{ background: "#fff", width: "100%", borderRadius: "24px 24px 0 0", padding: "22px 20px 34px", display: "flex", flexDirection: "column", gap: 12, fontSize: 17 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, background: "#A9D4FF", borderRadius: 16, padding: "12px 14px" }}>
-          <img src={naraAsset("marca/personajes/nara-calma.svg")} alt="" style={{ flex: "none", width: 40, height: "auto", display: "block" }} />
-          <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 24, lineHeight: 1.2 }}>Estoy en crisis</span>
-        </div>
-        <span style={{ lineHeight: 1.45 }}>{vm.helpText}</span>
-        {vm.dianaLines.map((cl) => (
-          <a key={cl.label} href={cl.tel} style={{ minHeight: 58, padding: "4px 14px", boxSizing: "border-box", borderRadius: 29, border: "2px solid #B42318", background: cl.bg, color: cl.fg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 17, textAlign: "center", textDecoration: "none" }}>
-            <span>{cl.label}</span>
-            <span style={{ fontSize: 12, fontWeight: 400 }}>{cl.sub}</span>
-          </a>
-        ))}
-        {vm.helpNotSent ? (
-          <button type="button" onClick={vm.askCall} style={{ ...btnFont(), fontSize: 17, fontWeight: 500, height: 56, borderRadius: 28, border: "2px solid #161413", background: "#fff", color: "#161413", cursor: "pointer" }}>
-            Pedir que me llamen ya
-          </button>
-        ) : null}
-        <button type="button" onClick={vm.closeHelp} style={{ ...btnFont(), fontSize: 16, border: "none", background: "none", color: "#161413", height: 48, cursor: "pointer" }}>
-          Cerrar
+    <div
+      role="alertdialog"
+      aria-label="Inactividad"
+      aria-modal="true"
+      className="absolute inset-0 z-[115] flex flex-col items-center justify-center bg-nara-amarillo px-8"
+    >
+      <button
+        type="button"
+        disabled={!!vm.confirmBackBusy}
+        onClick={() => (vm.confirmBack as () => void)?.()}
+        className={[
+          "flex h-[min(72vw,280px)] w-[min(72vw,280px)] max-h-[42vh] max-w-[42vh] flex-col items-center justify-center gap-3 rounded-full border-[6px] border-nara-tinta bg-nara-blanco font-titulos font-bold uppercase tracking-[0.12em] text-nara-tinta shadow-[0_0_0_10px_rgba(22,20,19,0.12),0_0_0_22px_rgba(22,20,19,0.06)]",
+          vm.confirmBackBusy
+            ? "cursor-wait opacity-70"
+            : "cursor-pointer active:scale-[0.97]",
+        ].join(" ")}
+      >
+        <svg
+          width="56"
+          height="56"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M3 12a9 9 0 1 0 3-6.7" />
+          <path d="M3 4v5h5" />
+        </svg>
+        <span className="text-[clamp(2rem,9vw,3.25rem)] leading-none">
+          {vm.confirmBackBusy ? "..." : "Volví"}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/** Pantalla roja sangre: «ayuda» → espera → «estoy bien» solo tras atención clínica. */
+function CrisisLockScreen({ vm }: { vm: Vm }) {
+  const sent = !!vm.crisisAlertSent;
+  const attended = !!vm.crisisAttended;
+  return (
+    <div
+      role="alertdialog"
+      aria-label={
+        !sent ? "Confirmar ayuda" : attended ? "Confirmar que está bien" : "Crisis activa"
+      }
+      aria-modal="true"
+      className="absolute inset-0 z-[120] flex flex-col items-center justify-center gap-8 bg-[#6B0000] px-8"
+    >
+      {!sent ? (
+        <button
+          type="button"
+          onClick={vm.askCall}
+          className="flex h-[min(72vw,280px)] w-[min(72vw,280px)] max-h-[42vh] max-w-[42vh] cursor-pointer flex-col items-center justify-center gap-3 rounded-full border-[6px] border-white bg-white font-titulos font-bold uppercase tracking-[0.12em] text-[#6B0000] shadow-[0_0_0_10px_rgba(255,255,255,0.22),0_0_0_22px_rgba(255,255,255,0.1)] active:scale-[0.97]"
+        >
+          <svg
+            width="56"
+            height="56"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3.5" />
+            <path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9" />
+          </svg>
+          <span className="text-[clamp(2rem,9vw,3.25rem)] leading-none">ayuda</span>
         </button>
-      </div>
+      ) : (
+        <>
+          <p className="m-0 max-w-[20rem] text-center font-titulos text-[clamp(1.35rem,5.5vw,1.85rem)] font-semibold leading-snug text-white">
+            {attended
+              ? "El equipo ya te atendió. Cuando te sientas bien, confírmalo."
+              : "Ya avisamos al equipo. Nos pondremos en contacto contigo."}
+          </p>
+          {attended ? (
+            <button
+              type="button"
+              disabled={!!vm.confirmWellBusy}
+              onClick={() => (vm.confirmWell as () => void)?.()}
+              className={[
+                "min-h-16 w-full max-w-[20rem] rounded-full border-0 px-8 py-4 font-titulos text-[clamp(1.25rem,5vw,1.65rem)] font-bold tracking-wide text-[#6B0000]",
+                vm.confirmWellBusy
+                  ? "cursor-wait bg-white/70"
+                  : "cursor-pointer bg-white active:scale-[0.98]",
+              ].join(" ")}
+            >
+              {vm.confirmWellBusy ? "guardando..." : "estoy bien"}
+            </button>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

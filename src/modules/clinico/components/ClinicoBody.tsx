@@ -1,21 +1,77 @@
 // @ts-nocheck
 "use client";
 
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { IoClose } from "react-icons/io5";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { RoleNav } from "@/components/shared/role-nav/RoleNav";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
+import { HerramientasSection } from "@/modules/clinico/herramientas";
+
+type CrisisHistoryEvent = {
+  key: string;
+  when: string;
+  ago: string;
+  typeLabel: string;
+  typeBg: string;
+  typeFg: string;
+  by: string;
+  byMeta: string;
+  source: string;
+  what: string;
+  detail: string;
+};
+
+function CrisisHistoryEventCard({ ev }: { ev: CrisisHistoryEvent }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-[14px] border border-linea bg-nara-crema/40 px-3.5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span
+          className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+          style={{ background: ev.typeBg, color: ev.typeFg }}
+        >
+          {ev.typeLabel}
+        </span>
+        <span className="text-[13px] text-texto-secundario">
+          {ev.when} · {ev.ago}
+        </span>
+      </div>
+      <p className="m-0 text-[15px] leading-snug text-nara-tinta">{ev.what}</p>
+      {ev.detail ? (
+        <p className="m-0 text-sm text-texto-secundario">{ev.detail}</p>
+      ) : null}
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[13px] text-texto-secundario">
+        <span>
+          <span className="font-medium text-nara-tinta">Quién:</span> {ev.by}
+          {ev.byMeta ? ` · ${ev.byMeta}` : ""}
+        </span>
+        {ev.source ? (
+          <span>
+            <span className="font-medium text-nara-tinta">Origen:</span> {ev.source}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function ClinicoTopbar({ v }: { v: Record<string, unknown> }) {
   const navItems = (
-    (v.nav as { key?: string; label: string; active?: boolean; go: () => void }[] | undefined) || []
+    (v.nav as {
+      key?: string;
+      label: string;
+      active?: boolean;
+      href?: string;
+      go?: () => void;
+    }[] | undefined) || []
   ).map((n, i) => ({
     key: n.key || String(i) + n.label,
     label: n.label,
     active: !!n.active,
-    onClick: () => n.go?.(),
+    href: n.href,
+    onClick: n.href ? undefined : () => n.go?.(),
   }));
 
   return (
@@ -39,7 +95,7 @@ export function ClinicoTopbar({ v }: { v: Record<string, unknown> }) {
             onClick={() => (v.goAlerts as () => void)?.()}
             className={
               v.hasCrisisPending
-                ? "hidden cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-[#B42318] bg-[#B42318] px-3 py-1.5 font-texto text-[13px] font-semibold text-white sm:inline-flex"
+                ? "hidden cursor-pointer items-center gap-2 rounded-full border-[1.5px] border-[#6B0000] bg-[#6B0000] px-3 py-1.5 font-texto text-[13px] font-semibold text-white sm:inline-flex"
                 : "hidden max-w-[180px] cursor-pointer items-center gap-2 truncate rounded-full border-[1.5px] border-linea bg-nara-blanco px-3 py-1.5 font-texto text-[13px] font-medium text-texto-secundario sm:inline-flex"
             }
           >
@@ -81,10 +137,260 @@ export function ClinicoTopbar({ v }: { v: Record<string, unknown> }) {
   );
 }
 
+
+type CrisisAlert = Record<string, unknown>;
+
+function CrisisSection({
+  title,
+  subtitle,
+  count,
+  accent,
+  children,
+  empty,
+}: {
+  title: string;
+  subtitle?: string;
+  count: number;
+  accent?: "danger" | "warm" | "ok" | "neutral";
+  children: ReactNode;
+  empty?: string;
+}) {
+  const bar =
+    accent === "danger"
+      ? "bg-[#6B0000]"
+      : accent === "warm"
+        ? "bg-[#FDCD22]"
+        : accent === "ok"
+          ? "bg-[#3D7A5A]"
+          : "bg-linea";
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-end justify-between gap-3 border-b border-linea pb-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={`h-8 w-1.5 shrink-0 rounded-full ${bar}`} />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="font-titulos text-lg font-semibold text-nara-tinta">{title}</span>
+            {subtitle ? (
+              <span className="text-[13px] text-texto-secundario">{subtitle}</span>
+            ) : null}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full bg-nara-crema px-2.5 py-0.5 text-sm font-medium text-nara-tinta">
+          {count}
+        </span>
+      </div>
+      {count === 0 ? (
+        <div className="rounded-2xl border border-dashed border-linea bg-nara-blanco/80 px-5 py-6 text-center text-sm text-texto-secundario">
+          {empty || "Nada por aquí."}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">{children}</div>
+      )}
+    </section>
+  );
+}
+
+function CrisisAlertCard({ a }: { a: CrisisAlert }) {
+  return (
+    <article
+      className={
+        a.isNewCrisis
+          ? "flex flex-col gap-4 rounded-[20px] border-[1.5px] border-[#6B0000] bg-nara-blanco p-5"
+          : a.isMine
+            ? "flex flex-col gap-4 rounded-[20px] border border-nara-tinta/20 bg-nara-blanco p-5 ring-1 ring-[#FDCD22]/50"
+            : "flex flex-col gap-3.5 rounded-[20px] border border-linea bg-nara-blanco p-5"
+      }
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+              style={{ background: a.tagBg as string, color: a.tagFg as string }}
+            >
+              {a.sevLabel as string}
+            </span>
+            {a.isLate ? (
+              <span className="rounded-md bg-[#6B0000] px-2 py-0.5 text-[11px] font-semibold text-white">
+                Fuera de tiempo
+              </span>
+            ) : null}
+            {a.profile && a.profile !== "—" ? (
+              <span className="rounded-md border border-linea bg-nara-crema px-2 py-0.5 text-[11px] font-medium text-nara-tinta">
+                {a.profile as string}
+              </span>
+            ) : null}
+          </div>
+          <span className="font-titulos text-[22px] font-semibold leading-tight text-nara-tinta">
+            {a.name as string}
+          </span>
+          <span className="text-[14px] text-texto-secundario">
+            {(a.metaLine as string) || "—"}
+          </span>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+          <span className="text-[13px] text-texto-secundario">{a.ago as string}</span>
+          {a.cd ? (
+            <span className="max-w-[11rem] text-[13px] font-medium leading-snug" style={{ color: a.cdFg as string }}>
+              {a.cd as string}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <p className="m-0 text-[15px] leading-snug text-nara-tinta">{a.what as string}</p>
+      {a.source ? (
+        <span className="text-[13px] text-texto-secundario">{a.source as string}</span>
+      ) : null}
+
+      {a.canTake ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+          {a.hasFile ? (
+            <button
+              type="button"
+              onClick={() => (a.open as () => void)?.()}
+              className="h-11 cursor-pointer rounded-xl border-[1.5px] border-nara-tinta bg-transparent px-4 font-texto text-sm font-medium text-nara-tinta"
+            >
+              Ver ficha
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => (a.take as () => void)?.()}
+            className="h-11 cursor-pointer rounded-xl border-0 bg-[#6B0000] px-5 font-texto text-sm font-semibold text-white"
+          >
+            Tomar caso
+          </button>
+        </div>
+      ) : null}
+
+      {a.isOther ? (
+        <div className="flex justify-end">
+          <span className="rounded-xl bg-nara-crema px-3.5 py-2 text-sm font-medium text-nara-tinta">
+            En atención · {a.takenBy as string}
+          </span>
+        </div>
+      ) : null}
+
+      {a.isMine ? (
+        <div className="flex flex-col gap-4 border-t border-linea pt-4">
+          <div className="flex flex-col gap-2 rounded-2xl bg-nara-crema px-4 py-3.5">
+            <span className="text-[12px] font-semibold uppercase tracking-wide text-texto-secundario">
+              Llamar ahora
+            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="select-all font-titulos text-[26px] font-semibold tracking-wide text-nara-tinta">
+                {a.phone as string}
+              </span>
+              <button
+                type="button"
+                onClick={() => (a.copy as () => void)?.()}
+                className="h-9 cursor-pointer rounded-lg border border-linea bg-nara-blanco px-3 font-texto text-[13px] font-medium text-nara-tinta"
+              >
+                {a.copyLabel as string}
+              </button>
+              {a.hasFile ? (
+                <button
+                  type="button"
+                  onClick={() => (a.open as () => void)?.()}
+                  className="h-9 cursor-pointer border-0 bg-transparent p-0 font-texto text-[13px] font-medium text-nara-tinta underline"
+                >
+                  Abrir ficha
+                </button>
+              ) : null}
+            </div>
+            {a.retryText ? (
+              <span className="text-sm text-nara-tinta">{a.retryText as string}</span>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-semibold uppercase tracking-wide text-texto-secundario">
+              Resultado
+            </span>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {(
+                a.outcomes as {
+                  label: string;
+                  selected: boolean;
+                  pick: () => void;
+                }[]
+              )?.map((o, j) => (
+                <button
+                  key={j}
+                  type="button"
+                  onClick={() => o.pick?.()}
+                  className={
+                    o.selected
+                      ? "flex cursor-pointer items-start gap-3 rounded-2xl border-[1.5px] border-nara-tinta bg-[#FDCD22]/40 px-3.5 py-3 text-left font-texto"
+                      : "flex cursor-pointer items-start gap-3 rounded-2xl border border-linea bg-nara-crema/40 px-3.5 py-3 text-left font-texto hover:bg-nara-crema"
+                  }
+                >
+                  <span
+                    className={
+                      o.selected
+                        ? "mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 border-nara-tinta bg-nara-tinta"
+                        : "mt-0.5 h-[18px] w-[18px] shrink-0 rounded-full border-2 border-linea bg-nara-blanco"
+                    }
+                  >
+                    {o.selected ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#FDCD22]" />
+                    ) : null}
+                  </span>
+                  <span className="text-[14px] leading-snug text-nara-tinta">{o.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => (a.close as () => void)?.()}
+              disabled={!a.hasOutcome}
+              className={
+                a.hasOutcome
+                  ? "h-12 cursor-pointer rounded-xl border-0 bg-[#FDCD22] px-6 font-texto text-[15px] font-semibold text-nara-tinta"
+                  : "h-12 cursor-not-allowed rounded-xl border-0 bg-[#E6E1D9] px-6 font-texto text-[15px] font-medium text-texto-secundario"
+              }
+            >
+              {a.closeLabel as string}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {a.isInfo ? (
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => (a.dismiss as () => void)?.()}
+            className="h-11 cursor-pointer rounded-xl border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-sm text-nara-tinta"
+          >
+            Marcar como vista
+          </button>
+          {a.hasFile ? (
+            <button
+              type="button"
+              onClick={() => (a.open as () => void)?.()}
+              className="h-11 cursor-pointer rounded-xl border-0 bg-[#FDCD22] px-5 font-texto text-sm font-medium text-nara-tinta"
+            >
+              Abrir ficha
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+
 export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
   const as = (v.as as Record<string, unknown>) || {};
   const f = (v.f as Record<string, unknown>) || {};
-  const rec = (f.rec as Record<string, unknown>) || {};
+  const [crisisHistoryOpen, setCrisisHistoryOpen] = useState(false);
+  const fileCrisisHistory = (f.crisisHistory as CrisisHistoryEvent[] | undefined) || [];
+  const lastCrisisEvent = fileCrisisHistory[0] || null;
 
   return (
     <div
@@ -113,7 +419,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 onClick={() => (v.goAlerts as () => void)?.()}
                 className={
                   v.hasCrisisPending
-                    ? "flex cursor-pointer flex-col gap-1.5 rounded-2xl border-[1.5px] border-[#B42318] bg-[#B42318] px-[18px] py-[18px] text-left font-texto text-white"
+                    ? "flex cursor-pointer flex-col gap-1.5 rounded-2xl border-[1.5px] border-[#6B0000] bg-[#6B0000] px-[18px] py-[18px] text-left font-texto text-white"
                     : "flex cursor-pointer flex-col gap-1.5 rounded-2xl border-[1.5px] border-linea bg-nara-blanco px-[18px] py-[18px] text-left font-texto text-nara-tinta"
                 }
               >
@@ -130,7 +436,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   className="text-[13px]"
                   style={{ color: v.hasCrisisPending ? "rgba(255,255,255,.85)" : "#5E5750" }}
                 >
-                  {v.openCount as number} abiertas en la cola
+                  {v.openCount as number} en Mis pacientes · estado Crisis
                 </span>
               </button>
               <button
@@ -146,6 +452,21 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 </span>
                 <span className="text-[13px] text-texto-secundario">
                   Evaluaciones, rutas y reglas
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => (v.goCrisisHistory as () => void)?.()}
+                className="flex cursor-pointer flex-col gap-1.5 rounded-2xl border-[1.5px] border-linea bg-nara-blanco px-[18px] py-[18px] text-left font-texto text-nara-tinta"
+              >
+                <span className="font-medium">Historial de crisis</span>
+                <span className="text-sm font-medium text-nara-tinta">
+                  {((v.crisisHistory as unknown[]) || []).length
+                    ? ((v.crisisHistory as unknown[]).length) + " eventos"
+                    : "Sin eventos aún"}
+                </span>
+                <span className="text-[13px] text-texto-secundario">
+                  Creación, toma, respuesta y cierre
                 </span>
               </button>
               <div
@@ -347,346 +668,265 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
         ) : null}
 
         {v.isAlerts ? (
-          <div className="nara-split-panel" style={{ gap: 24, alignItems: "start" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div className="nara-page-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                <span
-                  style={{
-                    fontFamily: "Fredoka,Figtree,system-ui,sans-serif",
-                    fontWeight: 600,
-                    fontSize: 28,
-                  }}
-                >
-                  Crisis
-                </span>
-                <span style={{ color: "#5E5750" }}>
-                  Una sola cola: botón «Estoy en crisis», visitas, TEO, manillas, sesiones y WhatsApp
-                </span>
-              </div>
-              {(v.alerts as Record<string, unknown>[] | undefined)?.map((a, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "#fff",
-                    border: `1.5px solid ${a.bd}`,
-                    borderRadius: 14,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                    boxShadow: a.shadow as string,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                    <span
-                      style={{
-                        flex: "none",
-                        fontSize: 13,
-                        fontWeight: 500,
-                        padding: "4px 10px",
-                        borderRadius: 6,
-                        background: a.tagBg as string,
-                        color: a.tagFg as string,
-                      }}
-                    >
-                      {a.sevLabel as string}
-                    </span>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "baseline",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <span style={{ fontSize: 17, fontWeight: 500 }}>{a.name as string}</span>
-                        <span style={{ color: "#5E5750" }}>
-                          {a.age as number} años · {a.place as string}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 13,
-                            fontWeight: 500,
-                            padding: "2px 8px",
-                            borderRadius: 5,
-                            border: "1px solid #DCD6CD",
-                          }}
-                        >
-                          {a.profile as string}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 16, lineHeight: 1.45 }}>{a.what as string}</span>
-                      <span style={{ color: "#5E5750" }}>{a.source as string}</span>
-                    </div>
-                    <div
-                      style={{
-                        flex: "none",
-                        textAlign: "right",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 4,
-                        alignItems: "flex-end",
-                      }}
-                    >
-                      <span style={{ color: "#5E5750" }}>{a.ago as string}</span>
-                      <span style={{ fontWeight: 500, color: a.cdFg as string }}>{a.cd as string}</span>
-                    </div>
-                  </div>
-                  {a.canTake ? (
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        onClick={() => (a.take as () => void)?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 16,
-                          fontWeight: 500,
-                          height: 48,
-                          padding: "0 24px",
-                          borderRadius: 10,
-                          border: "none",
-                          background: "#B42318",
-                          color: "#fff",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Tomar caso
-                      </button>
-                    </div>
-                  ) : null}
-                  {a.isOther ? (
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                      <span
-                        style={{
-                          fontWeight: 500,
-                          padding: "8px 14px",
-                          borderRadius: 8,
-                          background: "#F0ECE6",
-                        }}
-                      >
-                        En atención · {a.takenBy as string}
-                      </span>
-                    </div>
-                  ) : null}
-                  {a.isMine ? (
-                    <div
-                      className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_auto] lg:gap-[18px]"
-                      style={{
-                        borderTop: "1px solid #E6E1D9",
-                        paddingTop: 14,
-                        alignItems: "start",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <span style={{ color: "#5E5750" }}>En atención por usted · teléfono</span>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <span
-                            style={{
-                              fontSize: 20,
-                              fontWeight: 500,
-                              userSelect: "all",
-                              letterSpacing: ".02em",
-                            }}
-                          >
-                            {a.phone as string}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => (a.copy as () => void)?.()}
-                            style={{
-                              fontFamily: "Figtree,system-ui,sans-serif",
-                              fontSize: 13,
-                              border: "1px solid #DCD6CD",
-                              background: "#fff",
-                              borderRadius: 6,
-                              padding: "4px 8px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {a.copyLabel as string}
-                          </button>
-                        </div>
-                        <span style={{ color: "#161413" }}>{a.retryText as string}</span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {(
-                          a.outcomes as { label: string; bd: string; dot: string; pick: () => void }[]
-                        )?.map((o, j) => (
-                          <div
-                            key={j}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => o.pick?.()}
-                            onKeyDown={(e) => e.key === "Enter" && o.pick?.()}
-                            style={{
-                              display: "flex",
-                              gap: 10,
-                              alignItems: "center",
-                              minHeight: 42,
-                              padding: "0 12px",
-                              border: `1.5px solid ${o.bd}`,
-                              borderRadius: 9,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 18,
-                                height: 18,
-                                borderRadius: "50%",
-                                border: `2px solid ${o.bd}`,
-                                background: o.dot,
-                                boxSizing: "border-box",
-                              }}
-                            />
-                            {o.label}
-                          </div>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => (a.close as () => void)?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 15,
-                          fontWeight: 500,
-                          height: 46,
-                          padding: "0 20px",
-                          borderRadius: 14,
-                          border: "none",
-                          background: "#FDCD22",
-                          color: "#161413",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {a.closeLabel as string}
-                      </button>
-                    </div>
-                  ) : null}
-                  {a.isInfo ? (
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                      <button
-                        type="button"
-                        onClick={() => (a.dismiss as () => void)?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 15,
-                          height: 44,
-                          padding: "0 16px",
-                          borderRadius: 10,
-                          border: "1.5px solid #DCD6CD",
-                          background: "#fff",
-                          color: "#161413",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Marcar como vista
-                      </button>
-                      {a.hasFile ? (
-                        <button
-                          type="button"
-                          onClick={() => (a.open as () => void)?.()}
-                          style={{
-                            fontFamily: "Figtree,system-ui,sans-serif",
-                            fontSize: 15,
-                            fontWeight: 500,
-                            height: 44,
-                            padding: "0 18px",
-                            borderRadius: 14,
-                            border: "none",
-                            background: "#FDCD22",
-                            color: "#161413",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Abrir ficha
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
+          <div className="flex flex-col gap-6">
+            <div className="nara-page-head flex flex-col gap-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div className="flex flex-col gap-1">
+                  <span className="font-titulos text-[28px] font-semibold text-nara-tinta">Crisis</span>
+                  <span className="text-[15px] text-texto-secundario">
+                    Organizado por estado: por tomar, en atención y resueltas
+                  </span>
                 </div>
-              ))}
-              {v.noAlerts ? (
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px dashed #DCD6CD",
-                    borderRadius: 14,
-                    padding: 32,
-                    textAlign: "center",
-                    color: "#5E5750",
-                  }}
+                <button
+                  type="button"
+                  onClick={() => (v.goCrisisHistory as () => void)?.()}
+                  className="cursor-pointer self-start border-0 bg-transparent p-0 font-texto text-[14px] font-medium text-nara-tinta underline sm:self-auto"
                 >
-                  No hay alertas abiertas. Las nuevas aparecen aquí al instante.
+                  Historial completo →
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {(
+                  (v.crisisBoard as { tabs: { id: string; label: string; n: number; active: boolean; pick: () => void; hint: string }[] })
+                    ?.tabs || []
+                ).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => t.pick?.()}
+                    className={
+                      t.active
+                        ? "flex cursor-pointer flex-col gap-0.5 rounded-2xl border-[1.5px] border-nara-tinta bg-[#FDCD22]/35 px-3.5 py-3 text-left"
+                        : "flex cursor-pointer flex-col gap-0.5 rounded-2xl border border-linea bg-nara-blanco px-3.5 py-3 text-left hover:bg-nara-crema/60"
+                    }
+                  >
+                    <span className="font-titulos text-2xl font-semibold text-nara-tinta">{t.n}</span>
+                    <span className="text-sm font-medium text-nara-tinta">{t.label}</span>
+                    <span className="text-[12px] text-texto-secundario">{t.hint}</span>
+                  </button>
+                ))}
+              </div>
+
+              {((v.crisisBoard as { counts?: { late?: number } })?.counts?.late || 0) > 0 ? (
+                <div className="rounded-2xl border border-[#6B0000]/30 bg-[#6B0000]/10 px-4 py-3 text-sm text-[#6B0000]">
+                  Hay {(v.crisisBoard as { counts: { late: number } }).counts.late} alerta
+                  {(v.crisisBoard as { counts: { late: number } }).counts.late === 1 ? "" : "s"} fuera
+                  de la meta de 30 minutos.
                 </div>
               ) : null}
             </div>
-            <div
-              style={{
-                background: "#fff",
-                border: "1px solid #DCD6CD",
-                borderRadius: 20,
-                padding: "18px 20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-                position: "sticky",
-                top: 20,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: "Fredoka,Figtree,system-ui,sans-serif",
-                  fontWeight: 600,
-                  fontSize: 20,
-                }}
+
+            {v.crisisTab === "take" || v.crisisTab === "all" ? (
+              <CrisisSection
+                title="Por tomar"
+                subtitle="Crisis nuevas que aún nadie atendió"
+                count={((v.crisisBoard as { toTake: CrisisAlert[] }).toTake || []).length}
+                accent="danger"
+                empty="No hay crisis pendientes de toma. Bien."
               >
-                Atendidas hoy
-              </span>
-              {(v.closed as Record<string, unknown>[] | undefined)?.map((c, i) => (
-                <div
-                  key={i}
-                  style={{
-                    borderTop: "1px solid #E6E1D9",
-                    paddingTop: 10,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 3,
-                  }}
+                {((v.crisisBoard as { toTake: CrisisAlert[] }).toTake || []).map((a, i) => (
+                  <CrisisAlertCard key={String(a.id || i)} a={a} />
+                ))}
+              </CrisisSection>
+            ) : null}
+
+            {v.crisisTab === "mine" || v.crisisTab === "all" ? (
+              <CrisisSection
+                title="En atención (usted)"
+                subtitle="Casos que tomó · elija resultado y cierre"
+                count={((v.crisisBoard as { mine: CrisisAlert[] }).mine || []).length}
+                accent="warm"
+                empty="Aún no tiene casos en atención. Tome uno de «Por tomar»."
+              >
+                {((v.crisisBoard as { mine: CrisisAlert[] }).mine || []).map((a, i) => (
+                  <CrisisAlertCard key={String(a.id || i)} a={a} />
+                ))}
+              </CrisisSection>
+            ) : null}
+
+            {v.crisisTab === "all" ? (
+              <>
+                <CrisisSection
+                  title="En atención (colegas)"
+                  subtitle="Tomados por otro clínico del turno"
+                  count={((v.crisisBoard as { others: CrisisAlert[] }).others || []).length}
+                  accent="neutral"
+                  empty="Ningún colega tiene un caso abierto ahora."
                 >
-                  <span style={{ fontWeight: 500 }}>{c.name as string}</span>
-                  <span>{c.outcome as string}</span>
-                  <span style={{ fontSize: 13, color: "#5E5750" }}>{c.meta as string}</span>
-                  {c.canReopen ? (
-                    <button
-                      type="button"
-                      onClick={() => (c.reopen as () => void)?.()}
-                      style={{
-                        alignSelf: "flex-start",
-                        marginTop: 4,
-                        fontFamily: "Figtree,system-ui,sans-serif",
-                        fontSize: 14,
-                        fontWeight: 500,
-                        height: 38,
-                        padding: "0 12px",
-                        borderRadius: 9,
-                        border: "1.5px solid #161413",
-                        background: "#fff",
-                        color: "#161413",
-                        cursor: "pointer",
-                      }}
+                  {((v.crisisBoard as { others: CrisisAlert[] }).others || []).map((a, i) => (
+                    <CrisisAlertCard key={String(a.id || i)} a={a} />
+                  ))}
+                </CrisisSection>
+                <CrisisSection
+                  title="Otras alertas"
+                  subtitle="Revisiones e informativas"
+                  count={((v.crisisBoard as { info: CrisisAlert[] }).info || []).length}
+                  accent="neutral"
+                  empty="Sin alertas informativas abiertas."
+                >
+                  {((v.crisisBoard as { info: CrisisAlert[] }).info || []).map((a, i) => (
+                    <CrisisAlertCard key={String(a.id || i)} a={a} />
+                  ))}
+                </CrisisSection>
+              </>
+            ) : null}
+
+            {v.crisisTab === "done" || v.crisisTab === "all" ? (
+              <CrisisSection
+                title="Gestionadas hoy"
+                subtitle="Atendidas por usted · pasan a Cerrada solo cuando el paciente confirma «estoy bien»"
+                count={((v.closed as CrisisAlert[]) || []).length}
+                accent="ok"
+                empty="Todavía no ha gestionado alertas hoy."
+              >
+                {((v.closed as CrisisAlert[]) || []).map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col gap-1.5 rounded-2xl border border-linea bg-nara-blanco px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                  >
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-titulos text-lg font-semibold text-nara-tinta">
+                        {c.name as string}
+                      </span>
+                      <span className="text-[14px] text-nara-tinta">{c.outcome as string}</span>
+                      <span className="text-[13px] text-texto-secundario">{c.meta as string}</span>
+                      {c.statusHint ? (
+                        <span className="text-[12px] text-texto-secundario">
+                          {c.statusHint as string}
+                        </span>
+                      ) : null}
+                    </div>
+                    {c.canReopen ? (
+                      <button
+                        type="button"
+                        onClick={() => (c.reopen as () => void)?.()}
+                        className="h-9 shrink-0 cursor-pointer rounded-lg border-[1.5px] border-nara-tinta bg-nara-blanco px-3 font-texto text-[13px] font-medium text-nara-tinta"
+                      >
+                        {(c.reopenLabel as string) || "Reabrir"}
+                      </button>
+                    ) : (
+                      <span
+                        className={
+                          c.waiting
+                            ? "shrink-0 rounded-full bg-[#FFF4CC] px-2.5 py-1 text-xs font-medium text-nara-tinta"
+                            : "shrink-0 rounded-full bg-[#E3F1E8] px-2.5 py-1 text-xs font-medium text-nara-tinta"
+                        }
+                      >
+                        {(c.statusLabel as string) ||
+                          (c.waiting ? "Esperando al paciente" : "Cerrada")}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </CrisisSection>
+            ) : null}
+          </div>
+        ) : null}
+
+        {v.isCrisisHistory ? (
+          <div className="flex flex-col gap-4">
+            <div className="nara-page-head flex flex-row flex-wrap items-baseline justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={() => (v.goAlerts as () => void)?.()}
+                  className="cursor-pointer self-start border-0 bg-transparent p-0 font-texto text-[15px] text-nara-tinta"
+                >
+                  ← Cola de crisis
+                </button>
+                <span className="font-titulos text-[28px] font-semibold text-nara-tinta">
+                  Historial de crisis
+                </span>
+                <span className="text-[15px] text-texto-secundario">
+                  Log completo: creación, quién la generó, toma del caso, reintentos, respuesta y
+                  cierre.
+                </span>
+              </div>
+              <span className="text-sm text-texto-secundario">
+                {((v.crisisHistory as unknown[]) || []).length} eventos
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
+              {(
+                v.crisisHistory as
+                  | {
+                      key: string;
+                      when: string;
+                      ago: string;
+                      typeLabel: string;
+                      typeBg: string;
+                      typeFg: string;
+                      name: string;
+                      by: string;
+                      byMeta: string;
+                      source: string;
+                      what: string;
+                      detail: string;
+                      profile: string;
+                      place: string;
+                      hasFile: boolean;
+                      openFile: (() => void) | null;
+                    }[]
+                  | undefined
+              )?.map((ev) => (
+                <div
+                  key={ev.key}
+                  className="flex flex-col gap-2 rounded-[18px] border border-linea bg-nara-blanco px-4 py-3.5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                      style={{ background: ev.typeBg, color: ev.typeFg }}
                     >
-                      {c.reopenLabel as string}
-                    </button>
+                      {ev.typeLabel}
+                    </span>
+                    <span className="text-[13px] text-texto-secundario">
+                      {ev.when} · {ev.ago}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="font-titulos text-lg font-semibold text-nara-tinta">
+                      {ev.name}
+                    </span>
+                    {ev.profile ? (
+                      <span className="text-sm text-texto-secundario">{ev.profile}</span>
+                    ) : null}
+                    {ev.place ? (
+                      <span className="text-sm text-texto-secundario">· {ev.place}</span>
+                    ) : null}
+                  </div>
+                  <p className="m-0 text-[15px] leading-snug text-nara-tinta">{ev.what}</p>
+                  {ev.detail ? (
+                    <p className="m-0 text-sm text-texto-secundario">{ev.detail}</p>
                   ) : null}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-texto-secundario">
+                    <span>
+                      <span className="font-medium text-nara-tinta">Quién:</span> {ev.by}
+                      {ev.byMeta ? ` · ${ev.byMeta}` : ""}
+                    </span>
+                    {ev.source ? (
+                      <span>
+                        <span className="font-medium text-nara-tinta">Origen:</span> {ev.source}
+                      </span>
+                    ) : null}
+                    {ev.hasFile && ev.openFile ? (
+                      <button
+                        type="button"
+                        onClick={() => ev.openFile?.()}
+                        className="cursor-pointer border-0 bg-transparent p-0 font-texto text-[13px] font-medium text-nara-tinta underline"
+                      >
+                        Abrir ficha
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
-              {v.noClosed ? (
-                <span style={{ color: "#5E5750" }}>
-                  Todavía no ha cerrado alertas hoy. Al cerrar, el resultado se envía al experto de
-                  campo.
-                </span>
+              {!((v.crisisHistory as unknown[]) || []).length ? (
+                <div className="rounded-[14px] border border-dashed border-linea bg-nara-blanco px-8 py-10 text-center text-texto-secundario">
+                  Aún no hay eventos de crisis. Cuando se cree, tome o cierre una alerta, aparecerá
+                  aquí.
+                </div>
               ) : null}
             </div>
           </div>
@@ -739,16 +979,19 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 <span className="py-3 pr-3.5">Estado</span>
                 <span className="py-3 pr-3.5">Próxima sesión</span>
                 <span className="py-3 pr-3.5">Adherencia</span>
-                <span className="py-3 pr-5">Última señal</span>
+                <span className="py-3 pr-5">Última acción</span>
               </div>
               {(v.patients as Record<string, unknown>[] | undefined)?.map((p, i) => (
                 <div
                   key={i}
-                  className="grid items-stretch gap-0 border-t border-linea hover:bg-[#FAF8F5]"
+                  className={
+                    p.inCrisis
+                      ? "grid items-stretch gap-0 border-t border-[#4A0000] bg-[#6B0000] text-white hover:bg-[#5A0000]"
+                      : "grid items-stretch gap-0 border-t border-linea hover:bg-[#FAF8F5]"
+                  }
                   style={{
                     gridTemplateColumns:
                       "96px minmax(0,1.5fr) minmax(0,1.2fr) 90px 120px minmax(0,1fr) 100px minmax(0,1fr)",
-                    background: p.inCrisis ? "#FDE7E4" : undefined,
                   }}
                 >
                   <div className="min-h-[72px]">
@@ -759,7 +1002,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                           e.stopPropagation();
                           (p.openCrisis as (() => void) | undefined)?.();
                         }}
-                        className="flex h-full w-full cursor-pointer items-center justify-center border-none bg-[#B42318] px-2 font-texto text-xs font-semibold uppercase tracking-wide text-white"
+                        className="flex h-full w-full cursor-pointer items-center justify-center border-none bg-[#4A0000] px-2 font-texto text-xs font-semibold uppercase tracking-wide text-white"
                         aria-label={"Atender crisis de " + String(p.name || "")}
                       >
                         Crisis
@@ -776,7 +1019,15 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                     className="flex cursor-pointer flex-col justify-center gap-1 py-3.5 pr-3.5"
                   >
                     <span className="font-medium">{p.name as string}</span>
-                    <span className="text-[13px] text-texto-secundario">{p.age as number} años</span>
+                    <span
+                      className={
+                        p.inCrisis
+                          ? "text-[13px] text-white/75"
+                          : "text-[13px] text-texto-secundario"
+                      }
+                    >
+                      {p.age as number} años
+                    </span>
                   </div>
                   <span
                     role="button"
@@ -796,7 +1047,9 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   >
                     <span
                       className="h-2.5 w-2.5 rounded-sm"
-                      style={{ background: p.rc as string }}
+                      style={{
+                        background: p.inCrisis ? "#FFFFFF" : (p.rc as string),
+                      }}
                     />
                     <span className="font-medium">{p.profile as string}</span>
                   </div>
@@ -809,7 +1062,14 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   >
                     <span
                       className="w-fit rounded-md px-2 py-1 text-xs font-medium"
-                      style={{ background: p.stateBg as string, color: p.stateFg as string }}
+                      style={
+                        p.inCrisis
+                          ? { background: "#4A0000", color: "#FFFFFF" }
+                          : {
+                              background: p.stateBg as string,
+                              color: p.stateFg as string,
+                            }
+                      }
                     >
                       {p.stateLabel as string}
                     </span>
@@ -835,10 +1095,34 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   <span
                     role="button"
                     tabIndex={0}
-                    onClick={() => (p.open as () => void)?.()}
-                    onKeyDown={(e) => e.key === "Enter" && (p.open as () => void)?.()}
-                    className="flex cursor-pointer items-center py-3.5 pr-5 font-medium"
-                    style={{ color: p.sigFg as string }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (p.signalIsPending) {
+                        (p.openApprovals as (() => void) | undefined)?.();
+                        return;
+                      }
+                      if (p.signalIsCrisis) {
+                        (p.openCrisis as (() => void) | undefined)?.();
+                        return;
+                      }
+                      (p.open as () => void)?.();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      if (p.signalIsPending) {
+                        (p.openApprovals as (() => void) | undefined)?.();
+                        return;
+                      }
+                      if (p.signalIsCrisis) {
+                        (p.openCrisis as (() => void) | undefined)?.();
+                        return;
+                      }
+                      (p.open as () => void)?.();
+                    }}
+                    className="flex cursor-pointer items-center py-3.5 pr-5 font-medium underline-offset-2 hover:underline"
+                    style={{
+                      color: p.inCrisis ? "#FFFFFF" : (p.sigFg as string),
+                    }}
                   >
                     {p.signal as string}
                   </span>
@@ -1114,24 +1398,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
             >
               {v.fileBackLabel as string}
             </button>
-            {f.inCrisis ? (
-              <button
-                type="button"
-                onClick={() => (f.goCrisis as () => void)?.()}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border-[1.5px] border-[#B42318] bg-[#B42318] px-4 py-3.5 text-left font-texto text-white"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold tracking-wide">CRISIS ACTIVA</span>
-                  <span className="text-[13px] text-white/90">
-                    {(f.crisisAlert as { what?: string } | undefined)?.what ||
-                      "Hay una alerta de crisis abierta para esta persona."}
-                  </span>
-                </div>
-                <span className="shrink-0 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium">
-                  Ir a crisis
-                </span>
-              </button>
-            ) : null}
+
             <div
               style={{
                 background: "#fff",
@@ -1229,37 +1496,240 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 </span>
               </div>
             </div>
-            <div className="nara-kpi-grid" style={{ gap: 14 }}>
-              {(f.kpis as { label: string; val: string; sub: string; subFg: string }[] | undefined)?.map(
-                (k, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background: "#fff",
-                      border: "1px solid #DCD6CD",
-                      borderRadius: 20,
-                      padding: "16px 18px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                    }}
+            {/* Historial de crisis: solo el último; el resto en modal */}
+            <div className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="font-titulos text-xl font-semibold text-nara-tinta">
+                    Historial de crisis
+                  </span>
+                  <span className="text-[15px] text-texto-secundario">
+                    Último evento · {f.name as string}
+                  </span>
+                </div>
+                <div className="flex flex-col items-end gap-0.5 text-right">
+                  <span
+                    className={
+                      (f.crisisCount as number) > 0
+                        ? "text-sm font-semibold text-[#8A1C14]"
+                        : "text-sm font-medium text-texto-secundario"
+                    }
                   >
-                    <span style={{ color: "#5E5750" }}>{k.label}</span>
+                    {(f.crisisCountLabel as string) || "Sin crisis registradas"}
+                  </span>
+                  <span className="text-[13px] text-texto-secundario">
+                    {(f.crisisLastAgo as string) || "Sin episodios previos"}
+                    {f.crisisLastWhen ? ` · ${f.crisisLastWhen as string}` : ""}
+                  </span>
+                </div>
+              </div>
+              {f.inCrisis ? (
+                <button
+                  type="button"
+                  onClick={() => (f.goCrisis as () => void)?.()}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border-[1.5px] border-[#B42318] bg-[#B42318] px-4 py-3.5 text-left font-texto text-white"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-semibold tracking-wide">CRISIS ACTIVA</span>
+                    <span className="text-[13px] text-white/90">
+                      {(f.crisisAlert as { what?: string } | undefined)?.what ||
+                        "Hay una alerta de crisis abierta para esta persona."}
+                    </span>
+                  </div>
+                  <span className="shrink-0 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium">
+                    Ir a crisis
+                  </span>
+                </button>
+              ) : null}
+              {lastCrisisEvent ? (
+                <button
+                  type="button"
+                  onClick={() => setCrisisHistoryOpen(true)}
+                  className="flex w-full cursor-pointer flex-col gap-1.5 rounded-[14px] border border-linea bg-nara-crema/40 px-3.5 py-3 text-left transition hover:border-nara-tinta/30 hover:bg-nara-crema/70"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span
+                      className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
                       style={{
-                        fontFamily: "Fredoka,Figtree,system-ui,sans-serif",
-                        fontWeight: 600,
-                        fontSize: 28,
-                        lineHeight: 1.1,
+                        background: lastCrisisEvent.typeBg,
+                        color: lastCrisisEvent.typeFg,
                       }}
                     >
-                      {k.val}
+                      {lastCrisisEvent.typeLabel}
                     </span>
-                    <span style={{ fontWeight: 500, color: k.subFg }}>{k.sub}</span>
+                    <span className="text-[13px] text-texto-secundario">
+                      {lastCrisisEvent.when} · {lastCrisisEvent.ago}
+                    </span>
                   </div>
-                ),
+                  <p className="m-0 text-[15px] leading-snug text-nara-tinta">
+                    {lastCrisisEvent.what}
+                  </p>
+                  {lastCrisisEvent.detail ? (
+                    <p className="m-0 text-sm text-texto-secundario">
+                      {lastCrisisEvent.detail}
+                    </p>
+                  ) : null}
+                  <span className="pt-0.5 text-sm font-medium text-nara-tinta underline underline-offset-2">
+                    {fileCrisisHistory.length > 1
+                      ? `Ver historial completo · ${fileCrisisHistory.length} eventos`
+                      : "Ver detalle"}
+                  </span>
+                </button>
+              ) : (
+                <div className="rounded-[12px] border border-dashed border-linea px-5 py-6 text-center text-sm text-texto-secundario">
+                  Esta persona aún no tiene eventos de crisis registrados.
+                </div>
               )}
             </div>
+
+            {crisisHistoryOpen ? (
+              <div
+                className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4"
+                role="presentation"
+              >
+                <button
+                  type="button"
+                  className="absolute inset-0 cursor-pointer border-0 bg-[rgba(22,20,19,.45)] p-0"
+                  aria-label="Cerrar historial"
+                  onClick={() => setCrisisHistoryOpen(false)}
+                />
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Historial de crisis"
+                  className="relative z-[1] flex max-h-[min(92vh,880px)] w-full max-w-[640px] flex-col overflow-hidden rounded-t-[20px] border border-linea bg-nara-blanco shadow-[0_20px_50px_rgba(22,20,19,.3)] sm:rounded-[20px]"
+                >
+                  <header className="flex shrink-0 items-start justify-between gap-3 border-b border-linea px-5 py-4 sm:px-6">
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <h2 className="font-titulos text-xl font-semibold text-nara-tinta sm:text-[22px]">
+                        Historial de crisis
+                      </h2>
+                      <span className="text-[15px] text-texto-secundario">
+                        {f.name as string}
+                        {fileCrisisHistory.length
+                          ? ` · ${fileCrisisHistory.length} eventos`
+                          : ""}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCrisisHistoryOpen(false)}
+                      aria-label="Cerrar"
+                      className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-nara-tinta"
+                    >
+                      <IoClose size={22} aria-hidden />
+                    </button>
+                  </header>
+                  <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-4 sm:px-6">
+                    {fileCrisisHistory.map((ev) => (
+                      <CrisisHistoryEventCard key={ev.key} ev={ev} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {(() => {
+              const phqKpi = (
+                f.kpis as
+                  | { label: string; val: string; sub: string; subFg: string }[]
+                  | undefined
+              )?.[0];
+              return (
+                <div className="flex w-full flex-col gap-2.5 rounded-2xl border border-linea bg-nara-blanco px-3.5 py-3 sm:px-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-titulos text-sm font-semibold text-nara-tinta">
+                        PHQ-9 en el tiempo
+                      </span>
+                      <span className="text-[12px] text-texto-secundario">
+                        Más bajo es mejor
+                      </span>
+                    </div>
+                    {phqKpi ? (
+                      <div className="flex shrink-0 items-baseline gap-2 rounded-xl border border-linea bg-nara-crema/50 px-2.5 py-1.5">
+                        <span className="font-titulos text-lg font-semibold leading-none text-nara-tinta">
+                          {phqKpi.val}
+                        </span>
+                        <span
+                          className="text-[11px] font-medium"
+                          style={{ color: phqKpi.subFg }}
+                        >
+                          {phqKpi.sub}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <svg
+                    viewBox="-120 0 730 230"
+                    className="block h-[184px] w-full sm:h-[200px]"
+                    preserveAspectRatio="none"
+                  >
+                    {(f.bands as { k: string; bg: string; y: number; h: number; ty: number }[] | undefined)?.map(
+                      (b, i) => (
+                        <g key={i}>
+                          <rect x={40} y={b.y} width={550} height={b.h} fill={b.bg} />
+                          <text
+                            x={32}
+                            y={(b.y + b.h / 2)}
+                            textAnchor="end"
+                            dominantBaseline="central"
+                            fontSize={10}
+                            fill="#5E5750"
+                            fontFamily="Figtree, system-ui, sans-serif"
+                          >
+                            {b.k}
+                          </text>
+                        </g>
+                      ),
+                    )}
+                    <polyline
+                      points={f.phqLine as string}
+                      fill="none"
+                      stroke="#161413"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                    />
+                    {(f.phqPts as { x: number; y: number; ly: number; v: number; d: string }[] | undefined)?.map(
+                      (pt, i) => (
+                        <g key={i}>
+                          <circle
+                            cx={pt.x}
+                            cy={pt.y}
+                            r={5}
+                            fill="#fff"
+                            stroke="#161413"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={pt.x}
+                            y={pt.ly}
+                            textAnchor="middle"
+                            fontSize={13}
+                            fontWeight={500}
+                            fill="#161413"
+                            fontFamily="Figtree, system-ui, sans-serif"
+                          >
+                            {pt.v}
+                          </text>
+                          <text
+                            x={pt.x}
+                            y={226}
+                            textAnchor="middle"
+                            fontSize={11}
+                            fill="#5E5750"
+                            fontFamily="Figtree, system-ui, sans-serif"
+                          >
+                            {pt.d}
+                          </text>
+                        </g>
+                      ),
+                    )}
+                  </svg>
+                </div>
+              );
+            })()}
+
             <div
               style={{
                 background: "#fff",
@@ -1296,549 +1766,37 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 ))}
               </div>
             </div>
-            <div className="nara-split-panel" style={{ gap: 14 }}>
-              <div
-                style={{
-                  background: "#fff",
-                  border: "1px solid #DCD6CD",
-                  borderRadius: 20,
-                  padding: "18px 20px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>PHQ-9 en el tiempo</span>
-                  <span style={{ color: "#5E5750" }}>Más bajo es mejor</span>
-                </div>
-                <svg viewBox="0 0 600 230" style={{ width: "100%", height: "auto" }}>
-                  {(f.bands as { k: string; bg: string; y: number; h: number; ty: number }[] | undefined)?.map(
-                    (b, i) => (
-                      <g key={i}>
-                        <rect x={40} y={b.y} width={550} height={b.h} fill={b.bg} />
-                        <text
-                          x={36}
-                          y={b.ty}
-                          textAnchor="end"
-                          fontSize={11}
-                          fill="#5E5750"
-                          fontFamily="Figtree, system-ui, sans-serif"
-                        >
-                          {b.k}
-                        </text>
-                      </g>
-                    ),
-                  )}
-                  <polyline
-                    points={f.phqLine as string}
-                    fill="none"
-                    stroke="#161413"
-                    strokeWidth="2.5"
-                    strokeLinejoin="round"
-                  />
-                  {(f.phqPts as { x: number; y: number; ly: number; v: number; d: string }[] | undefined)?.map(
-                    (pt, i) => (
-                      <g key={i}>
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={5}
-                          fill="#fff"
-                          stroke="#161413"
-                          strokeWidth="2.5"
-                        />
-                        <text
-                          x={pt.x}
-                          y={pt.ly}
-                          textAnchor="middle"
-                          fontSize={13}
-                          fontWeight={500}
-                          fill="#161413"
-                          fontFamily="Figtree, system-ui, sans-serif"
-                        >
-                          {pt.v}
-                        </text>
-                        <text
-                          x={pt.x}
-                          y={226}
-                          textAnchor="middle"
-                          fontSize={11}
-                          fill="#5E5750"
-                          fontFamily="Figtree, system-ui, sans-serif"
-                        >
-                          {pt.d}
-                        </text>
-                      </g>
-                    ),
-                  )}
-                </svg>
-              </div>
-              <div
-                style={{
-                  background: "#fff",
-                  border: "1px solid #DCD6CD",
-                  borderRadius: 20,
-                  padding: "18px 20px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                  minWidth: 0,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>
-                    Horas de sueño · últimas 14 noches
-                  </span>
-                  <span style={{ color: "#5E5750" }}>Manilla</span>
-                </div>
-                {f.hasSleep ? (
-                  <>
-                    <svg viewBox="0 0 600 230" style={{ width: "100%", height: "auto" }}>
-                      {(f.bars as { x: number; y: number; h: number; c: string; v: string; cx: number; ty: number; lbl: string; lc: string }[] | undefined)?.map(
-                        (b, i) => (
-                          <g key={i}>
-                            <rect x={b.x} y={b.y} width={30} height={b.h} rx={4} fill={b.c} />
-                            <text
-                              x={b.cx}
-                              y={b.ty}
-                              textAnchor="middle"
-                              fontSize={11}
-                              fill="#161413"
-                              fontFamily="Figtree, system-ui, sans-serif"
-                            >
-                              {b.v}
-                            </text>
-                            <text
-                              x={b.cx}
-                              y={224}
-                              textAnchor="middle"
-                              fontSize={10}
-                              fill={b.lc}
-                              fontFamily="Figtree, system-ui, sans-serif"
-                            >
-                              {b.lbl}
-                            </text>
-                          </g>
-                        ),
-                      )}
-                      <line
-                        x1={30}
-                        x2={590}
-                        y1={f.refY as number}
-                        y2={f.refY as number}
-                        stroke="#161413"
-                        strokeDasharray="5 4"
-                        strokeWidth="1.5"
-                      />
-                      <text
-                        x={590}
-                        y={f.refTy as number}
-                        textAnchor="end"
-                        fontSize={12}
-                        fill="#161413"
-                        fontFamily="Figtree, system-ui, sans-serif"
-                      >
-                        4,5 h · referencia
-                      </text>
-                    </svg>
-                    <div style={{ display: "flex", gap: 18, fontSize: 13, color: "#5E5750" }}>
-                      <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <span
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 2,
-                            background: "#A9D4FF",
-                          }}
-                        />
-                        Noche normal
-                      </span>
-                      <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <span
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 2,
-                            background: "#D9692B",
-                          }}
-                        />
-                        Bajo 4,5 h (marcada «bajo»)
-                      </span>
-                    </div>
-                  </>
-                ) : null}
-                {f.noSleep ? (
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "grid",
-                      placeItems: "center",
-                      color: "#5E5750",
-                      border: "1px dashed #DCD6CD",
-                      borderRadius: 10,
-                      minHeight: 180,
-                    }}
-                  >
-                    {f.braceletStatus as string}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="nara-split-panel-start" style={{ gap: 14, alignItems: "start" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-                {f.hasSummary ? (
-                  <div
-                    style={{
-                      background: "#D8FBE3",
-                      border: "1.5px dashed #3FEA73",
-                      borderRadius: 14,
-                      padding: "16px 20px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                      <span
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          fontWeight: 600,
-                          color: "#161413",
-                        }}
-                      >
-                        <img
-                          src="/nara/marca/logo/teo-isotipo.svg"
-                          alt=""
-                          style={{ flex: "none", width: 32, height: 32, display: "block" }}
-                        />
-                        TEO sugiere · sin confirmar · verifique antes de actuar
-                      </span>
-                      <a href="#" style={{ color: "#161413" }}>
-                        {f.audioLink as string}
-                      </a>
-                    </div>
-                    <span style={{ fontSize: 16, lineHeight: 1.5 }}>{f.summary as string}</span>
-                  </div>
-                ) : null}
+
+            <HerramientasSection
+              items={
+                (v.fHerramientas as
+                  | { id: string; name: string; freq?: string; channel?: string }[]
+                  | undefined) || []
+              }
+              patientId={String(f.id || "")}
+            />
+
+            <div className="flex w-full flex-col gap-1 rounded-[20px] border border-linea bg-nara-blanco px-5 py-[18px]">
+              <span className="mb-1.5 font-texto text-base font-medium text-nara-tinta">
+                Línea de tiempo
+              </span>
+              {(f.timeline as { d: string; t: string; x: string }[] | undefined)?.map((t, i) => (
                 <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #DCD6CD",
-                    borderRadius: 20,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                  }}
+                  key={i}
+                  className="nara-label-row gap-3.5 border-t border-[#E6E1D9] py-2.5"
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 12,
-                    }}
-                  >
-                    <span style={{ fontWeight: 500, fontSize: 16 }}>Recursos</span>
-                    <button
-                      type="button"
-                      onClick={() => (rec.assign as () => void)?.()}
-                      style={{
-                        fontFamily: "Figtree,system-ui,sans-serif",
-                        fontSize: 15,
-                        fontWeight: 500,
-                        height: 44,
-                        padding: "0 16px",
-                        borderRadius: 14,
-                        border: "1.5px solid #161413",
-                        background: "#fff",
-                        color: "#161413",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Asignar recurso
-                    </button>
+                  <span className="text-texto-secundario">{t.d}</span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-medium text-nara-tinta">{t.t}</span>
+                    <span className="text-nara-tinta">{t.x}</span>
                   </div>
-                  {rec.has ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      <span style={{ fontWeight: 600 }}>{rec.title as string}</span>
-                      <span style={{ fontSize: 14, color: "#5E5750" }}>{rec.meta as string}</span>
-                      <div className="nara-kpi-grid" style={{ gap: 6 }}>
-                        {(rec.mods as { c: string; l: string }[] | undefined)?.map((m, i) => (
-                          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <div
-                              style={{ height: 8, borderRadius: 4, background: m.c }}
-                            />
-                            <span style={{ fontSize: 12, lineHeight: 1.3 }}>{m.l}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {rec.none ? (
-                    <span style={{ fontSize: 14, color: "#5E5750" }}>Sin curso asignado.</span>
-                  ) : null}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>Cuentos leídos o escuchados</span>
-                    <span style={{ fontSize: 14, lineHeight: 1.4 }}>{rec.read as string}</span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>Técnicas · últimas 4 semanas</span>
-                    {(rec.techs as { n: string; v: string }[] | undefined)?.map((t, i) => (
-                      <div
-                        key={i}
-                        style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}
-                      >
-                        <span>{t.n}</span>
-                        <span style={{ fontWeight: 500 }}>{t.v}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>
-                      Respuestas que decidió compartir
-                    </span>
-                    {(rec.answers as { h: string; a: string }[] | undefined)?.map((a, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          background: "#F0ECE6",
-                          borderRadius: 12,
-                          padding: "10px 12px",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                        }}
-                      >
-                        <span style={{ fontSize: 13, color: "#5E5750" }}>{a.h}</span>
-                        <span style={{ fontSize: 15, lineHeight: 1.4 }}>«{a.a}»</span>
-                      </div>
-                    ))}
-                    {rec.noAns ? (
-                      <span style={{ fontSize: 14, color: "#5E5750" }}>
-                        Todavía no ha compartido respuestas.
-                      </span>
-                    ) : null}
-                  </div>
-                  {(rec.assigned as string[] | undefined)?.map((x, i) => (
-                    <span key={i} style={{ fontSize: 14 }}>
-                      {x}
-                    </span>
-                  ))}
                 </div>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #DCD6CD",
-                    borderRadius: 20,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 4,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, fontSize: 16, marginBottom: 6 }}>Línea de tiempo</span>
-                  {(f.timeline as { d: string; t: string; x: string }[] | undefined)?.map((t, i) => (
-                    <div
-                      key={i}
-                      className="nara-label-row"
-                      style={{
-                        gap: 14,
-                        padding: "9px 0",
-                        borderTop: "1px solid #E6E1D9",
-                      }}
-                    >
-                      <span style={{ color: "#5E5750" }}>{t.d}</span>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span style={{ fontWeight: 500 }}>{t.t}</span>
-                        <span style={{ color: "#161413" }}>{t.x}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #DCD6CD",
-                    borderRadius: 20,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>Nota de sesión</span>
-                  <textarea
-                    value={v.noteText as string}
-                    onChange={v.setNote as (e: React.ChangeEvent<HTMLTextAreaElement>) => void}
-                    rows={3}
-                    placeholder="Qué se habló y qué se acordó"
-                    style={{
-                      border: "1.5px solid #DCD6CD",
-                      borderRadius: 10,
-                      padding: "10px 12px",
-                      fontSize: 15,
-                      resize: "vertical",
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => (v.addNote as () => void)?.()}
-                    style={{
-                      alignSelf: "flex-start",
-                      fontFamily: "Figtree,system-ui,sans-serif",
-                      fontSize: 15,
-                      fontWeight: 500,
-                      height: 44,
-                      padding: "0 18px",
-                      borderRadius: 10,
-                      border: "1.5px solid #161413",
-                      background: "#fff",
-                      color: "#161413",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Agregar a la línea de tiempo
-                  </button>
-                </div>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #DCD6CD",
-                    borderRadius: 20,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>Ajustar la ruta</span>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {(v.adjust as { label: string; go: () => void }[] | undefined)?.map((j, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => j.go?.()}
-                        style={{
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 15,
-                          height: 44,
-                          padding: "0 14px",
-                          borderRadius: 10,
-                          border: "1.5px solid #161413",
-                          background: "#fff",
-                          color: "#161413",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {j.label}
-                      </button>
-                    ))}
-                  </div>
-                  <span style={{ color: "#5E5750" }}>
-                    Se notifica a la paciente y al experto de campo.
-                  </span>
-                </div>
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #DCD6CD",
-                    borderRadius: 20,
-                    padding: "18px 20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>Remitir a una institución</span>
-                  {f.canRefer ? (
-                    <>
-                      <select
-                        value={v.refInst as string}
-                        onChange={v.setRefInst as (e: React.ChangeEvent<HTMLSelectElement>) => void}
-                        style={{
-                          height: 46,
-                          borderRadius: 10,
-                          border: "1.5px solid #DCD6CD",
-                          padding: "0 12px",
-                          fontSize: 15,
-                          background: "#fff",
-                        }}
-                      >
-                        {(v.insts as { id: string; label: string }[] | undefined)?.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.label}
-                          </option>
-                        ))}
-                      </select>
-                      <textarea
-                        value={v.refReason as string}
-                        onChange={v.setRefReason as (e: React.ChangeEvent<HTMLTextAreaElement>) => void}
-                        rows={3}
-                        placeholder="Motivo de la remisión"
-                        style={{
-                          border: `1.5px solid ${v.refBd}`,
-                          borderRadius: 10,
-                          padding: "10px 12px",
-                          fontSize: 15,
-                          resize: "vertical",
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => (v.refer as () => void)?.()}
-                        style={{
-                          alignSelf: "flex-start",
-                          fontFamily: "Figtree,system-ui,sans-serif",
-                          fontSize: 15,
-                          fontWeight: 500,
-                          height: 46,
-                          padding: "0 20px",
-                          borderRadius: 14,
-                          border: "none",
-                          background: "#FDCD22",
-                          color: "#161413",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Enviar remisión
-                      </button>
-                    </>
-                  ) : null}
-                  {f.referBlocked ? (
-                    <div
-                      style={{
-                        background: "#F0ECE6",
-                        borderRadius: 10,
-                        padding: "12px 14px",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      <b style={{ fontWeight: 500 }}>Remisión bloqueada.</b> La paciente no autorizó
-                      compartir su caso. Pida el consentimiento en la próxima sesión; cuando lo autorice,
-                      podrá remitir.
-                    </div>
-                  ) : null}
-                  {f.referred ? (
-                    <div
-                      style={{
-                        background: "#FFF4CC",
-                        borderRadius: 10,
-                        padding: "12px 14px",
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {f.referredText as string}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              ))}
+              {!((f.timeline as unknown[] | undefined)?.length) ? (
+                <span className="py-4 text-sm text-texto-secundario">
+                  Sin eventos en la línea de tiempo.
+                </span>
+              ) : null}
             </div>
           </div>
         ) : null}

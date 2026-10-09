@@ -227,10 +227,27 @@ a {
   overflow: hidden;
 }
 
+.nara-home-teo-standin {
+  display: flex;
+  min-height: min(70vh, 560px);
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  grid-column: 1 / -1;
+}
+
+.nara-home-grid--teo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @container nara-page (min-width: 640px) {
   .nara-home-main {
     padding: 28px 32px;
     min-height: 560px;
+  }
+
+  .nara-home-teo-standin {
+    min-height: min(72vh, 640px);
   }
 }
 

@@ -34,25 +34,99 @@ export function useAdminTerritorioScreen() {
     const people = store.people(S).filter((p: { terr?: string }) => p.terr === name);
     const map = store.placeMap(S, name);
     const paused = !!ov.paused;
-    const cap = t.cap || 0;
+    // Captación viva = personas del territorio (no el campo estático t.cap del documento).
+    const cap = people.length;
     const goal = t.goal || 0;
     const pct = goal ? Math.round((cap / goal) * 100) : 0;
-    let status = "En curso";
-    let sc = C.alDia;
-    if (!cap) {
-      status = "Sin iniciar";
-      sc = "#8C857C";
-    } else if (goal && cap / goal < 0.3) {
-      status = "Captación lenta";
-      sc = C.bajoMeta;
-    } else if ((t.rural || 0) < (t.ruralG || 0) - 2) {
-      status = "Bajo cuota rural";
-      sc = C.revisar;
+    const ruralN = people.filter((p: { rural?: boolean; place?: string }) => {
+      if (p.rural === true) return true;
+      if (p.rural === false) return false;
+      return /vereda/i.test(String(p.place || ""));
+    }).length;
+    const sixtyN = people.filter((p: { age?: number }) => (p.age || 0) >= 60).length;
+    const ruralPct = cap ? Math.round((ruralN / cap) * 100) : 0;
+    const sixtyPct = cap ? Math.round((sixtyN / cap) * 100) : 0;
+    const ruralG = t.ruralG || 0;
+    const sixtyG = t.sixtyG || 0;
+    const hasEval = people.some(
+      (p: { profile?: string; evalAt?: unknown; pendingEval?: boolean; status?: string }) =>
+        !!(p.profile && /^P\d+$/i.test(String(p.profile))) ||
+        !!p.evalAt ||
+        p.pendingEval === true ||
+        /por\s*aprobar|activo|crisis|rechazad|terminado/i.test(String(p.status || "")),
+    );
+    let status = "Sin iniciar";
+    let sc = "#8C857C";
+    if (goal && cap >= goal) {
+      status = "Finalizado";
+      sc = C.alDia;
+    } else if (cap > 0 || hasEval) {
+      status = "Iniciado";
+      sc = C.alDia;
+      if (goal && cap / goal < 0.3) {
+        status = "Iniciado · captación lenta";
+        sc = C.bajoMeta;
+      } else if (ruralG && ruralPct < ruralG - 2) {
+        status = "Iniciado · bajo cuota rural";
+        sc = C.revisar;
+      }
     }
     if (paused) {
       status = "En pausa";
       sc = "#8C857C";
     }
+    const startOfDay = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    })();
+    const startOfWeek = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      const day = d.getDay(); // 0 dom
+      const diff = day === 0 ? 6 : day - 1; // lunes
+      d.setDate(d.getDate() - diff);
+      return d.getTime();
+    })();
+    const visitsForExpert = (e: { id?: string; name?: string }) => {
+      const eid = e.id != null ? String(e.id) : "";
+      const en = e.name != null ? String(e.name) : "";
+      const matched = people.filter((p: { expertId?: string; expert?: string; evalAt?: number }) => {
+        const peid = p.expertId != null ? String(p.expertId) : "";
+        const pen = p.expert != null ? String(p.expert) : "";
+        return (eid && peid === eid) || (en && pen === en) || (eid && pen === eid) || (en && peid === en);
+      });
+      const withEval = matched.filter(
+        (p: { evalAt?: number }) => p.evalAt != null && Number(p.evalAt) > 0,
+      );
+      const today = withEval.filter(
+        (p: { evalAt?: number }) => Number(p.evalAt) >= startOfDay,
+      ).length;
+      const week = withEval.filter(
+        (p: { evalAt?: number }) => Number(p.evalAt) >= startOfWeek,
+      ).length;
+      // Worklists validadas del experto (por si aún no hay evalAt en people).
+      const wlKeys = new Set<string>();
+      if (eid) wlKeys.add(eid);
+      if (en) wlKeys.add(en);
+      let wlToday = 0;
+      let wlWeek = 0;
+      Object.keys(S.worklists || {}).forEach((k) => {
+        if (!wlKeys.has(k) && k !== eid && k !== en) return;
+        (S.worklists[k] || []).forEach(
+          (w: { status?: string; at?: number; updatedAt?: number }) => {
+            if (!/validada|crisis/i.test(String(w.status || ""))) return;
+            const at = Number(w.at || w.updatedAt || 0);
+            if (at >= startOfDay) wlToday += 1;
+            if (at >= startOfWeek) wlWeek += 1;
+          },
+        );
+      });
+      return {
+        today: Math.max(today, wlToday),
+        week: Math.max(week, wlWeek),
+      };
+    };
 
     const content: string[] = ov.content || t.content || [];
     const instsList: string[] = Array.isArray(t.insts)
@@ -75,9 +149,21 @@ export function useAdminTerritorioScreen() {
       pendingAsk: "",
       back: () => router.push("/territorios"),
       kpis: [
-        { label: "Captación", val: cap.toLocaleString("es-CO") + " / " + goal.toLocaleString("es-CO"), sub: pct + " % de la meta" },
-        { label: "Rural", val: cap ? (t.rural || 0) + " %" : "—", sub: "Meta " + (t.ruralG || 0) + " %" },
-        { label: "60+", val: String(t.sixty || 0) + (cap ? " %" : ""), sub: "Meta " + (t.sixtyG || 0) + " %" },
+        {
+          label: "Captación",
+          val: cap.toLocaleString("es-CO") + " / " + goal.toLocaleString("es-CO"),
+          sub: pct + " % de la meta",
+        },
+        {
+          label: "Rural",
+          val: cap ? ruralPct + " %" : "—",
+          sub: "Meta " + ruralG + " %",
+        },
+        {
+          label: "60+",
+          val: cap ? sixtyPct + " %" : "0",
+          sub: "Meta " + sixtyG + " %",
+        },
         {
           label: "Experto",
           val: exps[0]?.name || "Sin experto",
@@ -86,14 +172,17 @@ export function useAdminTerritorioScreen() {
       ],
       content,
       insts: instsList,
-      experts: exps.map((e: { name: string; today?: number; week?: number; phone?: string; training?: string }) => ({
-        name: e.name,
-        today: e.today || 0,
-        week: e.week || 0,
-        phone: e.phone || "—",
-        training: e.training || "—",
-        open: () => router.push("/admin/experto?e=" + encodeURIComponent(e.name)),
-      })),
+      experts: exps.map((e: { id?: string; name: string; phone?: string; training?: string }) => {
+        const v = visitsForExpert(e);
+        return {
+          name: e.name,
+          today: v.today,
+          week: v.week,
+          phone: e.phone || "—",
+          training: e.training || "—",
+          open: () => router.push("/admin/experto?e=" + encodeURIComponent(e.name)),
+        };
+      }),
       // Sin columna Experto: con 1 experto/territorio se repetiría en cada fila.
       // Si solo hay un “lugar” igual al territorio, no listar (duplica el KPI Captación).
       places: (() => {

@@ -1,12 +1,33 @@
 "use client";
 
 import AlientoAI from "@/lib/ai/ai";
-import { useNaraStore } from "@/providers/nara-provider";
-import { useRouter } from "next/navigation";
+import {
+  DEFAULT_INACTIVE_MINUTES,
+  inactivityThresholdMs,
+} from "@/lib/clinical/patientStates";
+import { flushPersist, flushPersistWhenReady } from "@/lib/store/persist";
+import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { apiFetch } from "@/lib/api/client";
+import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  pacientePathForTab,
+  pacienteTabForPath,
+} from "@/modules/paciente/routes";
+import { DEFAULT_PATIENT_MODULES } from "@/lib/db/patientModules";
+import { activePacienteHerramientas } from "@/modules/paciente/herramientas";
 import { naraAsset } from "./naraAsset";
 
-type Tab = "home" | "chat" | "route" | "hist" | "resumen";
+type Tab =
+  | "home"
+  | "chat"
+  | "route"
+  | "hist"
+  | "resumen"
+  | "clin"
+  | "tech"
+  | "revisit";
 type ChatMsg = { t: "ai" | "me" | "crisis" | "breath"; text?: string };
 type WaRaw = Record<string, unknown>;
 
@@ -195,16 +216,126 @@ function hm() {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Lee crisisAttendedAt aunque venga como string / Long. */
+function readAttendedAt(v: unknown): number | null {
+  if (v == null || v === false) return null;
+  if (typeof v === "object" && v && "$numberLong" in (v as object)) {
+    const n = Number((v as { $numberLong: string }).$numberLong);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Ficha canónica: por id, accountId o sesión (evita perder «estoy bien»). */
+function resolvePatientRow(
+  store: { get: () => any; PATIENTS: Record<string, any>; session: () => any },
+  localId: string,
+) {
+  const S = store.get();
+  const map = { ...(S.patients || {}), ...(store.PATIENTS || {}) } as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const sess = store.session() as {
+    id?: string;
+    patientId?: string;
+    email?: string;
+  } | null;
+  const hit =
+    map[localId] ||
+    (sess?.patientId && map[sess.patientId]) ||
+    Object.values(map).find(
+      (p) =>
+        p &&
+        (p.id === localId ||
+          p.accountId === localId ||
+          p.accountId === sess?.id ||
+          (sess?.email && p.email === sess.email)),
+    ) ||
+    null;
+  return {
+    P: (hit || {}) as Record<string, unknown>,
+    id: String(hit?.id || sess?.patientId || localId || ""),
+    accountId: String(hit?.accountId || sess?.id || ""),
+  };
+}
+
+function crisisWasAttended(
+  S: {
+    closedToday?: Array<{ sev?: string; pid?: string; outcome?: string; status?: string }>;
+    crisisLog?: Array<{ type?: string; pid?: string }>;
+  },
+  ids: string[],
+  P: Record<string, unknown>,
+) {
+  if (readAttendedAt(P.crisisAttendedAt)) return true;
+  const idSet = new Set(ids.filter(Boolean));
+  const attended = (S.closedToday || []).some(
+    (c) =>
+      c.sev === "crisis" &&
+      c.pid &&
+      idSet.has(String(c.pid)) &&
+      !!c.outcome &&
+      c.outcome !== "Vista" &&
+      !c.patientConfirmedAt,
+  );
+  if (attended) return true;
+  // Solo mientras el clínico ya atendió y el paciente aún no confirmó.
+  return (S.crisisLog || []).some(
+    (e) =>
+      e.type === "awaiting_patient" &&
+      e.pid &&
+      idSet.has(String(e.pid)),
+  );
+}
+
 export function usePacienteScreen() {
   const store = useNaraStore();
+  useNaraLive();
   const router = useRouter();
+  const pathname = usePathname();
   const S = store.get();
   const C = store.C;
   const R = store.REC;
 
   const [ready, setReady] = useState(false);
   const [who, setWho] = useState("p-rosa-elena");
-  const [tab, setTab] = useState<Tab>("home");
+  const [tab, setTabRaw] = useState<Tab>(() =>
+    pacienteTabForPath(pathname || "/paciente"),
+  );
+  const pendingTabPathRef = useRef<string | null>(null);
+
+  const setTab = useCallback(
+    (next: Tab | ((t: Tab) => Tab)) => {
+      setTabRaw((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        const path = pacientePathForTab(value);
+        if (path !== pathname) pendingTabPathRef.current = path;
+        return value;
+      });
+    },
+    [pathname],
+  );
+
+  useEffect(() => {
+    const path = pendingTabPathRef.current;
+    if (!path) return;
+    pendingTabPathRef.current = null;
+    if (path !== pathname) router.push(path);
+  }, [tab, pathname, router]);
+
+  useEffect(() => {
+    // No pisar pendiente/plan (lifecycle fuera de tabs).
+    if (
+      pathname?.startsWith("/paciente/pendiente") ||
+      pathname?.startsWith("/paciente/plan")
+    ) {
+      return;
+    }
+    const fromUrl = pacienteTabForPath(pathname || "/paciente");
+    setTabRaw((prev) => (prev === fromUrl ? prev : fromUrl));
+  }, [pathname]);
   const [topics, setTopics] = useState<[string, boolean][]>([
     ["El miedo con las réplicas pequeñas", true],
     ["Preocupación por la casa", true],
@@ -257,6 +388,17 @@ export function usePacienteScreen() {
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appInitedRef = useRef(false);
   const pidRef = useRef(who);
+  /** Evita spam de «estoy bien» y reabrir la pantalla roja por sync obsoleto. */
+  const confirmWellBusyRef = useRef(false);
+  const wellConfirmedRef = useRef<{ pid: string; until: number } | null>(null);
+  const [confirmWellBusy, setConfirmWellBusy] = useState(false);
+  /** Pantalla amarilla de inactividad (bloqueo hasta «Volví»). */
+  const [inactiveOpen, setInactiveOpen] = useState(false);
+  const [confirmBackBusy, setConfirmBackBusy] = useState(false);
+  const confirmBackBusyRef = useRef(false);
+  const backConfirmedRef = useRef<{ pid: string; until: number } | null>(null);
+  const lastActivityRef = useRef(Date.now());
+  const enteringInactiveRef = useRef(false);
 
   const isRosalba = who === "rosalba";
   const isDiana = !isRosalba; // UI app TEO (Diana o Rosa); Rosalba = WhatsApp
@@ -394,23 +536,38 @@ export function usePacienteScreen() {
     const id = pidRef.current;
     const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
     const fname = String(P.name || "Paciente").split(/\s+/)[0];
-    // Asegura recurso de curso para la paciente actual
+    // Progreso de curso solo si «cursos» está activo en la ruta / modulesEnabled.
+    const { r: ir, d: idig } = store.parseCode(P.profile || "");
+    const pathIds = new Set(
+      (typeof store.appModuleIdsFromPath === "function"
+        ? store.appModuleIdsFromPath(ir, idig, null, store.ctxFor(id))
+        : (store.pathList(ir, idig, null, store.ctxFor(id)) || []).map(
+            (x: { id: string }) => x.id,
+          )
+      ) as string[],
+    );
+    const en = (P as { modulesEnabled?: string[] }).modulesEnabled;
+    const cursosOn =
+      Array.isArray(en) ? en.includes("cursos") : pathIds.has("cursos");
     const existing = st.recursos?.people?.[id];
-    const courseId = existing?.course && R.curso(existing.course) ? existing.course : "dormir";
-    if (!existing || !R.curso(existing.course)) {
-      store.set((s) => {
-        s.recursos = s.recursos || { people: {} };
-        s.recursos.people = s.recursos.people || {};
-        s.recursos.people[id] = {
-          course: courseId,
-          week: existing?.week || 1,
-          read: existing?.read || {},
-          page: existing?.page || {},
-          tech: existing?.tech || {},
-          doneMods: existing?.doneMods || [],
-          teoDay: existing?.teoDay ?? null,
-        };
-      });
+    if (cursosOn) {
+      const courseId =
+        existing?.course && R.curso(existing.course) ? existing.course : "dormir";
+      if (!existing || !R.curso(existing.course)) {
+        store.set((s) => {
+          s.recursos = s.recursos || { people: {} };
+          s.recursos.people = s.recursos.people || {};
+          s.recursos.people[id] = {
+            course: courseId,
+            week: existing?.week || 1,
+            read: existing?.read || {},
+            page: existing?.page || {},
+            tech: existing?.tech || {},
+            doneMods: existing?.doneMods || [],
+            teoDay: existing?.teoDay ?? null,
+          };
+        });
+      }
     }
     if (id === "diana" && st.diana?.crisis) {
       setMsgs([
@@ -545,7 +702,18 @@ export function usePacienteScreen() {
         };
         if (!cancelled && res.ok && data.ok && data.patient?.id) {
           const profile = data.patient.profile != null ? String(data.patient.profile) : "";
-          if (!/^P\d+$/i.test(profile)) {
+          const st = String(
+            data.patient.status || data.patient.signal || "",
+          );
+          // Crisis (roja) e Inactivo (amarilla «Volví») entran a /paciente; servicios solo Activo.
+          const crisisOk =
+            data.patient.crisisLock === true || /^crisis$/i.test(st);
+          const inactiveOk =
+            data.patient.inactiveLock === true || /^inactivo$/i.test(st);
+          const canEnterApp =
+            /^P\d+$/i.test(profile) &&
+            (/^activo$/i.test(st) || crisisOk || inactiveOk);
+          if (!canEnterApp) {
             router.replace("/paciente/pendiente");
             return;
           }
@@ -781,7 +949,7 @@ export function usePacienteScreen() {
                   s,
                   "clin",
                   `${Pn} compartió su respuesta a «${c.title}»`,
-                  "/clinico?pid=" + id,
+                  "/clinico/pacientes/" + encodeURIComponent(id),
                 );
               }
             }
@@ -868,7 +1036,7 @@ export function usePacienteScreen() {
       const p = (store.get().patients || {})[pidRef.current] as { modulesEnabled?: string[] } | undefined;
       const en = p?.modulesEnabled;
       if (Array.isArray(en)) return en.includes(id);
-      return id === "ia" || id === "mood" || id === "hist";
+      return id === "ia" || id === "mood";
     },
     [store],
   );
@@ -1761,9 +1929,18 @@ export function usePacienteScreen() {
     | undefined;
 
   const screenCode = isDiana
-    ? ({ resumen: "PatientWeeklySummary", home: "PatientHome", chat: "TeoChat", route: "PatientPath", hist: "PatientHistory" } as const)[
-        tab === "resumen" ? "resumen" : tab
-      ]
+    ? (
+        {
+          resumen: "PatientWeeklySummary",
+          home: "PatientHome",
+          chat: "TeoChat",
+          route: "PatientPath",
+          hist: "PatientHistory",
+          clin: "PatientClin",
+          tech: "PatientTech",
+          revisit: "PatientRevisit",
+        } as Record<string, string>
+      )[tab === "resumen" ? "resumen" : tab] || "PatientHome"
     : "WhatsAppChannel";
 
   const routeChanges = (S.pathAdjust[pid] || [])
@@ -1790,41 +1967,49 @@ export function usePacienteScreen() {
   const pathById = Object.fromEntries(
     pathServices.map((s: { id: string; freq: string; channel: string; name: string }) => [s.id, s]),
   ) as Record<string, { id: string; freq: string; channel: string; name: string }>;
-  // Admin habilita (modulesEnabled); paciente elige qué ver (modulesVisible).
-  // Si la ficha trae modulesEnabled (aunque sea un solo ítem), manda sobre la ruta.
-  const hasModuleOverride = Array.isArray((DP as { modulesEnabled?: string[] }).modulesEnabled);
-  const enabledList: string[] = hasModuleOverride
-    ? ((DP as { modulesEnabled: string[] }).modulesEnabled || []).slice()
-    : [...Object.keys(pathById), "hist"];
+  // Servicios solo con estado Activo. Crisis → roja; Inactivo → amarilla «Volví».
+  const patientStatus = String(
+    (DP as { status?: string }).status ||
+      (DP as { signal?: string }).signal ||
+      "",
+  );
+  const inactiveLocked =
+    (DP as { inactiveLock?: boolean }).inactiveLock === true ||
+    /^inactivo$/i.test(patientStatus) ||
+    inactiveOpen;
+  const servicesUnlocked =
+    /^activo$/i.test(patientStatus) && !inactiveLocked && !inactiveOpen;
+  // Fuente de verdad: servicios activos de la ruta (defaultPath = 6 ON).
+  // modulesEnabled viejo/incompleto no debe ocultar lo que la ruta ya trae activo.
+  const pathAppIds =
+    typeof store.appModuleIdsFromPath === "function"
+      ? (store.appModuleIdsFromPath(pathR, pathD, null, store.ctxFor(pid)) as string[])
+      : pathServices.map((s: { id: string }) => s.id);
+  const enabledList: string[] = !servicesUnlocked
+    ? []
+    : pathAppIds.length
+      ? pathAppIds.slice()
+      : DEFAULT_PATIENT_MODULES.slice();
   const rawVisible = (DP as { modulesVisible?: string[] }).modulesVisible;
-  const visibleList: string[] =
-    hasModuleOverride && Array.isArray(rawVisible)
-      ? rawVisible.filter((id: string) => enabledList.includes(id))
-      : enabledList.slice();
+  // Solo [] explícito oculta todo; una lista parcial (datos viejos) no recorta la ruta.
   const effectiveVisible =
-    hasModuleOverride && Array.isArray(rawVisible) && rawVisible.length === 0
-      ? []
-      : visibleList.length
-        ? visibleList
-        : hasModuleOverride
-          ? enabledList.slice()
-          : enabledList;
+    Array.isArray(rawVisible) && rawVisible.length === 0 ? [] : enabledList;
   const on = (id: string) => enabledList.includes(id) && effectiveVisible.includes(id);
   const mods = {
-    mood: on("mood"),
+    mood: on("mood"), // ¿Cómo se siente hoy?
     clin: on("clin"),
-    ia: on("ia"),
+    ia: on("ia"), // Acompañamiento con TEO (chat), no es cuentos
     wa: on("wa"),
     call: on("call"),
     bracelet: on("bracelet"),
     videos: on("videos"),
-    tech: on("tech"),
-    cursos: on("cursos"),
+    tech: on("tech"), // Técnicas guiadas (respiración, etc.)
+    cursos: on("cursos"), // Cursos y cuentos (biblioteca)
     group: on("group"),
     pmplus: on("pmplus"),
     social: on("social"),
-    revisit: on("revisit"),
-    hist: on("hist"),
+    revisit: on("revisit"), // revisita: por ahora sin acción
+    hist: false,
   };
   const showRouteTab = !!(
     mods.cursos ||
@@ -1834,7 +2019,8 @@ export function usePacienteScreen() {
     mods.call ||
     mods.group ||
     mods.revisit ||
-    mods.social
+    mods.social ||
+    mods.clin
   );
   const hasHomeContent = !!(
     mods.mood ||
@@ -1850,20 +2036,251 @@ export function usePacienteScreen() {
     mods.clin ||
     mods.bracelet
   );
-  const showHistTab = !!mods.hist;
-  const showHomeTab = hasHomeContent || (!showHistTab && !mods.ia && !showRouteTab);
-  const hasAnyModule = hasHomeContent || showHistTab || mods.ia || showRouteTab;
+  const showHomeTab = hasHomeContent || (!mods.ia && !showRouteTab);
+  const hasAnyModule = hasHomeContent || mods.ia || showRouteTab;
+
+  // Si no está Activo, crisis ni inactivo (p. ej. rechazo), salir a pendiente.
+  useEffect(() => {
+    if (!ready || !isDiana) return;
+    const st = patientStatus;
+    const inCrisis =
+      (DP as { crisisLock?: boolean }).crisisLock === true ||
+      /^crisis$/i.test(st);
+    const inInactive =
+      (DP as { inactiveLock?: boolean }).inactiveLock === true ||
+      /^inactivo$/i.test(st) ||
+      inactiveOpen;
+    if (servicesUnlocked || inCrisis || inInactive) return;
+    router.replace("/paciente/pendiente");
+  }, [ready, isDiana, servicesUnlocked, patientStatus, DP, router, inactiveOpen]);
+
+  const activeHerramientas = activePacienteHerramientas(mods);
+  const activeHerramientaIds = activeHerramientas.map((h) => h.id);
+  const firstHerramientaTab = (): Tab => {
+    const id = activeHerramientaIds[0];
+    if (id === "ia") return "chat";
+    if (id === "cursos") return "route";
+    if (id === "clin" || id === "tech" || id === "revisit") return id;
+    return "home"; // mood u otros → inicio
+  };
 
   useEffect(() => {
-    if (!hasAnyModule) {
+    if (!hasAnyModule || !activeHerramientaIds.length) {
       setTab("home");
       return;
     }
-    if (tab === "chat" && !mods.ia) setTab(showHomeTab ? "home" : showHistTab ? "hist" : "home");
-    if (tab === "route" && !showRouteTab) setTab(showHomeTab ? "home" : showHistTab ? "hist" : "home");
-    if (tab === "hist" && !showHistTab) setTab(showHomeTab ? "home" : "home");
-    if (tab === "home" && !showHomeTab && showHistTab) setTab("hist");
-  }, [tab, mods.ia, showRouteTab, hasAnyModule, showHistTab, showHomeTab]);
+    if (tab === "hist") {
+      setTab(firstHerramientaTab());
+      return;
+    }
+    if (tab === "chat" && !mods.ia) setTab(firstHerramientaTab());
+    if (tab === "route" && !mods.cursos && !showRouteTab) setTab(firstHerramientaTab());
+    if (tab === "home" && !mods.mood && !showHomeTab) setTab(firstHerramientaTab());
+    if (tab === "clin" && !mods.clin) setTab(firstHerramientaTab());
+    if (tab === "tech" && !mods.tech) setTab(firstHerramientaTab());
+    if (tab === "revisit" && !mods.revisit) setTab(firstHerramientaTab());
+  }, [
+    tab,
+    mods.ia,
+    mods.cursos,
+    mods.mood,
+    mods.clin,
+    mods.tech,
+    mods.revisit,
+    showRouteTab,
+    hasAnyModule,
+    showHomeTab,
+    activeHerramientaIds.join(","),
+  ]);
+
+  // Crisis: pantalla roja hasta que el paciente confirme «estoy bien».
+  useEffect(() => {
+    const localId = pidRef.current;
+    const { P, id, accountId } = resolvePatientRow(store, localId);
+    const ids = [id, accountId, localId].filter(Boolean);
+    const well = wellConfirmedRef.current;
+    const justConfirmed =
+      well &&
+      Date.now() < well.until &&
+      ids.some((x) => x === well.pid);
+    if (justConfirmed) {
+      if (help || helpSent) {
+        setHelp(false);
+        setHelpSent(false);
+      }
+      return;
+    }
+    const openCrisis = (S.alerts || []).some(
+      (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
+        a.sev === "crisis" &&
+        a.status !== "closed" &&
+        ids.some(
+          (x) =>
+            a.pid === x || String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
+        ),
+    );
+    const locked =
+      P.crisisLock === true ||
+      openCrisis ||
+      (pid === "diana" && !!(S.diana as { crisis?: boolean } | undefined)?.crisis) ||
+      /^crisis$/i.test(String(P.status || P.signal || ""));
+    if (locked) {
+      setHelp(true);
+      setHelpSent(true);
+      return;
+    }
+    // Solo liberar si ya había alerta enviada y el remoto/local ya no está en crisis.
+    if (helpSent && !locked) {
+      setHelp(false);
+      setHelpSent(false);
+    }
+  }, [S.alerts, S.closedToday, S.diana, S.patients, help, helpSent, pid, store]);
+
+  const inactiveMinutesForProfile = useCallback(
+    (profile: string) => {
+      if (!/^P\d+$/i.test(profile)) return DEFAULT_INACTIVE_MINUTES;
+      try {
+        const { r, d } = store.parseCode(profile);
+        const path =
+          (store.get().pathOverrides && store.get().pathOverrides[profile]) ||
+          store.defaultPath(r, d);
+        const m = Number(path?.inactiveMinutes);
+        return Number.isFinite(m) && m > 0 ? m : DEFAULT_INACTIVE_MINUTES;
+      } catch {
+        return DEFAULT_INACTIVE_MINUTES;
+      }
+    },
+    [store],
+  );
+
+  const enterInactive = useCallback(() => {
+    if (enteringInactiveRef.current || confirmBackBusyRef.current) return;
+    const localId = pidRef.current;
+    const { P, id, accountId } = resolvePatientRow(store, localId);
+    const canon = String(id || localId || "");
+    if (!canon) return;
+    const back = backConfirmedRef.current;
+    if (
+      back &&
+      Date.now() < back.until &&
+      [canon, localId, accountId].some((x) => x === back.pid)
+    ) {
+      return;
+    }
+    if (P.crisisLock === true || /^crisis$/i.test(String(P.status || ""))) return;
+    enteringInactiveRef.current = true;
+    setInactiveOpen(true);
+    const displayName = String(P.name || "Paciente");
+    pauseLiveHydrate(8_000);
+    store.set((s: any) => {
+      s.patients = s.patients || {};
+      const row = s.patients[canon] || { id: canon, name: displayName };
+      row.status = "Inactivo";
+      row.signal = "Inactivo";
+      row.inactiveLock = true;
+      s.patients[canon] = row;
+      if (localId !== canon && s.patients[localId]) {
+        s.patients[localId].status = "Inactivo";
+        s.patients[localId].inactiveLock = true;
+      }
+      const pe = (s.people || []).find(
+        (p: { id?: string; accountId?: string }) =>
+          p.id === canon || p.accountId === localId || p.accountId === accountId,
+      );
+      if (pe) {
+        pe.status = "Inactivo";
+        pe.inactiveLock = true;
+      }
+    });
+    void (async () => {
+      try {
+        await Promise.all([
+          fetch("/api/people", {
+            credentials: "same-origin",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: canon,
+              name: displayName,
+              status: "Inactivo",
+              inactiveLock: true,
+            }),
+          }),
+          fetch("/api/patients", {
+            credentials: "same-origin",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: canon,
+              name: displayName,
+              status: "Inactivo",
+              signal: "Inactivo",
+              inactiveLock: true,
+            }),
+          }),
+        ]);
+      } catch {
+        /* sync más adelante */
+      }
+      await flushPersistWhenReady(store);
+      enteringInactiveRef.current = false;
+    })();
+  }, [store]);
+
+  // Actividad local + umbral del perfil → pantalla amarilla (sin alertas a clínico/experto).
+  useEffect(() => {
+    if (!ready || !isDiana) return;
+    const bump = () => {
+      if (inactiveOpen || help) return;
+      lastActivityRef.current = Date.now();
+    };
+    document.addEventListener("pointerdown", bump, { passive: true });
+    document.addEventListener("keydown", bump);
+    const tick = setInterval(() => {
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const canon = String(id || localId || "");
+      const back = backConfirmedRef.current;
+      if (
+        back &&
+        Date.now() < back.until &&
+        [canon, localId, accountId].some((x) => x === back.pid)
+      ) {
+        if (inactiveOpen) setInactiveOpen(false);
+        return;
+      }
+      if (P.crisisLock === true || /^crisis$/i.test(String(P.status || P.signal || ""))) {
+        return;
+      }
+      if (P.inactiveLock === true || /^inactivo$/i.test(String(P.status || P.signal || ""))) {
+        if (!inactiveOpen) setInactiveOpen(true);
+        return;
+      }
+      const st = String(P.status || P.signal || "");
+      if (!/^activo$/i.test(st) && !/^aprobado$/i.test(st)) return;
+      // El reloj solo corre desde activeAt (aprobación); no desde login previo.
+      const activeAt = Number((P as { activeAt?: unknown }).activeAt);
+      if (!(Number.isFinite(activeAt) && activeAt > 0)) return;
+      if (lastActivityRef.current < activeAt) lastActivityRef.current = activeAt;
+      const mins = inactiveMinutesForProfile(String(P.profile || ""));
+      if (Date.now() - lastActivityRef.current < inactivityThresholdMs(mins)) return;
+      enterInactive();
+    }, 4_000);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener("pointerdown", bump);
+      document.removeEventListener("keydown", bump);
+    };
+  }, [
+    ready,
+    isDiana,
+    inactiveOpen,
+    help,
+    store,
+    enterInactive,
+    inactiveMinutesForProfile,
+    S.patients,
+  ]);
 
   const svc = (id: string, freqFallback = "Según su ruta", channelFallback = "") => ({
     freq: pathById[id]?.freq || freqFallback,
@@ -1934,27 +2351,42 @@ export function usePacienteScreen() {
     }
   };
 
-  const route = [
-    ["Sesiones con su psicóloga", DP.lastSession ? 1 : 0, null],
-    ["Conversaciones con TEO", (S.aiLog || []).filter((l: { pid?: string }) => l.pid === pid).length || 0, null],
-    ["Check-ins por WhatsApp", "Según la ruta", null],
-    ["Manilla", DP.braceletStatus || "Según la ruta", null],
-  ]
-    .concat(
-      pathServices
-        .filter((x: { id: string }) => !["mood", "clin", "bracelet", "pmplus"].includes(x.id))
-        .map((x: { id: string; name: string; freq: string; channel: string }) => [
-          x.id === "social" ? `Ayudas sociales · ${(x.channel || "").toLowerCase()}` : x.name,
-          x.id === "social" ? "Según el caso" : x.freq,
-          null,
-        ]),
-    )
-    .map(([name, a, b]) => ({
-      name: name as string,
-      val: b ? `${a} de ${b}` : String(a),
-      hasBar: !!b,
-      pct: b ? `${Math.round((Number(a) / Number(b)) * 100)}%` : "0%",
-    }));
+  // Mi ruta: solo servicios/módulos activos para este paciente.
+  const routeRows: [string, string | number, number | null][] = [];
+  if (mods.clin) {
+    routeRows.push(["Sesiones con su psicóloga", DP.lastSession ? 1 : 0, null]);
+  }
+  if (mods.ia) {
+    routeRows.push([
+      "Conversaciones con TEO",
+      (S.aiLog || []).filter((l: { pid?: string }) => l.pid === pid).length || 0,
+      null,
+    ]);
+  }
+  if (mods.wa) {
+    routeRows.push(["Check-ins por WhatsApp", "Según la ruta", null]);
+  }
+  if (mods.bracelet) {
+    routeRows.push(["Manilla", DP.braceletStatus || "Según la ruta", null]);
+  }
+  pathServices
+    .filter((x: { id: string }) => {
+      if (["mood", "clin", "bracelet", "pmplus", "ia", "wa"].includes(x.id)) return false;
+      return on(x.id);
+    })
+    .forEach((x: { id: string; name: string; freq: string; channel: string }) => {
+      routeRows.push([
+        x.id === "social" ? `Ayudas sociales · ${(x.channel || "").toLowerCase()}` : x.name,
+        x.id === "social" ? "Según el caso" : x.freq,
+        null,
+      ]);
+    });
+  const route = routeRows.map(([name, a, b]) => ({
+    name: name as string,
+    val: b ? `${a} de ${b}` : String(a),
+    hasBar: !!b,
+    pct: b ? `${Math.round((Number(a) / Number(b)) * 100)}%` : "0%",
+  }));
 
   const phqHist = Array.isArray(DP.phq) ? DP.phq : [];
   const phqDates = Array.isArray(DP.phqDates) ? DP.phqDates : [];
@@ -2063,13 +2495,35 @@ export function usePacienteScreen() {
     tabHome: tab === "home",
     tabChat: tab === "chat",
     tabRoute: tab === "route",
-    tabHist: tab === "hist",
+    tabClin: tab === "clin",
+    tabTech: tab === "tech",
+    tabRevisit: tab === "revisit",
     tabRes: tab === "resumen",
+    /** Barra inferior = servicios activos de la ruta (2–6). */
+    herramientaNav: activeHerramientas.map((h) => {
+      const on =
+        (h.id === "mood" && tab === "home") ||
+        (h.id === "ia" && tab === "chat") ||
+        (h.id === "cursos" && tab === "route") ||
+        (h.id === "clin" && tab === "clin") ||
+        (h.id === "tech" && tab === "tech") ||
+        (h.id === "revisit" && tab === "revisit");
+      const go = () => {
+        if (h.id === "mood") setTab("home");
+        else if (h.id === "ia") setTab("chat");
+        else if (h.id === "cursos") setTab("route");
+        else if (h.id === "clin" || h.id === "tech" || h.id === "revisit")
+          setTab(h.id);
+      };
+      return { ...h, on, go };
+    }),
+    herramientaNavCount: activeHerramientas.length,
     openResumen: () => setTab("resumen"),
     closeResumen: () => setTab("home"),
     greet,
     firstName,
     patientName: DP.name,
+    patientId: pid,
     mods,
     waCard,
     callCard,
@@ -2084,7 +2538,6 @@ export function usePacienteScreen() {
     showBracelet: false,
     hasAnyModule,
     showHomeTab,
-    showHistTab,
     res,
     moods: MOODS.map((label, i) => {
       const on = mood === i;
@@ -2200,7 +2653,7 @@ export function usePacienteScreen() {
               s,
               "clin",
               `Consentimiento retirado: ${P.name} · ${label.toLowerCase()}`,
-              "/clinico?pid=" + id,
+              "/clinico/pacientes/" + encodeURIComponent(id),
             );
           if (!v)
             s.alerts.push({
@@ -2222,32 +2675,39 @@ export function usePacienteScreen() {
     })),
     consentMsg,
     clearConsentMsg: () => setConsentMsg(""),
-    tabs: (
-      [
-        showHomeTab ? ["home", "Inicio"] : null,
-        mods.ia ? ["chat", "TEO"] : null,
-        showRouteTab ? ["route", "Mi ruta"] : null,
-        showHistTab ? ["hist", "Historial"] : null,
-      ] as Array<[string, string] | null>
-    )
-      .filter(Boolean)
-      .map((row) => {
-        const [k, label] = row as [string, string];
-        return {
-          label,
-          on: tab === k,
-          fg: tab === k ? "#161413" : "#5E5750",
-          fw: tab === k ? 600 : 500,
-          dot: tab === k ? "#FDCD22" : "transparent",
-          op: tab === k ? 1 : 0.7,
-          isHome: k === "home",
-          isTeo: k === "chat",
-          isRoute: k === "route",
-          isHist: k === "hist",
-          go: () => setTab(k as Tab),
-        };
-      }),
-    tabCount: [showHomeTab, mods.ia, showRouteTab, showHistTab].filter(Boolean).length,
+    tabs: activeHerramientas.map((h) => {
+      const on =
+        (h.id === "mood" && tab === "home") ||
+        (h.id === "ia" && tab === "chat") ||
+        (h.id === "cursos" && tab === "route") ||
+        (h.id === "clin" && tab === "clin") ||
+        (h.id === "tech" && tab === "tech") ||
+        (h.id === "revisit" && tab === "revisit");
+      return {
+        id: h.id,
+        label: h.navLabel,
+        name: h.name,
+        on,
+        fg: on ? "#161413" : "#5E5750",
+        fw: on ? 600 : 500,
+        dot: on ? "#FDCD22" : "transparent",
+        op: on ? 1 : 0.7,
+        isHome: h.id === "mood",
+        isTeo: h.id === "ia",
+        isRoute: h.id === "cursos",
+        isClin: h.id === "clin",
+        isTech: h.id === "tech",
+        isRevisit: h.id === "revisit",
+        go: () => {
+          if (h.id === "mood") setTab("home");
+          else if (h.id === "ia") setTab("chat");
+          else if (h.id === "cursos") setTab("route");
+          else if (h.id === "clin" || h.id === "tech" || h.id === "revisit")
+            setTab(h.id);
+        },
+      };
+    }),
+    tabCount: activeHerramientas.length,
     rdOpen: !!rd,
     rdView,
     rdUpd,
@@ -2280,120 +2740,495 @@ export function usePacienteScreen() {
       setPl(null);
     },
     helpOpen: help,
-    helpNotSent: (() => {
-      const id = pidRef.current;
-      const P = store.PATIENTS[id] || {};
+    /** Ya envió la alerta: pantalla roja (bloqueo total). */
+    crisisAlertSent: (() => {
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const ids = [id, accountId, localId].filter(Boolean);
+      const well = wellConfirmedRef.current;
+      if (
+        well &&
+        Date.now() < well.until &&
+        ids.some((x) => x === well.pid)
+      ) {
+        return false;
+      }
       const openCrisis = (S.alerts || []).some(
-        (a: { id?: string; pid?: string; sev?: string }) =>
-          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
+        (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
+          a.sev === "crisis" &&
+          a.status !== "closed" &&
+          ids.some(
+            (x) =>
+              a.pid === x || String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
+          ),
       );
-      if (openCrisis || (pid === "diana" && S.diana?.crisis)) return false;
-      // Reactivación tras inactividad o tras cerrar crisis en clínico.
-      if (P.crisisBtnReady) return true;
-      return !helpSent;
+      if (P.crisisLock === true) return true;
+      if (openCrisis || (pid === "diana" && S.diana?.crisis)) return true;
+      return helpSent || /^crisis$/i.test(String(P.status || P.signal || ""));
     })(),
-    helpText: (() => {
-      const id = pidRef.current;
-      const P = store.PATIENTS[id] || {};
-      const openCrisis = (S.alerts || []).some(
-        (a: { id?: string; pid?: string; sev?: string }) =>
-          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
-      );
-      const blocked =
-        (openCrisis || (pid === "diana" && S.diana?.crisis) || (helpSent && !P.crisisBtnReady));
-      return blocked
-        ? "Ya avisamos al equipo. Una persona la va a llamar en menos de 30 minutos. Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4."
-        : "Si está en peligro ahora: llame al 123. Si necesita hablar con alguien: Línea 192, opción 4. Al tocar «Estoy en crisis» avisamos al equipo para que la contacten.";
+    /** Clínico ya cerró la alerta → aparece «estoy bien» (solo si sigue bloqueado). */
+    crisisAttended: (() => {
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const ids = [id, accountId, localId].filter(Boolean);
+      const well = wellConfirmedRef.current;
+      if (
+        well &&
+        Date.now() < well.until &&
+        ids.some((x) => x === well.pid)
+      ) {
+        return false;
+      }
+      const stillInCrisisUi =
+        P.crisisLock === true ||
+        /^crisis$/i.test(String(P.status || P.signal || "")) ||
+        (S.alerts || []).some(
+          (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
+            a.sev === "crisis" &&
+            a.status !== "closed" &&
+            ids.some(
+              (x) =>
+                a.pid === x ||
+                String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
+            ),
+        );
+      if (!stillInCrisisUi) return false;
+      return crisisWasAttended(S, ids, P);
     })(),
+    confirmWellBusy,
+    helpNotSent: false,
+    helpText: "",
     openHelp: () => {
       setHelp(true);
-      const id = pidRef.current;
-      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
-      const openCrisis = (store.get().alerts || []).some(
-        (a: { id?: string; pid?: string; sev?: string }) =>
-          a.sev === "crisis" && (a.pid === id || a.id === "a-" + id + "-crisis-btn"),
-      );
-      if (openCrisis || (pid === "diana" && store.get().diana?.crisis)) return;
-      if (helpSent && !P.crisisBtnReady) return;
-      setHelpSent(true);
-      store.set((s: any) => {
-        if (s.patients[id]) {
-          s.patients[id].crisisBtnReady = false;
-          s.patients[id].status = "Crisis";
-          s.patients[id].signal = "Crisis";
-        }
-        const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
-        if (pe) pe.status = "Crisis";
-      });
-      store.addAlert({
-        id: "a-" + id + "-crisis-btn-" + Date.now(),
-        sev: "crisis",
-        pid: id,
-        name: P.name,
-        age: P.age,
-        place: (P.place || "").split(",")[0] || P.place,
-        profile: P.profile || "P05",
-        what: "Tocó «Estoy en crisis» en la app.",
-        source: "Botón Estoy en crisis · app",
-        phone: P.phone || "",
-        expert: P.expert || undefined,
-      });
-      void Promise.all([
-        fetch("/api/people", {
-          credentials: "same-origin",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, name: P.name, status: "Crisis" }),
-        }),
-        fetch("/api/patients", {
-          credentials: "same-origin",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, name: P.name, status: "Crisis", signal: "Crisis" }),
-        }),
-      ]).catch(() => {});
     },
-    closeHelp: () => setHelp(false),
-    askCall: () => {
-      setHelpSent(true);
+    closeHelp: () => {
       const id = pidRef.current;
-      const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
-      store.set((s: any) => {
-        if (s.patients[id]) {
-          s.patients[id].crisisBtnReady = false;
-          s.patients[id].status = "Crisis";
-          s.patients[id].signal = "Crisis";
+      const P = (store.PATIENTS[id] || {}) as {
+        status?: string;
+        crisisLock?: boolean;
+      };
+      if (P.crisisLock || helpSent || /^crisis$/i.test(String(P.status || ""))) return;
+      setHelp(false);
+    },
+    /** Confirma crisis: envía alerta + estado Crisis + bloqueo total. */
+    askCall: () => {
+      void (async () => {
+        const sess = store.session() as {
+          id?: string;
+          name?: string;
+          email?: string;
+          patientId?: string;
+        } | null;
+        // Siempre refrescar ficha canónica antes de alertar.
+        let fresh: (Record<string, unknown> & { id: string }) | null = null;
+        try {
+          const res = await fetch("/api/patients/me", { credentials: "same-origin" });
+          const data = (await res.json()) as {
+            ok?: boolean;
+            patient?: Record<string, unknown> & { id: string };
+          };
+          if (res.ok && data.ok && data.patient?.id) fresh = data.patient;
+        } catch {
+          /* usar store local */
         }
-        const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
-        if (pe) pe.status = "Crisis";
+        const map = (store.get().patients || store.PATIENTS || {}) as Record<
+          string,
+          Record<string, unknown>
+        >;
+        const localId = pidRef.current;
+        const fromMap =
+          (fresh?.id && map[fresh.id]) ||
+          map[localId] ||
+          (sess?.patientId && map[sess.patientId]) ||
+          Object.values(map).find(
+            (p) =>
+              p &&
+              (p.accountId === sess?.id ||
+                p.accountId === localId ||
+                (sess?.email && p.email === sess.email) ||
+                p.id === localId),
+          ) ||
+          null;
+        const P = {
+          ...(fromMap || {}),
+          ...(fresh || {}),
+        } as Record<string, unknown> & {
+          id?: string;
+          name?: string;
+          age?: number;
+          place?: string;
+          terr?: string;
+          profile?: string;
+          phone?: string;
+          expert?: string;
+          crisisLock?: boolean;
+          crisisBtnReady?: boolean;
+        };
+        // pid canónico = ficha paciente, nunca el id de cuenta.
+        const id = String(
+          P.id || fresh?.id || sess?.patientId || localId || "",
+        );
+        if (!id) return;
+        if (id !== localId) {
+          pidRef.current = id;
+          setWho(id);
+        }
+        if (fresh) {
+          store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
+            s.patients = s.patients || {};
+            s.patients[id] = { ...(s.patients[id] || {}), ...fresh! };
+          });
+        }
+        const openCrisis = (store.get().alerts || []).some(
+          (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
+            a.sev === "crisis" &&
+            a.status !== "closed" &&
+            (a.pid === id ||
+              a.pid === localId ||
+              a.pid === sess?.id ||
+              String(a.id || "").startsWith("a-" + id + "-crisis-btn") ||
+              String(a.id || "").startsWith("a-" + localId + "-crisis-btn")),
+        );
+        if (openCrisis || P.crisisLock || (pid === "diana" && store.get().diana?.crisis)) {
+          setHelpSent(true);
+          setHelp(true);
+          return;
+        }
+        if (helpSent && !P.crisisBtnReady) {
+          setHelp(true);
+          return;
+        }
+        const displayName =
+          String(P.name || sess?.name || "").trim() || "Paciente";
+        const ageN = Number(P.age);
+        const place = String(P.place || P.terr || "")
+          .split(",")[0]
+          .trim();
+        const profile =
+          P.profile && /^P\d+$/i.test(String(P.profile)) ? String(P.profile) : "";
+        const phone = String(P.phone || "").trim();
+        wellConfirmedRef.current = null;
+        confirmWellBusyRef.current = false;
+        setConfirmWellBusy(false);
+        setHelpSent(true);
+        setHelp(true);
+        store.set((s: any) => {
+          s.patients = s.patients || {};
+          const row = s.patients[id] || { id, name: displayName };
+          row.crisisBtnReady = false;
+          row.crisisLock = true;
+          row.crisisAttendedAt = null;
+          row.crisisAttendedOutcome = null;
+          row.status = "Crisis";
+          row.signal = "Crisis";
+          row.name = displayName;
+          if (Number.isFinite(ageN) && ageN > 0) row.age = ageN;
+          if (place) row.place = place;
+          if (profile) row.profile = profile;
+          if (phone) row.phone = phone;
+          if (sess?.id) row.accountId = sess.id;
+          s.patients[id] = row;
+          const pe = (s.people || []).find(
+            (p: { id?: string; accountId?: string }) =>
+              p.id === id || p.accountId === sess?.id,
+          );
+          if (pe) pe.status = "Crisis";
+        });
+        store.addAlert({
+          id: "a-" + id + "-crisis-btn-" + Date.now(),
+          sev: "crisis",
+          pid: id,
+          name: displayName,
+          age: Number.isFinite(ageN) && ageN > 0 ? ageN : undefined,
+          place: place || undefined,
+          profile: profile || undefined,
+          what: "Tocó «Estoy en crisis» → Ayuda en la app.",
+          source: "Botón Estoy en crisis · app",
+          phone: phone || undefined,
+          expert: P.expert || undefined,
+          createdBy: displayName,
+          createdByRole: "paciente",
+        });
+        pauseLiveHydrate(6_000);
+        void flushPersist(store);
+        void Promise.all([
+          fetch("/api/people", {
+            credentials: "same-origin",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              name: displayName,
+              status: "Crisis",
+              signal: "Crisis",
+            }),
+          }),
+          fetch("/api/patients", {
+            credentials: "same-origin",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              name: displayName,
+              status: "Crisis",
+              signal: "Crisis",
+              crisisLock: true,
+              crisisAttendedAt: null,
+              crisisAttendedOutcome: null,
+              crisisBtnReady: false,
+            }),
+          }),
+        ]).catch(() => {});
+      })();
+    },
+    /** Solo tras atención clínica: sale de la pantalla roja y vuelve a la normalidad. */
+    confirmWell: () => {
+      if (confirmWellBusyRef.current) return;
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const canon = id || localId;
+      const ids = [canon, localId, accountId].filter(Boolean);
+      if (!crisisWasAttended(store.get(), ids, P)) return;
+      confirmWellBusyRef.current = true;
+      setConfirmWellBusy(true);
+      wellConfirmedRef.current = { pid: canon, until: Date.now() + 60_000 };
+      const displayName = String(P.name || "Paciente");
+      // Cerrar UI de inmediato (un solo log; no spam).
+      setHelp(false);
+      setHelpSent(false);
+      pauseLiveHydrate(20_000);
+      const activeAt = Date.now();
+      lastActivityRef.current = activeAt;
+      store.set((s: any) => {
+        s.patients = s.patients || {};
+        const row = s.patients[canon] || { id: canon, name: displayName };
+        row.status = "Activo";
+        row.signal = "Activo";
+        row.crisisLock = false;
+        row.inactiveLock = false;
+        row.activeAt = activeAt;
+        row.crisisAttendedAt = null;
+        row.crisisAttendedOutcome = null;
+        row.crisisBtnReady = true;
+        row.crisisBtnReadyAt = activeAt;
+        s.patients[canon] = row;
+        if (localId !== canon && s.patients[localId]) {
+          s.patients[localId].status = "Activo";
+          s.patients[localId].crisisLock = false;
+          s.patients[localId].inactiveLock = false;
+          s.patients[localId].activeAt = activeAt;
+          s.patients[localId].crisisAttendedAt = null;
+        }
+        if (accountId && accountId !== canon && s.patients[accountId]) {
+          s.patients[accountId].status = "Activo";
+          s.patients[accountId].crisisLock = false;
+          s.patients[accountId].inactiveLock = false;
+          s.patients[accountId].activeAt = activeAt;
+          s.patients[accountId].crisisAttendedAt = null;
+        }
+        const pe = (s.people || []).find(
+          (p: { id?: string; accountId?: string }) =>
+            p.id === canon || p.accountId === localId || p.accountId === accountId,
+        );
+        if (pe) {
+          pe.status = "Activo";
+          pe.inactiveLock = false;
+          pe.activeAt = activeAt;
+        }
+        // Crisis cerrada de verdad: solo tras «estoy bien».
+        const idSet = new Set(ids.map(String));
+        s.closedToday = Array.isArray(s.closedToday) ? s.closedToday : [];
+        s.closedToday.forEach(
+          (c: {
+            sev?: string;
+            pid?: string;
+            status?: string;
+            patientConfirmedAt?: number | null;
+            closedAt?: number | null;
+            closedBy?: string | null;
+          }) => {
+            if (c.sev !== "crisis" || !c.pid || !idSet.has(String(c.pid))) return;
+            if (c.patientConfirmedAt) return;
+            c.status = "closed";
+            c.patientConfirmedAt = Date.now();
+            c.closedAt = Date.now();
+            c.closedBy = displayName;
+          },
+        );
+        if (typeof store.pushCrisisLog === "function") {
+          store.pushCrisisLog(s, {
+            type: "closed",
+            pid: canon,
+            name: displayName,
+            by: displayName,
+            byRole: "paciente",
+            what: "Paciente confirmó «estoy bien» · crisis cerrada",
+            detail: "Estado Crisis → Activo · servicios reactivados",
+            status: "closed",
+          });
+          store.pushCrisisLog(s, {
+            type: "status_changed",
+            pid: canon,
+            name: displayName,
+            by: displayName,
+            byRole: "paciente",
+            what: "Paciente confirmó «estoy bien»",
+            detail: "Estado Crisis → Activo · servicios reactivados",
+            status: "Activo",
+          });
+        }
       });
-      store.addAlert({
-        id: "a-" + id + "-crisis-btn-" + Date.now(),
-        sev: "crisis",
-        pid: id,
-        name: P.name,
-        age: P.age,
-        place: (P.place || "").split(",")[0] || P.place,
-        profile: P.profile || "P05",
-        what: "Tocó «Estoy en crisis» y pidió que la llamen ya.",
-        source: "Botón Estoy en crisis · app",
-        phone: P.phone || "",
-        expert: P.expert || undefined,
+      void (async () => {
+        try {
+          await Promise.all([
+            fetch("/api/people", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: canon,
+                name: displayName,
+                status: "Activo",
+                crisisLock: false,
+                inactiveLock: false,
+                activeAt,
+              }),
+            }),
+            fetch("/api/patients", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: canon,
+                name: displayName,
+                status: "Activo",
+                signal: "Activo",
+                crisisLock: false,
+                inactiveLock: false,
+                activeAt,
+                crisisAttendedAt: null,
+                crisisAttendedOutcome: null,
+                crisisBtnReady: true,
+              }),
+            }),
+          ]);
+        } catch {
+          /* reintento vía sync más adelante */
+        }
+        pauseLiveHydrate(8_000);
+        await flushPersistWhenReady(store);
+        confirmWellBusyRef.current = false;
+        setConfirmWellBusy(false);
+      })();
+    },
+    /** Inactividad: pantalla amarilla hasta «Volví» (sin alertas). */
+    inactiveOpen: (() => {
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const ids = [id, accountId, localId].filter(Boolean);
+      const back = backConfirmedRef.current;
+      if (
+        back &&
+        Date.now() < back.until &&
+        ids.some((x) => x === back.pid)
+      ) {
+        return false;
+      }
+      if (help || helpSent) return false;
+      if (P.crisisLock === true || /^crisis$/i.test(String(P.status || ""))) {
+        return false;
+      }
+      return (
+        inactiveOpen ||
+        P.inactiveLock === true ||
+        /^inactivo$/i.test(String(P.status || P.signal || ""))
+      );
+    })(),
+    confirmBackBusy,
+    /** Sale de inactividad: Activo de nuevo, sin más efectos. */
+    confirmBack: () => {
+      if (confirmBackBusyRef.current) return;
+      const localId = pidRef.current;
+      const { P, id, accountId } = resolvePatientRow(store, localId);
+      const canon = String(id || localId || "");
+      if (!canon) return;
+      confirmBackBusyRef.current = true;
+      setConfirmBackBusy(true);
+      backConfirmedRef.current = { pid: canon, until: Date.now() + 60_000 };
+      const activeAt = Date.now();
+      lastActivityRef.current = activeAt;
+      const displayName = String(P.name || "Paciente");
+      setInactiveOpen(false);
+      pauseLiveHydrate(12_000);
+      store.set((s: any) => {
+        s.patients = s.patients || {};
+        const row = s.patients[canon] || { id: canon, name: displayName };
+        row.status = "Activo";
+        row.signal = "Activo";
+        row.inactiveLock = false;
+        row.activeAt = activeAt;
+        s.patients[canon] = row;
+        if (localId !== canon && s.patients[localId]) {
+          s.patients[localId].status = "Activo";
+          s.patients[localId].inactiveLock = false;
+          s.patients[localId].activeAt = activeAt;
+        }
+        if (accountId && accountId !== canon && s.patients[accountId]) {
+          s.patients[accountId].status = "Activo";
+          s.patients[accountId].inactiveLock = false;
+          s.patients[accountId].activeAt = activeAt;
+        }
+        const pe = (s.people || []).find(
+          (p: { id?: string; accountId?: string }) =>
+            p.id === canon || p.accountId === localId || p.accountId === accountId,
+        );
+        if (pe) {
+          pe.status = "Activo";
+          pe.inactiveLock = false;
+          pe.activeAt = activeAt;
+        }
       });
-      void Promise.all([
-        fetch("/api/people", {
-          credentials: "same-origin",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, name: P.name, status: "Crisis" }),
-        }),
-        fetch("/api/patients", {
-          credentials: "same-origin",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, name: P.name, status: "Crisis", signal: "Crisis" }),
-        }),
-      ]).catch(() => {});
+      void (async () => {
+        try {
+          await Promise.all([
+            apiFetch("/api/accounts/me", {
+              method: "PATCH",
+              body: JSON.stringify({ touch: true }),
+            }),
+            fetch("/api/people", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: canon,
+                name: displayName,
+                status: "Activo",
+                inactiveLock: false,
+                activeAt,
+              }),
+            }),
+            fetch("/api/patients", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: canon,
+                name: displayName,
+                status: "Activo",
+                signal: "Activo",
+                inactiveLock: false,
+                activeAt,
+              }),
+            }),
+          ]);
+        } catch {
+          /* sync más adelante */
+        }
+        pauseLiveHydrate(6_000);
+        await flushPersistWhenReady(store);
+        confirmBackBusyRef.current = false;
+        setConfirmBackBusy(false);
+      })();
     },
     dianaLines: ((DP.place || "").includes("Salento") ? rosaLines : dianaLines),
     rosaLines,

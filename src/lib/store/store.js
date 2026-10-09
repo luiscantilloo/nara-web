@@ -1,5 +1,6 @@
 // NARA · estado en memoria (sin localStorage). Persistencia: MongoDB vía /api/app-state.
 import { schedulePersist } from './persist.js';
+import { NARA_SERVICES } from '../nara-services/catalog.js';
 
 const KEY = 'nara-memory-v1';
   // Limpia restos de demos anteriores en el navegador (una vez al cargar el módulo).
@@ -64,14 +65,13 @@ const KEY = 'nara-memory-v1';
   ];
 
   // Solo estos 6 servicios en el editor de rutas / perfiles (matriz v2 proyectada).
-  const SERVICES = [
-    { id: 'mood', name: 'Estado de ánimo', freqs: ['Diario'], note: 'Check-in «¿Cómo se siente hoy?» en la app' },
-    { id: 'clin', name: 'Psicólogo clínico', freqs: ['Semanal', 'Quincenal', 'Mensual'] },
-    { id: 'ia', name: 'Acompañante con IA (TEO)', freqs: ['Acceso libre', 'Entre sesiones'] },
-    { id: 'tech', name: 'Técnicas guiadas', freqs: ['En audio', 'Material impreso'] },
-    { id: 'revisit', name: 'Revisita del experto', freqs: ['Cada 2 semanas', 'Mensual'] },
-    { id: 'cursos', name: 'Cursos y cuentos', freqs: ['Curso guiado por TEO', 'Curso con el experto', 'Asignado por la psicóloga'] },
-  ];
+  // Nombres / notas / freqs: editar por archivo en src/lib/nara-services/<id>.js
+  const SERVICES = NARA_SERVICES.map((sv) => ({
+    id: sv.id,
+    name: sv.name,
+    freqs: sv.freqs.slice(),
+    note: sv.note || '',
+  }));
   const SERVICE_IDS = new Set(SERVICES.map((x) => x.id));
   const prunePathS = (s) => {
     const out = {};
@@ -157,41 +157,43 @@ const KEY = 'nara-memory-v1';
   })();
   function recPerson(s, pid) { return ((s.recursos || {}).people || {})[pid] || null; }
   function courseProgress(s, pid) { const p = recPerson(s, pid); if (!p || !p.course) return null; const c = REC.curso(p.course); const done = (p.doneMods || []).length; return { p, c, done, pct: Math.round(done / c.weeks * 100), week: p.week, mod: c.mods[Math.min(p.week, c.weeks) - 1] }; }
+  /**
+   * Por ahora: los 6 servicios van activos en todos los perfiles (P01–P15).
+   * Solo cambian frecuencias / canal según riesgo × digital.
+   */
   function defaultPath(r, d) {
     const p = basePath(r, d);
     p.s = prunePathS(p.s);
-    // v2: el check-in de ánimo en la app solo con capacidad Alta.
-    if (d === 2) p.s.mood = 'Diario'; else delete p.s.mood;
-    p.s.cursos = cursosMod(r, d);
-    // v2: Leve recibe revisita; Leve y Moderado con capacidad Baja, cada 2 semanas.
-    if (r === 1) p.s.revisit = d === 0 ? 'Cada 2 semanas' : 'Mensual';
-    if (r === 2 && d === 0) p.s.revisit = 'Cada 2 semanas';
     return p;
   }
   function basePath(r, d) {
     const s = {};
     const on = (id, freq) => { s[id] = freq; };
+    // Los 6 servicios, siempre.
+    on('mood', 'Diario');
+    on('ia', r <= 1 ? 'Acceso libre' : 'Entre sesiones');
     on('tech', d === 0 ? 'Material impreso' : 'En audio');
     on('cursos', cursosMod(r, d));
-    // v2: TEO y ánimo solo con capacidad Alta; Severo × Alta sin TEO (como la matriz).
-    if (d === 2) {
-      on('mood', 'Diario');
-      if (r <= 1) on('ia', 'Acceso libre');
-      else if (r === 2 || r === 3) on('ia', 'Entre sesiones');
-    }
-    if (r <= 1) {
-      if (d === 0) on('revisit', 'Mensual');
-      return { s, months: 3 };
-    }
-    if (r === 2) {
-      on('clin', 'Mensual');
-      // v2: Moderado solo revisita en Baja (Media/Alta no la llevan en la matriz).
-      if (d === 0) on('revisit', 'Mensual');
-      return { s, months: 6 };
-    }
-    on('clin', r === 3 ? 'Quincenal' : 'Semanal');
-    on('revisit', 'Cada 2 semanas');
-    return { s, months: 12 };
+    on(
+      'clin',
+      r <= 1 ? 'Mensual' : r === 2 ? 'Mensual' : r === 3 ? 'Quincenal' : 'Semanal',
+    );
+    on(
+      'revisit',
+      r <= 1
+        ? d === 0
+          ? 'Cada 2 semanas'
+          : 'Mensual'
+        : r === 2
+          ? d === 0
+            ? 'Cada 2 semanas'
+            : 'Mensual'
+          : 'Cada 2 semanas',
+    );
+    // inactiveMinutes: umbral del perfil para estado Inactivo (default: 1 día).
+    if (r <= 1) return { s, months: 3, inactiveMinutes: 1440 };
+    if (r === 2) return { s, months: 6, inactiveMinutes: 1440 };
+    return { s, months: 12, inactiveMinutes: 1440 };
   }
   // ctx: { dano: 0 ninguno · 1 parcial · 2 total, perdida: 0/1 }
   const needsSocial = ctx => !!ctx && ((ctx.dano || 0) > 0 || (ctx.perdida || 0) > 0);
@@ -205,19 +207,40 @@ const KEY = 'nara-memory-v1';
     if (r < 0 || d < 0 || r > 4 || d > 2) return [];
     const storeOv = cache && cache.pathOverrides && cache.pathOverrides[code(r, d)];
     const explicit = asPathDraft(override) || asPathDraft(storeOv);
-    const usingDefault = !explicit;
-    const p0 = explicit || defaultPath(r, d);
-    const p = { s: prunePathS(p0.s || {}), months: p0.months != null ? p0.months : 3 };
-
-    if (usingDefault) {
-      if (!p.s.cursos) p.s.cursos = cursosMod(r, d);
-      if (!p.s.mood && d === 2) p.s.mood = 'Diario';
+    const full = defaultPath(r, d);
+    // Por defecto los 6 activos (full). El override gana:
+    // - freq string → activo
+    // - '' / null → apagado explícito (no se rellena)
+    // - clave ausente en override viejo → se toma del default (activo)
+    const merged = { ...(full.s || {}) };
+    if (explicit && explicit.s && typeof explicit.s === 'object') {
+      Object.keys(explicit.s).forEach((k) => {
+        if (!SERVICE_IDS.has(k)) return;
+        const v = explicit.s[k];
+        if (v === '' || v == null) delete merged[k];
+        else merged[k] = v;
+      });
     }
+    const p = {
+      s: prunePathS(merged),
+      months:
+        explicit && explicit.months != null
+          ? explicit.months
+          : full.months != null
+            ? full.months
+            : 3,
+      inactiveMinutes:
+        explicit && explicit.inactiveMinutes != null
+          ? explicit.inactiveMinutes
+          : full.inactiveMinutes != null
+            ? full.inactiveMinutes
+            : 1440,
+    };
 
     return SERVICES.filter(x => p.s[x.id]).map(x => ({
       id: x.id, name: x.name, freq: p.s[x.id],
       channel:
-        x.id === 'mood' ? 'App · check-in diario' :
+        x.id === 'mood' ? 'App · check-in de ánimo' :
         x.id === 'clin' ? CLIN_CH[d] :
         x.id === 'ia' ? 'App' :
         x.id === 'revisit' ? 'Visita en casa' :
@@ -225,6 +248,10 @@ const KEY = 'nara-memory-v1';
         x.id === 'tech' ? 'App o impreso' : '',
       main: x.id === 'clin' && r >= 2,
     }));
+  }
+  /** Ids de la ruta del perfil que la app del paciente puede mostrar. */
+  function appModuleIdsFromPath(r, d, override, ctx) {
+    return pathList(r, d, override, ctx).map((x) => x.id);
   }
   const HEAT = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
 
@@ -249,6 +276,7 @@ const KEY = 'nara-memory-v1';
       patients: {},
       assets: [],
       alerts: [],
+      crisisLog: [],
       closedToday: [],
       worklists: { andres: [], mj: [] },
       weekBase: { andres: 0, mj: 0 },
@@ -378,11 +406,29 @@ const KEY = 'nara-memory-v1';
       } else {
         const d = Number(s.rules.goals.daily);
         const w = Number(s.rules.goals.weekly);
-        if (!(d > 0)) { s.rules.goals.daily = 9; changed = true; }
-        if (!(w > 0)) { s.rules.goals.weekly = 45; changed = true; }
+        // 0 no es meta válida (rompe las barras «X de 0»).
+        if (!(Number.isFinite(d) && d >= 1)) { s.rules.goals.daily = 9; changed = true; }
+        if (!(Number.isFinite(w) && w >= 1)) { s.rules.goals.weekly = 45; changed = true; }
       }
     }
     if (!s.patients || typeof s.patients !== 'object') { s.patients = {}; changed = true; }
+    if (!Array.isArray(s.crisisLog)) { s.crisisLog = []; changed = true; }
+    // Criterio de duración mínima retirado: quitar flags obsoletos y validar esas visitas.
+    if (Array.isArray(s.flags) && s.flags.length) {
+      const isDurReason = (r) => /mínimo\s*20|minimo\s*20|menos de\s*20\s*minutos|entrevista de\s+\d+/i.test(String(r || ''));
+      const isDurOnly = (f) => Array.isArray(f.reasons) && f.reasons.length > 0 && f.reasons.every(isDurReason);
+      const obsolete = s.flags.filter(isDurOnly);
+      if (obsolete.length) {
+        obsolete.forEach((f) => {
+          if (f.fromVisit && f.wid && f.expert && s.worklists && s.worklists[f.expert]) {
+            const w = s.worklists[f.expert].find((x) => x.id === f.wid);
+            if (w && (w.status === 'revision' || f.status === 'pending')) w.status = 'validada';
+          }
+        });
+        s.flags = s.flags.filter((f) => !isDurOnly(f));
+        changed = true;
+      }
+    }
     return changed;
   }
   function applyRules(s) {
@@ -468,25 +514,256 @@ const KEY = 'nara-memory-v1';
   function teamGoals(s) {
     ensure(s);
     const g = (s.rules && s.rules.goals) || {};
-    const daily = Number(g.daily) > 0 ? Number(g.daily) : 9;
-    const weekly = Number(g.weekly) > 0 ? Number(g.weekly) : 45;
+    const d = Number(g.daily);
+    const w = Number(g.weekly);
+    const daily = Number.isFinite(d) && d >= 1 ? d : 9;
+    const weekly = Number.isFinite(w) && w >= 1 ? w : Math.max(45, daily * 5);
     return { daily, weekly };
+  }
+  function dayStartMs(ts) {
+    const d = new Date(ts || Date.now());
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  function weekStartMs(ts) {
+    const d = new Date(ts || Date.now());
+    const monOffset = (d.getDay() + 6) % 7; // lunes = inicio de semana operativa
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - monOffset);
+    return d.getTime();
+  }
+  function visitStamp(w) {
+    const raw = w && (w.validatedAt || w.at || w.updatedAt || w.createdAt);
+    if (raw == null || raw === '') return 0;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+    const parsed = Date.parse(String(raw));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  /** Claves con las que puede estar indexada la cola de un experto (id, accountId, name, legado). */
+  function expertWorklistKeys(s, ex) {
+    const keys = new Set();
+    if (ex != null && ex !== '') keys.add(String(ex));
+    const expert = (s.experts || []).find(
+      (e) =>
+        e &&
+        (e.id === ex ||
+          e.accountId === ex ||
+          e.name === ex ||
+          String(e.id) === String(ex) ||
+          String(e.accountId || '') === String(ex)),
+    );
+    if (expert) {
+      if (expert.id) keys.add(String(expert.id));
+      if (expert.accountId) keys.add(String(expert.accountId));
+      if (expert.name) keys.add(String(expert.name));
+    }
+    // Alias demo legado
+    if (ex === 'andres' || (expert && expert.name === 'Andrés Ocampo')) keys.add('andres');
+    if (ex === 'mj' || (expert && expert.name === 'María José Vélez')) keys.add('mj');
+    return [...keys];
+  }
+  function worklistForExpert(s, ex) {
+    const seen = new Set();
+    const out = [];
+    expertWorklistKeys(s, ex).forEach((k) => {
+      ensureExpertBuckets(s, k);
+      (s.worklists[k] || []).forEach((w) => {
+        if (!w) return;
+        const id = w.id != null ? String(w.id) : '';
+        const dedupe = id || JSON.stringify([w.name, w.at, w.status]);
+        if (seen.has(dedupe)) return;
+        seen.add(dedupe);
+        out.push(w);
+      });
+    });
+    return out;
   }
   function quotas(s, ex) {
     ensureExpertBuckets(s, ex);
-    const wl = s.worklists[ex] || [];
-    const v = wl.filter(x => x.status === 'validada');
-    const targets = ex === 'andres' ? { rural: 5, sixty: 3 } : { rural: 1, sixty: 2 };
+    const wl = worklistForExpert(s, ex);
+    // Cuentan visitas cerradas en campo (evaluadas, por aprobar o crisis).
+    const done = wl.filter(x => x && (x.status === 'validada' || x.status === 'por_aprobar' || x.status === 'crisis'));
+    const day0 = dayStartMs();
+    const week0 = weekStartMs();
+    const inToday = (w) => {
+      const t = visitStamp(w);
+      return t ? t >= day0 : true; // sin fecha → sesión actual
+    };
+    const inWeek = (w) => {
+      const t = visitStamp(w);
+      return t ? t >= week0 : true;
+    };
+    const todayVisits = done.filter(inToday);
+    const weekVisits = done.filter(inWeek);
     const g = teamGoals(s);
-    const todayT = g.daily;
+    // Cuotas rural / 60+: por territorio del experto, o proporciones de la meta diaria.
+    const expert =
+      (s.experts || []).find(e => e && (e.id === ex || e.accountId === ex || e.name === ex)) || null;
+    const terrName = expert && expert.terr ? expert.terr : null;
+    const terr = terrName ? terrInfo(s, terrName) : null;
+    const ruralPct = terr && Number(terr.ruralG) > 0 ? Number(terr.ruralG) : 20;
+    const sixtyPct = terr && Number(terr.sixtyG) > 0 ? Number(terr.sixtyG) : 25;
+    let ruralT = Math.max(1, Math.round((g.daily * ruralPct) / 100));
+    let sixtyT = Math.max(1, Math.round((g.daily * sixtyPct) / 100));
+    if (ex === 'andres' || (expert && expert.name === 'Andrés Ocampo')) {
+      ruralT = Math.max(ruralT, 5);
+      sixtyT = Math.max(sixtyT, 3);
+    } else if (ex === 'mj' || (expert && expert.name === 'María José Vélez')) {
+      ruralT = Math.max(ruralT, 1);
+      sixtyT = Math.max(sixtyT, 2);
+    }
+    // Semana = base previa + validadas de la semana − rechazos de QC.
+    const weekBaseN = expertWorklistKeys(s, ex).reduce(
+      (n, k) => n + (Number(s.weekBase[k]) || 0),
+      0,
+    );
+    const rejectedN = expertWorklistKeys(s, ex).reduce(
+      (n, k) => n + (Number(s.rejected[k]) || 0),
+      0,
+    );
+    const week = Math.max(0, weekBaseN + weekVisits.length - rejectedN);
     return {
-      today: v.length, todayT,
-      week: (s.weekBase[ex] || 0) + v.length - (s.rejected[ex] || 0), weekT: g.weekly,
-      rural: v.filter(x => x.rural).length, ruralT: targets.rural,
-      sixty: v.filter(x => x.age >= 60).length, sixtyT: targets.sixty
+      today: todayVisits.length,
+      todayT: g.daily,
+      week,
+      weekT: g.weekly,
+      rural: todayVisits.filter(x => x.rural).length,
+      ruralT,
+      sixty: todayVisits.filter(x => Number(x.age) >= 60).length,
+      sixtyT,
     };
   }
-  function openFlags(s, ex) { return (s.flags || []).filter(f => f.expert === ex && f.status === 'pending').length; }
+  function openFlags(s, ex) {
+    const keys = new Set(expertWorklistKeys(s, ex));
+    return (s.flags || []).filter((f) => {
+      if (!f || f.status !== 'pending') return false;
+      // No contar solo duración (ruido obsoleto).
+      const reasons = f.reasons || [];
+      if (
+        reasons.length > 0 &&
+        reasons.every((r) =>
+          /mínimo\s*20|minimo\s*20|menos de\s*20\s*minutos|entrevista de\s+\d+/i.test(
+            String(r || ''),
+          ),
+        )
+      ) {
+        return false;
+      }
+      const ek = f.expert != null ? String(f.expert) : '';
+      const eid = f.expertId != null ? String(f.expertId) : '';
+      const en = f.expertName != null ? String(f.expertName) : '';
+      return keys.has(ek) || keys.has(eid) || keys.has(en);
+    }).length;
+  }
+
+  /** Personas/pacientes a cargo del experto (por id, accountId o nombre). */
+  function expertCaseloadIds(s, ex) {
+    const keys = new Set(expertWorklistKeys(s, ex));
+    const ids = new Set();
+    (s.people || []).forEach((p) => {
+      if (!p) return;
+      const ek = p.expert != null ? String(p.expert) : '';
+      const eid = p.expertId != null ? String(p.expertId) : '';
+      if (keys.has(ek) || keys.has(eid)) {
+        if (p.id != null) ids.add(String(p.id));
+        if (p.code) ids.add(String(p.code));
+      }
+    });
+    const patients = s.patients || {};
+    Object.keys(patients).forEach((pid) => {
+      const p = patients[pid];
+      if (!p) return;
+      const ek = p.expert != null ? String(p.expert) : '';
+      const eid = p.expertId != null ? String(p.expertId) : '';
+      if (keys.has(ek) || keys.has(eid) || ids.has(String(p.id || pid))) {
+        ids.add(String(p.id || pid));
+      }
+    });
+    return ids;
+  }
+
+  /**
+   * Alertas abiertas del experto: QC pendiente + crisis abiertas
+   * (alertas, cola en crisis, fichas en Crisis).
+   */
+  function expertAlertCount(s, ex) {
+    const keys = new Set(expertWorklistKeys(s, ex));
+    const caseload = expertCaseloadIds(s, ex);
+    const crisisPids = new Set();
+    let n = openFlags(s, ex);
+
+    (s.alerts || []).forEach((a) => {
+      if (!a || a.sev !== 'crisis') return;
+      if (/closed|cerrada|dismissed|other/i.test(String(a.status || ''))) return;
+      const aEx = a.expert != null ? String(a.expert) : '';
+      const aExId = a.expertId != null ? String(a.expertId) : '';
+      const pid = a.pid != null ? String(a.pid) : '';
+      const match =
+        keys.has(aEx) ||
+        keys.has(aExId) ||
+        (pid && caseload.has(pid)) ||
+        (a.source &&
+          [...keys].some(
+            (k) => k.length > 2 && String(a.source).toLowerCase().includes(k.toLowerCase()),
+          ));
+      if (!match) return;
+      if (pid) {
+        if (crisisPids.has(pid)) return;
+        crisisPids.add(pid);
+      }
+      n += 1;
+    });
+
+    worklistForExpert(s, ex).forEach((w) => {
+      if (!w || w.status !== 'crisis') return;
+      const pid = w.id != null ? String(w.id) : w.pid != null ? String(w.pid) : '';
+      if (pid && crisisPids.has(pid)) return;
+      if (pid) crisisPids.add(pid);
+      n += 1;
+    });
+
+    const patients = s.patients || {};
+    Object.keys(patients).forEach((pid) => {
+      const p = patients[pid];
+      if (!p) return;
+      const id = String(p.id || pid);
+      if (!caseload.has(id) && !caseload.has(pid)) return;
+      const inCrisis =
+        p.crisisLock === true ||
+        /crisis/i.test(String(p.status || '')) ||
+        /crisis/i.test(String(p.signal || ''));
+      if (!inCrisis) return;
+      if (crisisPids.has(id) || crisisPids.has(pid)) return;
+      crisisPids.add(id);
+      n += 1;
+    });
+
+    return n;
+  }
+
+  /**
+   * Estado operativo del experto a partir de cuota, alertas y capacitación.
+   * No deja «Capacitación pendiente» si ya tiene visitas reales.
+   */
+  function expertTeamStatus(s, ex, expertRow) {
+    const e = expertRow || (s.experts || []).find(
+      (x) => x && (x.id === ex || x.accountId === ex || x.name === ex),
+    ) || {};
+    const eov = (s.expertOv || {})[e.name || ''] || {};
+    const active = eov.active !== false && e.active !== false;
+    if (!active) return 'off';
+    const q = quotas(s, ex);
+    const alerts = expertAlertCount(s, ex);
+    if (alerts > 0) return 'rev';
+    const goals = teamGoals(s);
+    const midWeek = Math.max(1, Math.round((goals.weekly * 34) / 45));
+    const hasActivity = (q.today || 0) > 0 || (q.week || 0) > 0;
+    if (!hasActivity && (e.isNew || e.training === 'Pendiente')) return 'new';
+    if ((q.week || 0) >= midWeek) return 'ok';
+    return 'low';
+  }
 
   function minsAgo(at) { return Math.max(0, Math.floor((Date.now() - at) / 60000)); }
   function agoText(at) { const m = minsAgo(at); if (m < 1) return 'hace un momento'; if (m < 60) return 'hace ' + m + ' min'; const h = Math.floor(m / 60); return h < 24 ? 'hace ' + h + ' h' : 'hace ' + Math.floor(h / 24) + ' d'; }
@@ -521,11 +798,46 @@ const KEY = 'nara-memory-v1';
 
   function pushNotif(s, key, text, link) { (s.notifs[key] = s.notifs[key] || []).unshift({ id: 'n' + Date.now() + Math.random().toString(36).slice(2, 5), text, link, at: Date.now(), read: false }); }
   function notify(key, text, link) { set(s => pushNotif(s, key, text, link)); }
+  /** Log durable de movimientos de crisis (creación, toma, reintento, cierre…). */
+  function pushCrisisLog(s, entry) {
+    if (!s || !entry) return;
+    s.crisisLog = Array.isArray(s.crisisLog) ? s.crisisLog : [];
+    const row = Object.assign(
+      {
+        id: 'cl' + Date.now() + Math.random().toString(36).slice(2, 6),
+        at: Date.now(),
+      },
+      entry,
+    );
+    s.crisisLog.unshift(row);
+    if (s.crisisLog.length > 800) s.crisisLog = s.crisisLog.slice(0, 800);
+  }
   function addAlert(a) {
     set(s => {
-      s.alerts = s.alerts.filter(x => x.id !== a.id); s.alerts.unshift(Object.assign({ at: Date.now(), status: a.sev === 'crisis' ? 'new' : 'open' }, a));
-      if (a.sev === 'crisis') { pushNotif(s, 'clin', 'Nueva alerta de crisis: ' + a.name, '/clinico?view=alerts'); if (a.expert) pushNotif(s, a.expert, 'Crisis enviada: ' + a.name + ' · esperando a la clínica de turno', '/experto'); }
-      else if (a.sev === 'info' && /Nueva paciente/.test(a.what)) pushNotif(s, 'clin', 'Nueva paciente asignada: ' + a.name, '/clinico?view=patients');
+      const at = a.at || Date.now();
+      const row = Object.assign({ at, status: a.sev === 'crisis' ? 'new' : 'open' }, a);
+      s.alerts = s.alerts.filter(x => x.id !== a.id); s.alerts.unshift(row);
+      if (a.sev === 'crisis') {
+        pushCrisisLog(s, {
+          type: 'created',
+          alertId: row.id,
+          pid: row.pid || null,
+          name: row.name || 'Sin nombre',
+          age: row.age,
+          place: row.place,
+          profile: row.profile,
+          by: row.createdBy || row.source || 'Sistema',
+          byRole: row.createdByRole || (/app/i.test(String(row.source || '')) ? 'paciente' : /campo|experto/i.test(String(row.source || '')) ? 'experto' : 'sistema'),
+          source: row.source || '',
+          what: row.what || 'Alerta de crisis creada',
+          detail: row.phone ? 'Teléfono: ' + row.phone : '',
+          status: 'new',
+          at,
+        });
+        pushNotif(s, 'clin', 'Nueva alerta de crisis: ' + a.name, '/clinico/crisis');
+        if (a.expert) pushNotif(s, a.expert, 'Crisis enviada: ' + a.name + ' · esperando a la clínica de turno', '/experto');
+      }
+      else if (a.sev === 'info' && /Nueva paciente/.test(a.what)) pushNotif(s, 'clin', 'Nueva paciente asignada: ' + a.name, '/clinico/pacientes');
     });
   }
 
@@ -729,12 +1041,25 @@ const KEY = 'nara-memory-v1';
     const pk = period || '4w';
     const rows = experts(s).filter(e => e.active !== false && (!terr || e.terr === terr)).map(e => {
       const t = terrInfo(s, e.terr) || { ruralG: 0, sixtyG: 0 };
-      const q = e.id === 'andres' || e.id === 'mj' ? quotas(s, e.id) : null;
+      const exKey = e.id || e.accountId || e.name;
+      const q = quotas(s, exKey);
       const weekVisits = q ? q.week : (e.week || 0);
       const vpd = weekVisits ? +(weekVisits / 4.2).toFixed(1) : 0;
-      const flagged = (s.flags || []).some(f => f.expertName === e.name && f.status === 'pending');
-      const rej = e.id === 'andres' ? (s.rejected && s.rejected.andres) || 0 : e.id === 'mj' ? (s.rejected && s.rejected.mj) || 0 : 0;
-      const status = flagged ? 'Revisar' : weekVisits === 0 ? 'Sin datos' : vpd < 7 ? 'Bajo meta' : 'Al día';
+      const rejKeys = expertWorklistKeys(s, exKey);
+      const rej = rejKeys.reduce((n, k) => n + ((s.rejected && s.rejected[k]) || 0), 0);
+      const stKey = expertTeamStatus(s, exKey, e);
+      const status =
+        stKey === 'rev'
+          ? 'Revisar'
+          : stKey === 'off'
+            ? 'Desactivado'
+            : stKey === 'new'
+              ? 'Sin datos'
+              : stKey === 'ok'
+                ? 'Al día'
+                : weekVisits === 0
+                  ? 'Sin datos'
+                  : 'Bajo meta';
       return { name: e.name, terr: e.terr, vpd, dur: 0, gps: 0, ver: 0, rej, gap: 0, rural: 0, ruralG: t.ruralG || 0, sixty: 0, sixtyG: t.sixtyG || 0, status };
     });
     const avg = k => rows.length ? rows.reduce((a, r) => a + r[k], 0) / rows.length : 0;
@@ -838,8 +1163,8 @@ const KEY = 'nara-memory-v1';
   const AlientoStore = {
     OFFSET, shiftText, fmtDay, today0, needsSocial, crisisLines, ctxFor, teamPerf, OBS_MODULES, OBS_DEFAULT_MODULES, OBS_TEMPLATES, ensure, TERRS, EXPERT_LIST, CLINICIANS, ROSTER, TCODE, person, people, terrInfo, experts, assetList, logActivity, logAccess,
     KEY, C, RISK, DIG, PHQ, PHQ_OPTS, Q9_EXACT, DIGQ, CTX, SERVICES, CLIN_CH, HEAT, PATIENTS, emptyPatient,
-    riskIdx, digIdx, code, parseCode, defaultPath, pathList, cursosFreq, cursosMod,
-    get, set, reset, subscribe, ensureExpertBuckets, teamGoals, quotas, openFlags, minsAgo, agoText, countdown, addAlert,
+    riskIdx, digIdx, code, parseCode, defaultPath, pathList, appModuleIdsFromPath, cursosFreq, cursosMod,
+    get, set, reset, subscribe, ensureExpertBuckets, teamGoals, quotas, openFlags, expertAlertCount, expertTeamStatus, minsAgo, agoText, countdown, addAlert, pushCrisisLog,
     CRISIS_TERMS, crisisCheck, logAgent, logAi, SAMPLE,
     USERS, session, login, logout, requireSession, devMode, setDevMode, param, notify, pushNotif, PEOPLE, CASE_IDS, territoryDist, placeMap, small, REC, recPerson, courseProgress
   };

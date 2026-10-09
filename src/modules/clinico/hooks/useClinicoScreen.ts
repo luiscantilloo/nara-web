@@ -1,17 +1,24 @@
 // @ts-nocheck
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useRequireSession } from "@/hooks/useRequireSession";
-import { useNaraStore } from "@/providers/nara-provider";
+import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
+import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { flushPersist } from "@/lib/store/persist";
 import {
-  INACTIVITY_DAYS,
+  DEFAULT_INACTIVE_MINUTES,
   PATIENT_STATES,
-  normalizePatientState,
   patientStateMeta,
   profileCatalog,
+  resolveAdminPersonState,
 } from "@/lib/clinical/patientStates";
+import {
+  CLINICO_LEGACY_VIEW,
+  clinicoPathForView,
+  clinicoViewForPath,
+} from "@/modules/clinico/routes";
 
 const INSTS = [
   { id: "hsal", label: "Hospital local de Salento · Psicología y psiquiatría" },
@@ -27,13 +34,16 @@ const OUTCOMES = [
 
 export function useClinicoScreen() {
   const store = useNaraStore();
+  const live = useNaraLive();
   const session = useRequireSession(["clinico"]);
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const initialFromPath = clinicoViewForPath(pathname || "/clinico");
   const [st, setStateRaw] = useState({
-    view: "home",
+    view: initialFromPath.view || "home",
     agentOpen: false,
-    pid: "gloria",
+    pid: initialFromPath.pid || "gloria",
     outcome: {},
     copied: "",
     note: "",
@@ -50,76 +60,73 @@ export function useClinicoScreen() {
     apprFilter: "all",
     /** Filtro de estados en Mis pacientes */
     stateFilter: "all",
+    /** Tab del tablero de crisis: take | mine | all | done */
+    crisisTab: "take",
   });
   const setState = useCallback((u) => {
     setStateRaw((prev) => ({ ...prev, ...(typeof u === "function" ? u(prev) : u) }));
   }, []);
 
+  const stRef = useRef(st);
+  stRef.current = st;
+  const pendingPathRef = useRef(null);
+
+  /** Navega por ruta real (como admin) y actualiza el estado de vista. */
+  const navigateView = useCallback(
+    (view, extra = {}) => {
+      const next = { ...stRef.current, ...extra, view };
+      stRef.current = next;
+      setStateRaw(next);
+      const path = clinicoPathForView(
+        view,
+        view === "file" ? next.pid : null,
+      );
+      // No llamar al Router aquí: puede ejecutarse durante el render.
+      if (path !== pathname) pendingPathRef.current = path;
+      window.scrollTo(0, 0);
+    },
+    [pathname],
+  );
+
+  // Empuja la URL fuera del render (evita update de Router mid-render).
+  useEffect(() => {
+    const path = pendingPathRef.current;
+    if (!path) return;
+    pendingPathRef.current = null;
+    if (path !== pathname) router.push(path);
+  }, [st.view, st.pid, pathname, router]);
+
+  // URL → estado (+ redirects legacy ?view= / ?pid=)
   useEffect(() => {
     const v0 = searchParams.get("view");
     const p0 = searchParams.get("pid");
-    if (v0) setState({ view: v0 });
-    if (p0) setState({ view: "file", pid: p0 });
-  }, [searchParams, setState]);
+    if (p0) {
+      pendingPathRef.current = null;
+      router.replace(clinicoPathForView("file", p0));
+      return;
+    }
+    if (v0 && CLINICO_LEGACY_VIEW[v0]) {
+      pendingPathRef.current = null;
+      router.replace(clinicoPathForView(CLINICO_LEGACY_VIEW[v0]));
+      return;
+    }
+    const parsed = clinicoViewForPath(pathname || "/clinico");
+    setStateRaw((prev) => {
+      if (
+        parsed.view === prev.view &&
+        (!parsed.pid || parsed.pid === prev.pid)
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        view: parsed.view,
+        ...(parsed.pid ? { pid: parsed.pid } : {}),
+      };
+    });
+  }, [pathname, searchParams, router]);
 
-  // Inactividad de pacientes → alerta clínica + reactivar «Estoy en crisis».
-  useEffect(() => {
-    if (!session) return;
-    const S = store.get();
-    const patients = S.patients || {};
-    const toAdd = [];
-    Object.keys(patients).forEach((id) => {
-      const P = patients[id];
-      if (!P) return;
-      const days =
-        P.checkinDays != null
-          ? P.checkinDays
-          : P.lastCheckin
-            ? Math.floor((Date.now() - new Date(P.lastCheckin).getTime()) / 86400000)
-            : null;
-      if (days == null || days < INACTIVITY_DAYS) return;
-      const aid = "a-inactive-" + id;
-      if (S.alerts.find((a) => a.id === aid) || (S.closedToday || []).find((a) => a.id === aid))
-        return;
-      toAdd.push({ id, P, days, aid });
-    });
-    if (!toAdd.length) return;
-    store.set((s) => {
-      toAdd.forEach(({ id, P, days, aid }) => {
-        if (s.alerts.find((a) => a.id === aid)) return;
-        s.alerts.unshift({
-          id: aid,
-          sev: "revisar",
-          status: "open",
-          pid: id,
-          name: P.name,
-          age: P.age,
-          place: P.place,
-          profile: P.profile || "—",
-          what:
-            "Sin actividad en la app desde hace " +
-            days +
-            " días. Reactivar contacto y el botón «Estoy en crisis».",
-          source: "Inactividad de inicio de sesión",
-          phone: P.phone || "",
-          at: Date.now(),
-        });
-        if (s.patients[id]) {
-          s.patients[id].status = "Inactivo";
-          s.patients[id].signal = "Inactivo";
-          s.patients[id].crisisBtnReady = true;
-        }
-        const pe = (s.people || []).find((p) => p.id === id);
-        if (pe) pe.status = "Inactivo";
-        store.pushNotif(
-          s,
-          "clin",
-          "Inactividad: " + P.name + " · " + days + " días",
-          "/clinico?view=alerts",
-        );
-      });
-    });
-  }, [session, store, st.tick]);
+  // Inactividad: solo cambia el estado (derivado / inactiveLock). Sin alertas ni notifs.
 
   function openFile(pid, fromAgent) {
     const st0 = st;
@@ -127,8 +134,7 @@ export function useClinicoScreen() {
       st0.view === "file"
         ? st0.fileFrom
         : { view: st0.view, agent: !!fromAgent };
-    setState({
-      view: "file",
+    navigateView("file", {
       pid,
       fileFrom: from,
       msg: "",
@@ -138,7 +144,6 @@ export function useClinicoScreen() {
           ? "Insomnio que no cede después de las réplicas. Considerar medicación."
           : "",
     });
-    window.scrollTo(0, 0);
   }
 
   function recFile(A, S, P) {
@@ -332,44 +337,140 @@ export function useClinicoScreen() {
     const A = store;
     const S = A.get();
     const C = A.C;
-    const pending = S.alerts.filter((a) => a.sev === "crisis" && a.status === "new").length;
     const SEV = {
-      crisis: ["Crisis", C.rojo, "#fff"],
+      crisis: ["Crisis", "#6B0000", "#fff"],
       revisar: ["Revisar", "#F7E2D2", "#7A3A10"],
       info: ["Informativa", "#E6E1D9", C.azul],
     };
     const order = { crisis: 0, revisar: 1, info: 2 };
+    const peopleLookup = {};
+    const peopleByAccount = {};
+    (A.people ? A.people(S) : S.people || []).forEach((p) => {
+      if (p?.id) peopleLookup[p.id] = p;
+      if (p?.code) peopleLookup[p.code] = p;
+      if (p?.accountId) peopleByAccount[String(p.accountId)] = p;
+    });
+    const patientsMap = { ...(S.patients || {}), ...(A.PATIENTS || {}) };
+    const patientsByAccount = {};
+    Object.values(patientsMap).forEach((p) => {
+      if (p?.id && p?.accountId) patientsByAccount[String(p.accountId)] = p;
+    });
+    /** Resuelve ficha aunque la alerta traiga id de cuenta en vez de id de paciente. */
+    const resolveFicha = (rawPid) => {
+      const pid = rawPid ? String(rawPid) : "";
+      if (!pid) return { P: null, pe: null, pid: "" };
+      let P = patientsMap[pid] || null;
+      let pe = peopleLookup[pid] || null;
+      if (!P) P = patientsByAccount[pid] || null;
+      if (!pe) pe = peopleByAccount[pid] || null;
+      // Si people apunta a otra ficha canónica.
+      if (!P && pe?.id && patientsMap[String(pe.id)]) P = patientsMap[String(pe.id)];
+      if (!pe && P?.id && peopleLookup[String(P.id)]) pe = peopleLookup[String(P.id)];
+      const canon = String(P?.id || pe?.id || pid);
+      return { P, pe, pid: canon };
+    };
+    const enrichFromFicha = (a) => {
+      const { P, pe, pid } = resolveFicha(a.pid);
+      const rawName = String(
+        P?.name || pe?.name || a.name || "",
+      ).trim();
+      // «Paciente» genérico no cuenta si hay ficha con nombre real.
+      const fichaName = String(P?.name || pe?.name || "").trim();
+      const name =
+        (fichaName && !/^paciente$/i.test(fichaName) ? fichaName : null) ||
+        (rawName && !/^paciente$/i.test(rawName) ? rawName : null) ||
+        fichaName ||
+        rawName ||
+        "Sin nombre";
+      const ageN = Number(P?.age ?? pe?.age ?? a.age);
+      const age = Number.isFinite(ageN) && ageN > 0 ? ageN : null;
+      const place = String(
+        P?.place || pe?.place || pe?.terr || P?.terr || a.place || "",
+      )
+        .split(",")[0]
+        .trim();
+      const profile =
+        (P?.profile && /^P\d+$/i.test(String(P.profile)) && String(P.profile)) ||
+        (pe?.profile && /^P\d+$/i.test(String(pe.profile)) && String(pe.profile)) ||
+        (a.profile && /^P\d+$/i.test(String(a.profile)) && String(a.profile)) ||
+        "—";
+      const phone = String(P?.phone || pe?.phone || a.phone || "").trim();
+      return { name, age, place, profile, phone, pid };
+    };
     const alerts = S.alerts
       .slice()
       .sort((a, b) => order[a.sev] - order[b.sev] || b.at - a.at)
       .map((a) => {
-        const [sevLabel, tagBg, tagFg] = SEV[a.sev];
+        const [sevLabel, tagBg, tagFg] = SEV[a.sev] || SEV.info;
         const isCrisis = a.sev === "crisis";
         const cd = isCrisis && a.status !== "other" ? A.countdown(a.at) : null;
         const pick = st.outcome[a.id];
+        const info = enrichFromFicha(a);
+        const metaBits = [
+          info.age != null ? info.age + " años" : null,
+          info.place || null,
+          info.phone ? info.phone : null,
+        ].filter(Boolean);
         return Object.assign({}, a, {
+          name: info.name,
+          age: info.age,
+          place: info.place,
+          profile: info.profile,
+          phone: info.phone || "Sin teléfono",
+          metaLine: metaBits.join(" · ") || (info.name !== "Sin nombre" ? "Ficha vinculada" : "Buscando ficha…"),
           sevLabel,
           tagBg,
           tagFg,
           ago: A.agoText(a.at),
           cd: isCrisis ? (a.status === "other" ? "Tomado por un colega" : cd.text) : "",
-          cdFg: cd && cd.late ? "#8A1C14" : C.tinta,
-          bd: isCrisis && a.status !== "other" ? C.rojo : C.lineas,
-          shadow: isCrisis && a.status === "new" ? "0 0 0 4px #FDE7E4" : "none",
+          cdFg: cd && cd.late ? "#6B0000" : C.tinta,
+          bd: isCrisis && a.status !== "other" ? "#6B0000" : C.lineas,
+          isNewCrisis: isCrisis && a.status === "new",
           canTake: isCrisis && a.status === "new",
           isOther: a.status === "other",
           isMine: a.status === "mine" || a.status === "retry",
           isInfo: !isCrisis,
-          hasFile: !!(a.pid && A.PATIENTS[a.pid]),
-          take: () =>
+          isLate: !!(cd && cd.late),
+          isCrisis,
+          hasFile: !!(info.pid && (A.PATIENTS[info.pid] || patientsMap[info.pid])),
+          hasOutcome: pick !== undefined,
+          take: () => {
+            const who =
+              (A.session() && A.session().name) || "Clínico de turno";
+            const snap = enrichFromFicha(a);
             A.set((s) => {
               const x = s.alerts.find((y) => y.id === a.id);
+              if (!x) return;
               x.status = "mine";
               x.takenAt = Date.now();
-            }),
+              x.takenBy = who;
+              // Corregir datos de la alerta con la ficha real (y pid canónico).
+              if (snap.pid) x.pid = snap.pid;
+              x.name = snap.name;
+              if (snap.age != null) x.age = snap.age;
+              if (snap.place) x.place = snap.place;
+              if (snap.profile && snap.profile !== "—") x.profile = snap.profile;
+              if (snap.phone) x.phone = snap.phone;
+              if (A.pushCrisisLog)
+                A.pushCrisisLog(s, {
+                  type: "taken",
+                  alertId: x.id,
+                  pid: x.pid || null,
+                  name: x.name,
+                  by: who,
+                  byRole: "clinico",
+                  what: "Tomó el caso de crisis",
+                  detail: "Pasó a atención clínica",
+                  status: "mine",
+                  at: x.takenAt,
+                });
+            });
+            setState({ crisisTab: "mine" });
+          },
           copy: () => {
+            const phone = info.phone || a.phone || "";
             try {
-              navigator.clipboard.writeText(a.phone);
+              navigator.clipboard.writeText(phone);
             } catch (e) {}
             setState({ copied: a.id });
           },
@@ -380,39 +481,74 @@ export function useClinicoScreen() {
               : "",
           outcomes: OUTCOMES.map((label, i) => ({
             label,
-            bd: pick === i ? C.verde : C.lineas,
-            dot: pick === i ? C.verde : "#fff",
+            selected: pick === i,
             pick: () => setState({ outcome: Object.assign({}, st.outcome, { [a.id]: i }) }),
           })),
-          closeLabel: pick === 2 ? "Registrar intento" : "Cerrar alerta",
+          closeLabel: "Registrar atención",
           close: () => {
             if (pick === undefined) return;
-            if (pick === 2) {
-              const d = new Date(Date.now() + 600000);
-              A.set((s) => {
-                const x = s.alerts.find((y) => y.id === a.id);
-                x.status = "retry";
-                x.retryAt = d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
-              });
-              return;
-            }
+            const who =
+              (A.session() && A.session().name) || "Clínico de turno";
+            const outcomeLabel = OUTCOMES[pick];
+            let closedPid: string | null = null;
+            let closedName = "";
             A.set((s) => {
               const x = s.alerts.find((y) => y.id === a.id);
+              if (!x) return;
               s.alerts = s.alerts.filter((y) => y.id !== a.id);
-              x.status = "closed";
-              x.outcome = OUTCOMES[pick];
-              x.closedAt = Date.now();
+              // Aún no está cerrada: falta «estoy bien» del paciente.
+              x.status = "awaiting_patient";
+              x.outcome = outcomeLabel;
+              x.attendedAt = Date.now();
+              x.closedAt = null;
+              x.closedBy = null;
+              x.attendedBy = who;
+              x.patientConfirmedAt = null;
               s.closedToday.unshift(x);
-              // Tras cerrar crisis: reactivar botón «Estoy en crisis» en la app del paciente.
+              if (A.pushCrisisLog)
+                A.pushCrisisLog(s, {
+                  type: "awaiting_patient",
+                  alertId: x.id,
+                  pid: x.pid || null,
+                  name: x.name,
+                  by: who,
+                  byRole: "clinico",
+                  what: "Gestionó la crisis · esperando al paciente",
+                  detail: outcomeLabel,
+                  outcome: outcomeLabel,
+                  status: "awaiting_patient",
+                  at: x.attendedAt,
+                });
+              // Atendido por clínico: el paciente sigue en pantalla roja hasta «estoy bien».
               if (x.pid && s.patients[x.pid]) {
-                s.patients[x.pid].crisisBtnReady = true;
-                s.patients[x.pid].crisisBtnReadyAt = Date.now();
-                if (/crisis/i.test(String(s.patients[x.pid].status || ""))) {
-                  s.patients[x.pid].status = "Activo";
-                  s.patients[x.pid].signal = "Activo";
-                }
+                const snap = enrichFromFicha(x);
+                closedPid = x.pid;
+                closedName = snap.name || x.name || "";
+                x.name = closedName;
+                if (snap.age != null) x.age = snap.age;
+                if (snap.place) x.place = snap.place;
+                if (snap.profile && snap.profile !== "—") x.profile = snap.profile;
+                if (snap.phone) x.phone = snap.phone;
+                s.patients[x.pid].status = "Crisis";
+                s.patients[x.pid].signal = "Crisis";
+                s.patients[x.pid].crisisLock = true;
+                s.patients[x.pid].crisisAttendedAt = Date.now();
+                s.patients[x.pid].crisisAttendedOutcome = outcomeLabel;
+                s.patients[x.pid].crisisBtnReady = false;
                 const pe = (s.people || []).find((p) => p.id === x.pid);
-                if (pe && /crisis/i.test(String(pe.status || ""))) pe.status = "Activo";
+                if (pe) pe.status = "Crisis";
+                if (A.pushCrisisLog)
+                  A.pushCrisisLog(s, {
+                    type: "status_changed",
+                    alertId: x.id,
+                    pid: x.pid,
+                    name: x.name,
+                    by: who,
+                    byRole: "clinico",
+                    what: "Crisis atendida · esperando «estoy bien» del paciente",
+                    detail: outcomeLabel,
+                    status: "Crisis",
+                  });
               }
               if (pick === 3)
                 s.falsePositives.push({
@@ -425,62 +561,150 @@ export function useClinicoScreen() {
                 A.pushNotif(
                   s,
                   x.expert,
-                  "Crisis atendida: " + x.name + " · " + OUTCOMES[pick],
+                  "Crisis atendida: " + x.name + " · " + outcomeLabel,
                   "/experto",
                 );
-              if (x.expert)
+              if (x.expert) {
+                s.notices[x.expert] = s.notices[x.expert] || [];
                 s.notices[x.expert].unshift({
                   kind: "crisis",
                   tag: "Crisis atendida",
                   text:
-                    "La Dra. Lucía Marín atendió la alerta de " +
+                    who +
+                    " atendió la alerta de " +
                     x.name +
                     ": " +
-                    OUTCOMES[pick] +
-                    ". Revisita dentro de 48 horas.",
+                    outcomeLabel +
+                    ".",
                 });
+                if (A.pushCrisisLog)
+                  A.pushCrisisLog(s, {
+                    type: "notified",
+                    alertId: x.id,
+                    pid: x.pid || null,
+                    name: x.name,
+                    by: who,
+                    byRole: "clinico",
+                    what: "Avisó al experto de campo",
+                    detail: "Notificación a " + x.expert + " · crisis atendida",
+                  });
+              }
             });
+            if (closedPid) {
+              pauseLiveHydrate(6_000);
+              void flushPersist(A);
+              void fetch("/api/patients", {
+                credentials: "same-origin",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: closedPid,
+                  name: closedName || closedPid,
+                  status: "Crisis",
+                  signal: "Crisis",
+                  crisisLock: true,
+                  crisisAttendedAt: Date.now(),
+                  crisisAttendedOutcome: outcomeLabel,
+                  crisisBtnReady: false,
+                }),
+              }).catch(() => {});
+              void fetch("/api/people", {
+                credentials: "same-origin",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: closedPid,
+                  name: closedName || closedPid,
+                  status: "Crisis",
+                }),
+              }).catch(() => {});
+            }
+            setState({ crisisTab: "done" });
           },
           dismiss: () =>
             A.set((s) => {
               const x = s.alerts.find((y) => y.id === a.id);
+              if (!x) return;
               s.alerts = s.alerts.filter((y) => y.id !== a.id);
               x.outcome = "Vista";
               s.closedToday.unshift(x);
+              if (x.sev === "crisis" && A.pushCrisisLog)
+                A.pushCrisisLog(s, {
+                  type: "dismissed",
+                  alertId: x.id,
+                  pid: x.pid || null,
+                  name: x.name,
+                  by: (A.session() && A.session().name) || "Clínico",
+                  byRole: "clinico",
+                  what: "Marcó la alerta como vista",
+                  outcome: "Vista",
+                  status: "closed",
+                });
             }),
-          open: () => openFile(a.pid),
+          open: () => openFile(info.pid || a.pid),
         });
       });
-    const closed = S.closedToday.map((c) => ({
-      name: c.name,
-      outcome: c.outcome,
-      canReopen:
-        (c.pid === "diana" && S.diana.crisis) ||
-        (c.pid === "rosalba" && S.rosalbaWA.crisis && c.sev === "crisis"),
-      reopen: () =>
-        A.set((s) => {
-          if (c.pid === "diana") {
-            s.diana.crisis = false;
-            s.dianaInbox.push({
-              id: "d" + Date.now(),
-              text: "Su psicóloga revisó su mensaje y reabrió su conversación con TEO.",
-              tab: "chat",
-              seen: false,
-            });
-          }
-          if (c.pid === "rosalba") s.rosalbaWA.crisis = false;
-        }),
-      reopenLabel:
-        c.pid === "diana"
-          ? "Reabrir la conversación con TEO"
-          : "Reabrir el acompañamiento por WhatsApp",
-      meta:
-        c.sev === "crisis"
-          ? "Crisis · respondida en " +
-            Math.max(1, Math.round(((c.takenAt || c.closedAt) - c.at) / 60000)) +
-            " min"
-          : SEV[c.sev][0],
-    }));
+    const closed = S.closedToday.map((c) => {
+      const info = enrichFromFicha(c);
+      const ficha = resolveFicha(c.pid);
+      const stillInCrisis =
+        ficha.P?.crisisLock === true ||
+        /^crisis$/i.test(
+          String(ficha.P?.status || ficha.pe?.status || ""),
+        );
+      // Solo «esperando» si el clínico ya gestionó Y el paciente sigue en Crisis.
+      // Si ya está Activo (confirmó «estoy bien» o salió de crisis), es Cerrada.
+      const waiting =
+        c.sev === "crisis" &&
+        !!c.outcome &&
+        c.outcome !== "Vista" &&
+        !c.patientConfirmedAt &&
+        stillInCrisis;
+      const respondedAt = c.attendedAt || c.closedAt || c.takenAt || c.at;
+      return {
+        name: info.name,
+        outcome: c.outcome,
+        waiting,
+        statusLabel: waiting
+          ? "Esperando al paciente"
+          : c.sev === "crisis"
+            ? "Cerrada"
+            : "Vista",
+        statusHint: waiting
+          ? "Gestionada por el clínico · falta «estoy bien» en la app"
+          : c.sev === "crisis"
+            ? c.patientConfirmedAt
+              ? "El paciente confirmó que está bien"
+              : "El paciente ya no está en crisis"
+            : "",
+        canReopen:
+          (c.pid === "diana" && S.diana.crisis) ||
+          (c.pid === "rosalba" && S.rosalbaWA.crisis && c.sev === "crisis"),
+        reopen: () =>
+          A.set((s) => {
+            if (c.pid === "diana") {
+              s.diana.crisis = false;
+              s.dianaInbox.push({
+                id: "d" + Date.now(),
+                text: "Su psicóloga revisó su mensaje y reabrió su conversación con TEO.",
+                tab: "chat",
+                seen: false,
+              });
+            }
+            if (c.pid === "rosalba") s.rosalbaWA.crisis = false;
+          }),
+        reopenLabel:
+          c.pid === "diana"
+            ? "Reabrir la conversación con TEO"
+            : "Reabrir el acompañamiento por WhatsApp",
+        meta:
+          c.sev === "crisis"
+            ? "Crisis · respondida en " +
+              Math.max(1, Math.round((respondedAt - c.at) / 60000)) +
+              " min"
+            : (SEV[c.sev] || SEV.info)[0],
+      };
+    });
 
     const ids: string[] = [];
     const seen = new Set<string>();
@@ -491,7 +715,8 @@ export function useClinicoScreen() {
     };
     A.CASE_IDS.forEach((id: string) => pushId(id));
     (S.caseload || []).forEach((c) => {
-      if (!A.PATIENTS[c.id])
+      const caseloadStatus = c.status || c.signal || null;
+      if (!A.PATIENTS[c.id]) {
         A.PATIENTS[c.id] = {
           id: c.id,
           name: c.name,
@@ -507,7 +732,9 @@ export function useClinicoScreen() {
           next: "Primera llamada dentro de 7 días",
           nextShort: "Primera llamada",
           consent: true,
-          signal: "Nueva",
+          signal: caseloadStatus || "Sin evaluación",
+          status: caseloadStatus || "Sin evaluación",
+          pendingEval: !!c.pendingEval,
           summary: null,
           audios: 0,
           timeline: [
@@ -518,6 +745,23 @@ export function useClinicoScreen() {
             },
           ],
         };
+      } else {
+        const P0 = A.PATIENTS[c.id];
+        if (
+          c.profile &&
+          /^P\d+$/i.test(String(c.profile)) &&
+          !(P0.profile && /^P\d+$/i.test(String(P0.profile)))
+        ) {
+          P0.profile = c.profile;
+        }
+        if (caseloadStatus && (!P0.status || /^(nueva|activo|activa)$/i.test(String(P0.status)))) {
+          P0.status = caseloadStatus;
+        }
+        if (c.signal && /^(Aceptado|Rechazado|Crisis)/i.test(String(c.signal))) {
+          P0.signal = c.signal;
+        }
+        if (c.pendingEval) P0.pendingEval = true;
+      }
       pushId(c.id);
     });
     if (S.visits.rosalba && !S.visits.rosalba.crisis) ids.push("rosalba");
@@ -528,12 +772,12 @@ export function useClinicoScreen() {
     )
       ids.unshift("hernan");
     const sigColor = (t) =>
-      /Crisis/.test(t)
+      /Crisis|Rechazad|atendida|abierta|atención/i.test(t)
         ? "#8A1C14"
-        : /Sueño|subiendo|Faltó/.test(t)
-          ? "#9A4D14"
-          : /Mejorando/.test(t)
-            ? C.verde
+        : /Aceptad|Mejorando|Confirmó|cerrada/i.test(t)
+          ? C.verde
+          : /Sueño|subiendo|Faltó|Por aprobar|Esperando/i.test(t)
+            ? "#9A4D14"
             : C.tinta;
     const peopleById = {};
     (A.people ? A.people(S) : S.people || []).forEach((p) => {
@@ -543,16 +787,171 @@ export function useClinicoScreen() {
     const crisisPids = new Set(
       S.alerts
         .filter((a) => a.sev === "crisis" && a.status !== "closed")
-        .map((a) => a.pid)
-        .filter(Boolean),
+        .flatMap((a) => {
+          const out: string[] = [];
+          if (a.pid) {
+            out.push(String(a.pid));
+            const resolved = resolveFicha(a.pid).pid;
+            if (resolved) out.push(resolved);
+          }
+          // id legado: a-{pid}-crisis-btn…
+          const m = String(a.id || "").match(/^a-(.+?)-crisis-btn/);
+          if (m?.[1]) {
+            out.push(m[1]);
+            const resolved = resolveFicha(m[1]).pid;
+            if (resolved) out.push(resolved);
+          }
+          return out;
+        }),
     );
 
-    const patients = ids
+    const readAttendedAtSafe = (v: unknown) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    /** Última acción ≠ estado: prioriza el último evento de crisis / clínico. */
+    const lastActionFor = (
+      patientId: string,
+      patientName: string,
+      accountId: string,
+      P: { signal?: string; crisisAttendedAt?: unknown; crisisLock?: boolean },
+      pe: { signal?: string } | null,
+      stateLabel: string,
+    ) => {
+      const idSet = new Set(
+        [patientId, accountId].filter(Boolean).map(String),
+      );
+      const nameKey = String(patientName || "")
+        .trim()
+        .toLowerCase();
+      const matches = (pid?: unknown, name?: unknown) => {
+        const p = pid != null ? String(pid) : "";
+        if (p && idSet.has(p)) return true;
+        const resolved = p ? resolveFicha(p).pid : "";
+        if (resolved && idSet.has(resolved)) return true;
+        const n = name != null ? String(name).trim().toLowerCase() : "";
+        return !!(nameKey && n && n === nameKey);
+      };
+      type Ev = { at: number; label: string };
+      const events: Ev[] = [];
+      const push = (at: unknown, label: string) => {
+        const n = Number(at) || 0;
+        if (!label) return;
+        events.push({ at: n > 0 ? n : 1, label });
+      };
+
+      (S.crisisLog || []).forEach(
+        (e: {
+          type?: string;
+          pid?: string;
+          name?: string;
+          at?: number;
+          byRole?: string;
+          what?: string;
+        }) => {
+          if (!matches(e.pid, e.name)) return;
+          const t = String(e.type || "");
+          if (t === "awaiting_patient") push(e.at, "Crisis atendida");
+          else if (t === "closed") {
+            push(
+              e.at,
+              /paciente|estoy bien/i.test(String(e.byRole || e.what || ""))
+                ? "Confirmó estoy bien"
+                : "Crisis cerrada",
+            );
+          } else if (t === "taken") push(e.at, "Crisis en atención");
+          else if (t === "created") push(e.at, "Crisis abierta");
+          else if (t === "retry") push(e.at, "Crisis · reintento");
+          else if (
+            t === "status_changed" &&
+            /crisis atendida|esperando/i.test(String(e.what || ""))
+          ) {
+            push(e.at, "Crisis atendida");
+          }
+        },
+      );
+
+      (S.closedToday || []).forEach(
+        (c: {
+          sev?: string;
+          pid?: string;
+          name?: string;
+          outcome?: string;
+          patientConfirmedAt?: number;
+          attendedAt?: number;
+          closedAt?: number;
+          at?: number;
+        }) => {
+          if (c.sev !== "crisis" || !matches(c.pid, c.name)) return;
+          if (c.patientConfirmedAt) {
+            push(c.patientConfirmedAt, "Confirmó estoy bien");
+          } else if (c.outcome && c.outcome !== "Vista") {
+            push(c.attendedAt || c.closedAt || c.at, "Crisis atendida");
+          }
+        },
+      );
+
+      (S.alerts || []).forEach(
+        (a: {
+          sev?: string;
+          status?: string;
+          pid?: string;
+          name?: string;
+          at?: number;
+          takenAt?: number;
+        }) => {
+          if (a.sev !== "crisis" || a.status === "closed") return;
+          if (!matches(a.pid, a.name)) return;
+          if (a.status === "mine" || a.status === "retry") {
+            push(a.takenAt || a.at, "Crisis en atención");
+          } else if (a.status === "awaiting_patient") {
+            push(a.takenAt || a.at, "Crisis atendida");
+          } else {
+            push(a.at, "Crisis abierta");
+          }
+        },
+      );
+
+      if (readAttendedAtSafe(P.crisisAttendedAt) && P.crisisLock) {
+        push(P.crisisAttendedAt, "Crisis atendida");
+      }
+
+      events.sort((a, b) => b.at - a.at);
+      let label = events[0]?.label || "";
+      const sig = String(P.signal || pe?.signal || "").trim();
+      // Sin eventos de crisis: acciones clínicas de evaluación.
+      if (!label) {
+        if (/^aceptad/i.test(sig)) label = "Aceptado";
+        else if (/^rechazad/i.test(sig)) label = "Rechazado";
+        else if (P.crisisLock || /^crisis$/i.test(stateLabel))
+          label = "Crisis abierta";
+        else label = "—";
+      }
+      // Nunca repetir el chip de Estado (p. ej. ambos «Crisis»).
+      if (label.toLowerCase() === String(stateLabel || "").toLowerCase()) {
+        if (/^crisis$/i.test(stateLabel)) label = "Crisis abierta";
+        else label = "—";
+      }
+      return label;
+    };
+
+    const patientsAll = ids
       .map((id) => {
         const P = A.PATIENTS[id];
         if (!P) return null;
-        const pe = peopleById[id];
-        const { r } = A.parseCode(P.profile);
+        const pe =
+          peopleById[id] ||
+          (P.code ? peopleById[P.code] : null) ||
+          null;
+        const profileResolved =
+          (P.profile && /^P\d+$/i.test(String(P.profile)) && String(P.profile)) ||
+          (pe?.profile && /^P\d+$/i.test(String(pe.profile)) && String(pe.profile)) ||
+          null;
+        const statusResolved =
+          P.status ||
+          pe?.status ||
+          (P.pendingEval || pe?.pendingEval ? "Por aprobar" : null);
+        const { r } = A.parseCode(profileResolved || "");
         const mx = 27;
         const pts =
           Array.isArray(P.phq) && P.phq.length
@@ -568,43 +967,110 @@ export function useClinicoScreen() {
               (26 - (v / mx) * 24).toFixed(1),
           )
           .join(" ");
-        const inactiveDays =
-          P.checkinDays != null
-            ? P.checkinDays
-            : P.lastCheckin
-              ? Math.floor((Date.now() - new Date(P.lastCheckin).getTime()) / 86400000)
-              : null;
-        const inCrisis = crisisPids.has(id) || /crisis/i.test(String(P.status || P.signal || ""));
-        const stateId = normalizePatientState(P.status || pe?.status, {
-          hasProfile: !!(P.profile && /^P\d+$/i.test(String(P.profile))),
-          inCrisis,
-          inactiveDays,
-        });
+        const accRow =
+          (S.accounts || []).find(
+            (a: {
+              id?: string;
+              email?: string;
+              roleId?: string;
+              role?: string;
+              patientId?: string;
+            }) => {
+              const isPatient =
+                a.roleId === "paciente" || /Paciente/i.test(a.role || "");
+              if (!isPatient) return false;
+              return (
+                (P.accountId && a.id === P.accountId) ||
+                (pe?.accountId && a.id === pe.accountId) ||
+                (P.email && a.email && a.email === P.email) ||
+                (pe?.email && a.email && a.email === pe.email) ||
+                (a.patientId &&
+                  (a.patientId === id || a.patientId === P.id || a.patientId === pe?.id))
+              );
+            },
+          ) || null;
+        let inactiveMinutes = DEFAULT_INACTIVE_MINUTES;
+        if (profileResolved && /^P\d+$/i.test(profileResolved)) {
+          try {
+            const pc = A.parseCode(profileResolved);
+            const path =
+              (S.pathOverrides && S.pathOverrides[profileResolved]) ||
+              A.defaultPath(pc.r, pc.d);
+            const m = Number(path?.inactiveMinutes);
+            if (Number.isFinite(m) && m > 0) inactiveMinutes = m;
+          } catch {
+            /* default */
+          }
+        }
+        const inCrisis =
+          crisisPids.has(id) ||
+          P.crisisLock === true ||
+          /crisis/i.test(String(statusResolved || ""));
+        // Mismo criterio que Administrador → Personas (cuenta + umbral del perfil).
+        const stateId = resolveAdminPersonState(
+          {
+            status: statusResolved,
+            profile: profileResolved,
+            pendingEval: !!(P.pendingEval || pe?.pendingEval),
+            week: P.week ?? pe?.week,
+            weeks: P.weeks ?? pe?.weeks,
+            id,
+            code: P.code || pe?.code,
+            email: P.email || pe?.email,
+            accountId: P.accountId || pe?.accountId,
+            finalEvalAt: P.finalEvalAt ?? pe?.finalEvalAt,
+            inactiveLock:
+              P.inactiveLock === true || pe?.inactiveLock === true,
+            activeAt: P.activeAt ?? pe?.activeAt,
+          },
+          {
+            account: accRow,
+            inactiveMinutes,
+            inCrisis,
+          },
+        );
         const stMeta = patientStateMeta(stateId);
+        const lastSignal = lastActionFor(
+          id,
+          String(P.name || pe?.name || ""),
+          String(P.accountId || pe?.accountId || ""),
+          P,
+          pe,
+          stMeta.label,
+        );
         return {
           id,
-          name: P.name,
-          age: P.age,
-          place: P.place,
-          profile: P.profile || "Sin perfil",
+          name: P.name || pe?.name,
+          age: P.age ?? pe?.age,
+          place: P.place || pe?.place,
+          profile: profileResolved || "Sin perfil",
           rc: r >= 0 && A.RISK[r] ? A.RISK[r].c : "#C4BDB3",
           spark,
           last: P.phq[P.phq.length - 1],
           next: P.nextShort,
           adh: P.adherence == null ? "—" : P.adherence + " %",
-          signal: P.signal,
-          sigFg: sigColor(P.signal),
+          signal: lastSignal,
+          sigFg: sigColor(lastSignal),
           stateId,
           stateLabel: stMeta.label,
           stateBg: stMeta.bg,
           stateFg: stMeta.fg,
           inCrisis,
+          signalIsPending: /por\s*aprobar/i.test(lastSignal),
+          signalIsCrisis: /crisis/i.test(lastSignal),
           open: () => openFile(id),
-          openCrisis: () => setState({ view: "alerts", fileFrom: { view: "patients" } }),
+          openCrisis: () =>
+            navigateView("alerts", { fileFrom: { view: "patients" } }),
+          openApprovals: () =>
+            navigateView("approvals", { fileFrom: { view: "patients" } }),
         };
       })
-      .filter(Boolean)
-      .filter((p) => st.stateFilter === "all" || p.stateId === st.stateFilter);
+      .filter(Boolean);
+    // Mismo criterio que la columna Crisis / estado en Mis pacientes.
+    const pending = patientsAll.filter((p) => p.inCrisis).length;
+    const patients = patientsAll.filter(
+      (p) => st.stateFilter === "all" || p.stateId === st.stateFilter,
+    );
 
     const fallbackId = ids.find((id) => A.PATIENTS[id]);
     const P = A.PATIENTS[st.pid] || (fallbackId ? A.PATIENTS[fallbackId] : null) || A.emptyPatient(st.pid || "—", "Sin paciente", 0);
@@ -614,25 +1080,6 @@ export function useClinicoScreen() {
     const ref = S.referrals.find((x) => x.pid === P.id);
     const cur = P.phq[P.phq.length - 1],
       base = P.phq[0];
-    let sleepKpi = {
-      label: "Sueño · últimas 5 noches",
-      val: P.braceletStatus || "—",
-      sub: "Sin datos de manilla",
-      subFg: C.texto2,
-    };
-    if (P.sleep) {
-      const l5 = P.sleep.slice(-5),
-        prev = P.sleep.slice(0, -5);
-      const a5 = l5.reduce((a, b) => a + b, 0) / 5,
-        ap = prev.reduce((a, b) => a + b, 0) / prev.length;
-      const fmt = (n) => n.toFixed(1).replace(".", ",");
-      sleepKpi = {
-        label: "Sueño · últimas 5 noches",
-        val: fmt(a5) + " h",
-        sub: (a5 < ap - 1 ? "Bajó desde " : "Promedio previo ") + fmt(ap) + " h",
-        subFg: a5 < ap - 1 ? "#9A4D14" : C.texto2,
-      };
-    }
     const cx = (i) => 70 + i * (500 / Math.max(1, P.phq.length - 1));
     const cy = (v) => 10 + ((27 - v) / 27) * 195;
     const bands = A.RISK.map((r) => ({
@@ -678,6 +1125,7 @@ export function useClinicoScreen() {
     const timeline = P.timeline.concat(refT, adj, notes, aiT).reverse();
     const f = {
       rec: recFile(A, S, P),
+      id: P.id,
       name: P.name,
       age: P.age,
       place: P.place,
@@ -702,19 +1150,6 @@ export function useClinicoScreen() {
                 : "Subió " + (cur - base) + " desde " + base
               : "Medición inicial",
           subFg: cur < base ? C.verde : cur > base ? "#9A4D14" : C.texto2,
-        },
-        sleepKpi,
-        {
-          label: "Adherencia",
-          val: P.adherence == null ? "—" : P.adherence + " %",
-          sub: "Sesiones y check-ins",
-          subFg: C.texto2,
-        },
-        {
-          label: "Próxima sesión",
-          val: P.next.split(" · ")[0],
-          sub: P.next.split(" · ").slice(1).join(" · ") + " · " + P.phone,
-          subFg: C.tinta,
         },
       ],
       bands,
@@ -841,30 +1276,99 @@ export function useClinicoScreen() {
           "Al rechazar se restaura el estado anterior y vuelve a la cola del experto.",
         ],
         approve: () => {
+          const nextStatus = "Activo";
+          const activeAt = Date.now();
           A.set((s) => {
-            const pe = (s.people || []).find((p) => p.id === ev.id || p.code === ev.id);
+            const pe = (s.people || []).find(
+              (p) => p.id === ev.id || p.code === ev.id || p.code === ev.code,
+            );
             if (pe) {
-              pe.status = "Aprobado";
+              pe.profile = ev.profile;
+              pe.status = nextStatus;
               pe.pendingEval = false;
+              pe.activeAt = activeAt;
+              pe.inactiveLock = false;
               pe.clin = pe.clin || "Dra. Lucía Marín";
             }
-            if (s.patients[ev.id]) {
-              s.patients[ev.id].status = "Aprobado";
-              s.patients[ev.id].pendingEval = false;
-              s.patients[ev.id].signal = "Aprobado";
-              const tl = s.patients[ev.id].timeline || [];
-              tl.unshift({
-                d: "Hoy",
-                t: "Aprobación clínica",
-                x:
-                  "Evaluación y ruta " +
-                  ev.profile +
-                  " aprobadas y formalizadas. Pasa a seguimiento continuo (Activo) con el primer contacto.",
-              });
-              s.patients[ev.id].timeline = tl;
+            const patKey =
+              (s.patients[ev.id] && ev.id) ||
+              Object.keys(s.patients || {}).find(
+                (k) =>
+                  s.patients[k]?.id === ev.id ||
+                  s.patients[k]?.code === ev.id ||
+                  (ev.code && s.patients[k]?.code === ev.code),
+              ) ||
+              ev.id;
+            if (!s.patients[patKey]) {
+              s.patients[patKey] = A.emptyPatient
+                ? A.emptyPatient(patKey, ev.name, ev.age || 0)
+                : { id: patKey, name: ev.name, phq: [], timeline: [] };
+            }
+            const pat = s.patients[patKey];
+            pat.id = patKey;
+            pat.name = ev.name || pat.name;
+            pat.profile = ev.profile;
+            pat.status = nextStatus;
+            pat.signal = "Aceptado";
+            pat.pendingEval = false;
+            pat.activeAt = activeAt;
+            pat.inactiveLock = false;
+            if (pe) pe.signal = "Aceptado";
+            const approveEntry = {
+              d: "Hoy",
+              t: "Aprobación clínica",
+              x:
+                "El clínico aceptó la evaluación. Perfil " +
+                ev.profile +
+                " formalizado · estado Activo.",
+            };
+            const prevTl = Array.isArray(pat.timeline) ? pat.timeline.slice() : [];
+            const cleanedTl = prevTl
+              .map((row) => {
+                if (!row || typeof row !== "object") return row;
+                const x = String(row.x || "");
+                if (/pendiente de aprobación/i.test(x)) {
+                  return {
+                    ...row,
+                    x: x.replace(
+                      /pendiente de aprobación clínica\.?/i,
+                      "aceptada por el clínico.",
+                    ),
+                  };
+                }
+                return row;
+              })
+              .filter(
+                (row) =>
+                  !(
+                    row &&
+                    /aprobaci[oó]n clínica/i.test(String(row.t || ""))
+                  ),
+              );
+            pat.timeline = [approveEntry].concat(cleanedTl);
+            // Módulos de la app = servicios activos de la ruta del perfil.
+            const { r: ar, d: ad } = A.parseCode(ev.profile);
+            if (ar >= 0 && ad >= 0) {
+              const pathMods =
+                typeof A.appModuleIdsFromPath === "function"
+                  ? A.appModuleIdsFromPath(ar, ad, null, pat.ctx)
+                  : (A.pathList(ar, ad, null, pat.ctx) || []).map(
+                      (x: { id: string }) => x.id,
+                    );
+              const mods = Array.from(new Set(pathMods as string[]));
+              pat.modulesEnabled = mods;
+              pat.modulesVisible = mods.slice();
             }
             s.caseload = (s.caseload || []).map((c) =>
-              c.id === ev.id ? { ...c, status: "Aprobado" } : c,
+              c.id === ev.id || c.id === patKey
+                ? {
+                    ...c,
+                    profile: ev.profile,
+                    status: nextStatus,
+                    signal: "Aceptado",
+                    pendingEval: false,
+                  }
+                : c,
             );
             s.alerts = (s.alerts || []).filter((a) => a.id !== "a-new-" + ev.id);
             A.pushNotif(
@@ -873,78 +1377,127 @@ export function useClinicoScreen() {
               "Evaluación aprobada: " + ev.name + " · " + ev.profile,
               "/experto",
             );
-            A.logActivity(s, "lucia", "Aprobó la evaluación de " + ev.name + " (" + ev.profile + ")");
+            A.logActivity(
+              s,
+              "lucia",
+              "Aprobó la evaluación de " + ev.name + " (" + ev.profile + ") · Activo",
+            );
+            // Persistir timeline + señal en el mismo tick (cierre sobre pat.timeline).
+            pauseLiveHydrate(5_000);
+            void Promise.all([
+              fetch("/api/people", {
+                credentials: "same-origin",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: ev.id,
+                  code: ev.code || undefined,
+                  name: ev.name,
+                  profile: ev.profile,
+                  status: nextStatus,
+                  pendingEval: false,
+                  activeAt,
+                  inactiveLock: false,
+                }),
+              }),
+              fetch("/api/patients", {
+                credentials: "same-origin",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  id: ev.id,
+                  code: ev.code || undefined,
+                  name: ev.name,
+                  profile: ev.profile,
+                  status: nextStatus,
+                  signal: "Aceptado",
+                  pendingEval: false,
+                  activeAt,
+                  inactiveLock: false,
+                  timeline: pat.timeline,
+                  modulesEnabled: pat.modulesEnabled,
+                  modulesVisible: pat.modulesVisible,
+                }),
+              }),
+            ]).catch(() => {});
           });
-          void Promise.all([
-            fetch("/api/people", {
-              credentials: "same-origin",
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                id: ev.id,
-                name: ev.name,
-                profile: ev.profile,
-                status: "Aprobado",
-                pendingEval: false,
-              }),
-            }),
-            fetch("/api/patients", {
-              credentials: "same-origin",
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                id: ev.id,
-                name: ev.name,
-                profile: ev.profile,
-                status: "Aprobado",
-                signal: "Aprobado",
-                pendingEval: false,
-              }),
-            }),
-          ]).catch(() => {});
           setState({
             msg:
               "Evaluación de " +
               ev.name +
-              " aprobada. Ruta " +
+              " aceptada. Perfil " +
               ev.profile +
-              " formalizada · estado Aprobado.",
+              " · estado Activo.",
             tick: Date.now(),
           });
         },
         reject: () => {
+          const restored = prev && /^P\d+$/i.test(String(prev)) ? prev : null;
           A.set((s) => {
-            const restored = prev && /^P\d+$/i.test(String(prev)) ? prev : null;
-            const pe = (s.people || []).find((p) => p.id === ev.id || p.code === ev.id);
+            const pe = (s.people || []).find(
+              (p) => p.id === ev.id || p.code === ev.id || (ev.code && p.code === ev.code),
+            );
             if (pe) {
-              pe.profile = restored;
+              // Perfil propuesto se anula; el anterior queda en previousProfile.
+              pe.previousProfile = restored;
+              pe.profile = null;
               pe.status = "Rechazado";
               pe.pendingEval = false;
+              pe.needsReeval = true;
+              pe.evalAt = null;
+              pe.evalBy = null;
+              pe.evalPhq = null;
+              pe.evalDig = null;
             }
-            if (s.patients[ev.id]) {
-              s.patients[ev.id].profile = restored || null;
-              s.patients[ev.id].status = "Rechazado";
-              s.patients[ev.id].signal = "Rechazado";
-              s.patients[ev.id].pendingEval = false;
-              const tl = s.patients[ev.id].timeline || [];
+            const patKey =
+              (s.patients[ev.id] && ev.id) ||
+              Object.keys(s.patients || {}).find(
+                (k) =>
+                  s.patients[k]?.id === ev.id ||
+                  s.patients[k]?.code === ev.id ||
+                  (ev.code && s.patients[k]?.code === ev.code),
+              ) ||
+              ev.id;
+            if (pe) pe.signal = "Rechazado";
+            if (s.patients[patKey]) {
+              const pat = s.patients[patKey];
+              pat.previousProfile = restored;
+              pat.profile = null;
+              pat.status = "Rechazado";
+              pat.signal = "Rechazado";
+              pat.pendingEval = false;
+              pat.needsReeval = true;
+              pat.evalAt = null;
+              // Sin servicios en la app hasta nueva aprobación → Activo.
+              pat.modulesEnabled = [];
+              pat.modulesVisible = [];
+              const tl = pat.timeline || [];
               tl.unshift({
                 d: "Hoy",
                 t: "Evaluación rechazada",
-                x: restored
-                  ? "Se restauró el perfil " + restored + ". El experto debe corregir la entrevista."
-                  : "Sin perfil previo. El experto debe repetir la evaluación.",
+                x:
+                  "El experto debe repetir la evaluación" +
+                  (restored ? " (perfil anterior " + restored + " en historial)." : "."),
               });
-              s.patients[ev.id].timeline = tl;
-              if (!restored) delete s.patients[ev.id];
+              pat.timeline = tl;
             }
-            s.caseload = (s.caseload || []).filter((c) => c.id !== ev.id);
-            // Worklist del experto: debe repetir o corregir la entrevista.
+            s.caseload = (s.caseload || []).filter(
+              (c) => c.id !== ev.id && c.id !== patKey,
+            );
+            // Worklist del experto: debe repetir la entrevista.
+            const matchWl = (x) =>
+              x.id === ev.id ||
+              x.name === ev.name ||
+              (ev.code && x.code === ev.code);
+            Object.keys(s.worklists || {}).forEach((k) => {
+              (s.worklists[k] || []).forEach((w) => {
+                if (!matchWl(w)) return;
+                w.status = "rechazada";
+                w.profile = null;
+              });
+            });
             const wl = s.worklists[expertKey] || [];
-            const w = wl.find((x) => x.id === ev.id || x.name === ev.name);
-            if (w) {
-              w.status = "sin_evaluacion";
-              w.profile = restored;
-            } else {
+            if (!wl.find(matchWl)) {
               s.worklists[expertKey] = s.worklists[expertKey] || [];
               s.worklists[expertKey].unshift({
                 id: ev.id,
@@ -953,22 +1506,21 @@ export function useClinicoScreen() {
                 age: ev.age,
                 place: (ev.place || "").split(",")[0],
                 rural: true,
-                status: "sin_evaluacion",
+                status: "rechazada",
                 code: ev.code || ev.id,
-                profile: restored,
+                profile: null,
               });
             }
             s.alerts = (s.alerts || []).filter((a) => a.id !== "a-new-" + ev.id);
             A.pushNotif(
               s,
               expertKey,
-              "Evaluación rechazada: " +
-                ev.name +
-                (restored ? " · se mantiene " + restored : " · debe reevaluar"),
+              "Evaluación rechazada: " + ev.name + " · debe reevaluar",
               "/experto",
             );
             A.logActivity(s, "lucia", "Rechazó la evaluación de " + ev.name);
           });
+          pauseLiveHydrate(5_000);
           void Promise.all([
             fetch("/api/people", {
               credentials: "same-origin",
@@ -976,10 +1528,16 @@ export function useClinicoScreen() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 id: ev.id,
+                code: ev.code || undefined,
                 name: ev.name,
-                profile: prev && /^P\d+$/i.test(String(prev)) ? prev : null,
+                profile: null,
+                previousProfile: restored,
                 status: "Rechazado",
                 pendingEval: false,
+                evalAt: null,
+                evalBy: null,
+                evalPhq: null,
+                evalDig: null,
               }),
             }),
             fetch("/api/patients", {
@@ -988,19 +1546,38 @@ export function useClinicoScreen() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 id: ev.id,
+                code: ev.code || undefined,
                 name: ev.name,
+                profile: null,
+                previousProfile: restored,
                 status: "Rechazado",
                 signal: "Rechazado",
                 pendingEval: false,
+                modulesEnabled: [],
+                modulesVisible: [],
+              }),
+            }),
+            fetch("/api/worklists", {
+              credentials: "same-origin",
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: ev.id,
+                expertId: expertKey,
+                name: ev.name,
+                age: ev.age,
+                place: (ev.place || "").split(",")[0],
+                status: "rechazada",
+                profile: null,
+                code: ev.code || ev.id,
               }),
             }),
           ]).catch(() => {});
           setState({
-            msg: prev
-              ? "Rechazado. Se restauró el perfil " +
-                prev +
-                ". El experto debe corregir la entrevista."
-              : "Rechazado. El experto debe repetir la evaluación.",
+            msg:
+              "Rechazado. " +
+              ev.name +
+              " vuelve a la cola del experto para repetir la evaluación.",
             tick: Date.now(),
           });
         },
@@ -1011,7 +1588,9 @@ export function useClinicoScreen() {
       approvals.push({
         title: "Reglas de clasificación",
         meta: "Enviado por " + pd.by + " · " + A.agoText(pd.at),
-        lines: ruleLines(pd).concat(["La regla de crisis (pregunta 9 mayor que 0) no cambia."]),
+        lines: ruleLines(pd).concat([
+          "La crisis solo se activa desde el botón «Estoy en crisis» en la app del paciente.",
+        ]),
         kind: "rules",
         approve: () => {
           try {
@@ -1021,6 +1600,7 @@ export function useClinicoScreen() {
               s.rules.risk = p.draft.risk;
               s.rules.dig = p.draft.dig;
               s.rules.pending = null;
+              s.rules.pendingClearedAt = Date.now();
               s.rules.versions = Array.isArray(s.rules.versions) ? s.rules.versions : [];
               const prevV = (s.rules.versions[0] && s.rules.versions[0].v) || 1;
               s.rules.versions.unshift({
@@ -1049,6 +1629,7 @@ export function useClinicoScreen() {
         reject: () => {
           A.set((s) => {
             s.rules.pending = null;
+            s.rules.pendingClearedAt = Date.now();
             A.pushNotif(
               s,
               "admin",
@@ -1062,6 +1643,8 @@ export function useClinicoScreen() {
       });
     }
     (S.pathRequests || []).forEach((rq) => {
+      const stRq = String(rq.status || "pending").toLowerCase();
+      if (stRq !== "pending") return;
       const { r, d } = A.parseCode(rq.code);
       const curPath = A.pathList(r, d);
       const nx = A.pathList(r, d, rq.draft);
@@ -1083,6 +1666,10 @@ export function useClinicoScreen() {
         title: "Ruta " + rq.code + " · " + riskLabel + " × digital " + digLabel,
         meta: rq.scope === "all" ? "Todos los territorios" : "Solo " + rq.scope,
         months: rq.draft?.months || 3,
+        inactiveMinutes:
+          rq.draft?.inactiveMinutes != null
+            ? rq.draft.inactiveMinutes
+            : DEFAULT_INACTIVE_MINUTES,
         kept: kept.map((x) => ({ name: x.name, freq: x.freq })),
         changed: changed.map((x) => {
           const prev = curPath.find((c) => c.id === x.id);
@@ -1099,19 +1686,54 @@ export function useClinicoScreen() {
               (curPath.find((c) => c.id === x.id && c.freq === x.freq) ? "" : " (cambia)"),
           )
           .concat(removed.map((c) => "Se quita: " + c.name))
-          .concat(["Duración: " + (rq.draft?.months || 3) + " meses"]),
+          .concat(["Duración: " + (rq.draft?.months || 3) + " meses"])
+          .concat([
+            "Inactividad: " +
+              (rq.draft?.inactiveMinutes != null
+                ? rq.draft.inactiveMinutes
+                : DEFAULT_INACTIVE_MINUTES) +
+              " min",
+          ]),
         approve: () => {
           try {
             A.set((s) => {
               s.pathOverrides = s.pathOverrides || {};
               // Copia profunda: s:{} (sin módulos) debe quedar tal cual, sin reinyectar mood
               const approved = JSON.parse(
-                JSON.stringify(rq.draft || { s: {}, months: 3 }),
+                JSON.stringify(
+                  rq.draft || {
+                    s: {},
+                    months: 3,
+                    inactiveMinutes: DEFAULT_INACTIVE_MINUTES,
+                  },
+                ),
               );
+              if (approved.inactiveMinutes == null) {
+                approved.inactiveMinutes = DEFAULT_INACTIVE_MINUTES;
+              }
               if (!approved.s || typeof approved.s !== "object") approved.s = {};
               s.pathOverrides[rq.code] = approved;
-              s.pathRequests = (s.pathRequests || []).filter(
-                (x) => !(x.code === rq.code && x.scope === rq.scope),
+              // Pacientes de este perfil: alinear app con servicios activos (freq truthy).
+              const { r: pr, d: pd } = A.parseCode(rq.code);
+              const approvedIds = new Set(
+                (typeof A.appModuleIdsFromPath === "function"
+                  ? (A.appModuleIdsFromPath(pr, pd, approved, null) as string[])
+                  : Object.keys(approved.s || {}).filter(
+                      (k) => approved.s[k] && String(approved.s[k]).trim(),
+                    )
+                ).map(String),
+              );
+              Object.keys(s.patients || {}).forEach((pid) => {
+                const pat = s.patients[pid];
+                if (!pat || String(pat.profile || "") !== String(rq.code)) return;
+                pat.modulesEnabled = Array.from(approvedIds);
+                pat.modulesVisible = Array.from(approvedIds);
+              });
+              const now = Date.now();
+              s.pathRequests = (s.pathRequests || []).map((x) =>
+                x.code === rq.code && x.scope === rq.scope
+                  ? { ...x, status: "approved", resolvedAt: now }
+                  : x,
               );
               s.rules = s.rules || {};
               s.rules.versions = Array.isArray(s.rules.versions) ? s.rules.versions : [];
@@ -1119,7 +1741,7 @@ export function useClinicoScreen() {
               s.rules.versions.unshift({
                 v: prevV + 1,
                 by: "Dra. Lucía Marín (líder clínica)",
-                at: Date.now(),
+                at: now,
                 what:
                   "Aprobó la ruta " +
                   rq.code +
@@ -1145,8 +1767,11 @@ export function useClinicoScreen() {
         },
         reject: () => {
           A.set((s) => {
-            s.pathRequests = (s.pathRequests || []).filter(
-              (x) => !(x.code === rq.code && x.scope === rq.scope),
+            const now = Date.now();
+            s.pathRequests = (s.pathRequests || []).map((x) =>
+              x.code === rq.code && x.scope === rq.scope
+                ? { ...x, status: "rejected", resolvedAt: now }
+                : x,
             );
             A.pushNotif(
               s,
@@ -1171,22 +1796,342 @@ export function useClinicoScreen() {
     const evalN = approvals.filter((a) => a.kind === "eval").length;
     const pathN = approvals.filter((a) => a.kind === "path").length;
     const rulesN = approvals.filter((a) => a.kind === "rules").length;
+    const filePe = peopleById[P.id] || (P.code ? peopleById[P.code] : null);
+    const fileProfile =
+      (P.profile && /^P\d+$/i.test(String(P.profile)) && String(P.profile)) ||
+      (filePe?.profile && /^P\d+$/i.test(String(filePe.profile)) && String(filePe.profile)) ||
+      null;
+    const fileStatus =
+      P.status ||
+      P.signal ||
+      filePe?.status ||
+      (P.pendingEval || filePe?.pendingEval ? "Por aprobar" : null);
     const fileInCrisis =
-      crisisPids.has(P.id) || /crisis/i.test(String(P.status || P.signal || ""));
-    const fileStateId = normalizePatientState(P.status || peopleById[P.id]?.status, {
-      hasProfile: !!(P.profile && /^P\d+$/i.test(String(P.profile))),
-      inCrisis: fileInCrisis,
-      inactiveDays: P.checkinDays,
-    });
+      crisisPids.has(P.id) ||
+      P.crisisLock === true ||
+      /crisis/i.test(String(fileStatus || ""));
+    const fileAcc =
+      (S.accounts || []).find(
+        (a: {
+          id?: string;
+          email?: string;
+          roleId?: string;
+          role?: string;
+          patientId?: string;
+        }) => {
+          const isPatient =
+            a.roleId === "paciente" || /Paciente/i.test(a.role || "");
+          if (!isPatient) return false;
+          return (
+            (P.accountId && a.id === P.accountId) ||
+            (filePe?.accountId && a.id === filePe.accountId) ||
+            (P.email && a.email && a.email === P.email) ||
+            (filePe?.email && a.email && a.email === filePe.email) ||
+            (a.patientId && (a.patientId === P.id || a.patientId === filePe?.id))
+          );
+        },
+      ) || null;
+    let fileInactiveMinutes = DEFAULT_INACTIVE_MINUTES;
+    if (fileProfile && /^P\d+$/i.test(fileProfile)) {
+      try {
+        const pc = A.parseCode(fileProfile);
+        const path =
+          (S.pathOverrides && S.pathOverrides[fileProfile]) ||
+          A.defaultPath(pc.r, pc.d);
+        const m = Number(path?.inactiveMinutes);
+        if (Number.isFinite(m) && m > 0) fileInactiveMinutes = m;
+      } catch {
+        /* default */
+      }
+    }
+    const fileStateId = resolveAdminPersonState(
+      {
+        status: fileStatus,
+        profile: fileProfile,
+        pendingEval: !!(P.pendingEval || filePe?.pendingEval),
+        week: P.week ?? filePe?.week,
+        weeks: P.weeks ?? filePe?.weeks,
+        id: P.id,
+        code: P.code || filePe?.code,
+        email: P.email || filePe?.email,
+        accountId: P.accountId || filePe?.accountId,
+        finalEvalAt: P.finalEvalAt ?? filePe?.finalEvalAt,
+        inactiveLock:
+          P.inactiveLock === true || filePe?.inactiveLock === true,
+        activeAt: P.activeAt ?? filePe?.activeAt,
+      },
+      {
+        account: fileAcc,
+        inactiveMinutes: fileInactiveMinutes,
+        inCrisis: fileInCrisis,
+      },
+    );
     const fileState = patientStateMeta(fileStateId);
+
+    const TYPE_META: Record<string, { label: string; bg: string; fg: string }> = {
+      created: { label: "Alerta creada", bg: "#FDE7E4", fg: "#8A1C14" },
+      taken: { label: "Caso tomado", bg: "#FFF4CC", fg: "#161413" },
+      retry: { label: "Reintento", bg: "#F7E2D2", fg: "#7A3A10" },
+      awaiting_patient: {
+        label: "Esperando al paciente",
+        bg: "#FFF4CC",
+        fg: "#161413",
+      },
+      closed: { label: "Crisis cerrada", bg: "#E3F1E8", fg: "#161413" },
+      dismissed: { label: "Marcada vista", bg: "#E6E1D9", fg: "#5E5750" },
+      status_changed: { label: "Cambio de estado", bg: "#E6E1D9", fg: "#161413" },
+      notified: { label: "Aviso al experto", bg: "#A9D4FF", fg: "#161413" },
+    };
+    const fmtCrisisWhen = (at: number) => {
+      if (!at) return "—";
+      const d = new Date(at);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mi = String(d.getMinutes()).padStart(2, "0");
+      return dd + "/" + mm + "/" + d.getFullYear() + " · " + hh + ":" + mi;
+    };
+    const matchesPerson = (e: { pid?: unknown; name?: unknown }, pid: string, name: string) => {
+      const ep = e.pid != null ? String(e.pid) : "";
+      const en = e.name != null ? String(e.name) : "";
+      if (pid && ep && ep === pid) return true;
+      if (name && en && en.toLowerCase() === name.toLowerCase()) return true;
+      return false;
+    };
+    const buildCrisisHistory = (filterPid?: string, filterName?: string) => {
+      const rows: Array<Record<string, unknown> & { _at: number }> = [];
+      const seen = new Set<string>();
+      /** Misma crisis en crisisLog + relleno desde alerts/closedToday → un solo evento. */
+      const eventKey = (e: Record<string, unknown>) => {
+        const type = String(e.type || "");
+        const alertId = String(e.alertId || "");
+        const at = Number(e.at) || 0;
+        if (alertId && type) {
+          // created/taken: uno por alerta. retry/cierre: agrupar por ~2 min.
+          if (
+            type === "retry" ||
+            type === "closed" ||
+            type === "awaiting_patient" ||
+            type === "dismissed"
+          ) {
+            return [type, alertId, Math.floor(at / 120000)].join("|");
+          }
+          return [type, alertId].join("|");
+        }
+        const pid = e.pid != null ? String(e.pid) : "";
+        if (type && pid) {
+          return [type, pid, Math.floor(at / 60000)].join("|");
+        }
+        return String(e.id || "") || [type, at, e.what].join("|");
+      };
+      const push = (e: Record<string, unknown>) => {
+        if (
+          filterPid &&
+          !matchesPerson(
+            { pid: e.pid, name: e.name },
+            filterPid,
+            filterName || "",
+          )
+        ) {
+          return;
+        }
+        const at = Number(e.at) || 0;
+        const key = eventKey(e);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const meta = TYPE_META[String(e.type || "")] || {
+          label: String(e.type || "Evento"),
+          bg: "#E6E1D9",
+          fg: "#161413",
+        };
+        const roleLabel =
+          e.byRole === "paciente"
+            ? "Paciente"
+            : e.byRole === "experto"
+              ? "Experto de campo"
+              : e.byRole === "clinico"
+                ? "Clínico"
+                : e.byRole
+                  ? String(e.byRole)
+                  : "";
+        rows.push({
+          key,
+          _at: at,
+          type: e.type || "",
+          when: fmtCrisisWhen(at),
+          ago: A.agoText(at || Date.now()),
+          typeLabel: meta.label,
+          typeBg: meta.bg,
+          typeFg: meta.fg,
+          name: e.name || "—",
+          by: e.by || "—",
+          byMeta: roleLabel,
+          source: e.source || "",
+          what: e.what || "",
+          detail: e.detail || e.outcome || "",
+          profile: e.profile || "",
+          place: e.place || "",
+          status: e.status || "",
+          openFile: e.pid ? () => openFile(String(e.pid), false) : null,
+          hasFile: !!(e.pid && A.PATIENTS[String(e.pid)]),
+        });
+      };
+      (Array.isArray(S.crisisLog) ? S.crisisLog : []).forEach((e) =>
+        push(e as Record<string, unknown>),
+      );
+      (S.alerts || [])
+        .filter((a) => a.sev === "crisis")
+        .forEach((a) => {
+          push({
+            id: "bf-created-" + a.id,
+            type: "created",
+            alertId: a.id,
+            at: a.at,
+            pid: a.pid,
+            name: a.name,
+            by: a.createdBy || a.source || "Sistema",
+            byRole: a.createdByRole || "",
+            source: a.source,
+            what: a.what || "Alerta de crisis abierta",
+            detail:
+              a.status === "mine" || a.status === "retry"
+                ? "En atención"
+                : "Pendiente de toma",
+            profile: a.profile,
+            place: a.place,
+            status: a.status,
+          });
+          if (a.takenAt)
+            push({
+              id: "bf-taken-" + a.id,
+              type: "taken",
+              alertId: a.id,
+              at: a.takenAt,
+              pid: a.pid,
+              name: a.name,
+              by: a.takenBy || "Clínico",
+              byRole: "clinico",
+              what: "Tomó el caso de crisis",
+              status: "mine",
+            });
+          if (a.status === "retry" && a.retryAt)
+            push({
+              id: "bf-retry-" + a.id,
+              type: "retry",
+              alertId: a.id,
+              at: a.takenAt || a.at,
+              pid: a.pid,
+              name: a.name,
+              by: a.takenBy || "Clínico",
+              byRole: "clinico",
+              what: "Registró intento sin respuesta",
+              detail: "Reintentar a las " + a.retryAt,
+              status: "retry",
+            });
+        });
+      (S.closedToday || [])
+        .filter((c) => c.sev === "crisis")
+        .forEach((c) => {
+          push({
+            id: "bf-created-closed-" + c.id,
+            type: "created",
+            alertId: c.id,
+            at: c.at,
+            pid: c.pid,
+            name: c.name,
+            by: c.createdBy || c.source || "Sistema",
+            byRole: c.createdByRole || "",
+            source: c.source,
+            what: c.what || "Alerta de crisis",
+            profile: c.profile,
+            place: c.place,
+            status: "new",
+          });
+          if (c.takenAt)
+            push({
+              id: "bf-taken-closed-" + c.id,
+              type: "taken",
+              alertId: c.id,
+              at: c.takenAt,
+              pid: c.pid,
+              name: c.name,
+              by: c.takenBy || c.closedBy || "Clínico",
+              byRole: "clinico",
+              what: "Tomó el caso de crisis",
+            });
+          const clinAt = c.attendedAt || c.closedAt || c.at;
+          const waiting =
+            c.status === "awaiting_patient" ||
+            (!c.patientConfirmedAt && c.status !== "closed");
+          push({
+            id: "bf-await-" + c.id + "-" + clinAt,
+            type: waiting || !c.patientConfirmedAt ? "awaiting_patient" : "closed",
+            alertId: c.id,
+            at: clinAt,
+            pid: c.pid,
+            name: c.name,
+            by: c.attendedBy || c.closedBy || "Clínico",
+            byRole: "clinico",
+            what: waiting
+              ? "Gestionó la crisis · esperando al paciente"
+              : "Crisis cerrada (clínico)",
+            detail: c.outcome || "",
+            outcome: c.outcome,
+            profile: c.profile,
+            place: c.place,
+            status: waiting ? "awaiting_patient" : "closed",
+          });
+          if (c.patientConfirmedAt) {
+            push({
+              id: "bf-confirmed-" + c.id + "-" + c.patientConfirmedAt,
+              type: "closed",
+              alertId: c.id,
+              at: c.patientConfirmedAt,
+              pid: c.pid,
+              name: c.name,
+              by: c.name || "Paciente",
+              byRole: "paciente",
+              what: "Paciente confirmó «estoy bien» · crisis cerrada",
+              detail: c.outcome || "",
+              outcome: c.outcome,
+              status: "closed",
+            });
+          }
+        });
+      rows.sort((a, b) => b._at - a._at);
+      return rows.map(({ _at, ...rest }) => rest);
+    };
+    const allCrisisHistory = buildCrisisHistory();
+    const fileCrisisHistory = buildCrisisHistory(P.id, P.name);
+    const fileCrisisCreated = fileCrisisHistory.filter(
+      (e) => e.type === "created",
+    );
+    const fileCrisisLast = fileCrisisCreated[0] || fileCrisisHistory[0] || null;
+
     Object.assign(f, {
+      profile: fileProfile || f.profile || "Sin perfil",
       inCrisis: fileInCrisis,
       stateId: fileStateId,
       stateLabel: fileState.label,
       stateBg: fileState.bg,
       stateFg: fileState.fg,
       crisisAlert: S.alerts.find((a) => a.pid === P.id && a.sev === "crisis"),
-      goCrisis: () => setState({ view: "alerts" }),
+      goCrisis: () => navigateView("alerts"),
+      crisisHistory: fileCrisisHistory,
+      crisisCount: fileCrisisCreated.length,
+      crisisCountLabel:
+        fileCrisisCreated.length === 0
+          ? "Sin crisis registradas"
+          : fileCrisisCreated.length === 1
+            ? "1 crisis registrada"
+            : fileCrisisCreated.length + " crisis registradas",
+      crisisLastAgo: fileCrisisLast
+        ? "Última: " + (fileCrisisLast.ago as string)
+        : "Sin episodios previos",
+      crisisLastWhen: fileCrisisLast
+        ? (fileCrisisLast.when as string)
+        : "",
+      hasCrisisHistory: fileCrisisHistory.length > 0,
     });
     return {
       dev: A.devMode(),
@@ -1206,13 +2151,26 @@ export function useClinicoScreen() {
         "Sobre: " +
         ({
           alerts: "Crisis",
+          crisisHistory: "Historial de crisis",
           patients: "Mis pacientes",
           approvals: "Aprobaciones",
           file: "Ficha de " + P.name,
         }[st.view] || "Inicio"),
-      goAlerts: () => setState({ view: "alerts" }),
-      goApprovals: () => setState({ view: "approvals" }),
-      openCount: S.alerts.length,
+      goAlerts: () => {
+        const toTakeN = S.alerts.filter(
+          (a) => a.sev === "crisis" && a.status === "new",
+        ).length;
+        const mineN = S.alerts.filter(
+          (a) =>
+            a.sev === "crisis" && (a.status === "mine" || a.status === "retry"),
+        ).length;
+        navigateView("alerts", {
+          crisisTab: toTakeN > 0 ? "take" : mineN > 0 ? "mine" : "all",
+        });
+      },
+      goCrisisHistory: () => navigateView("crisisHistory"),
+      goApprovals: () => navigateView("approvals"),
+      openCount: pending,
       upcoming: ids
         .map((id) => A.PATIENTS[id])
         .filter((p) => p && p.next)
@@ -1225,8 +2183,8 @@ export function useClinicoScreen() {
       agentAction: (action, p) => {
         if (action === "detail") {
           if (p.target === "file") openFile(p.pid, true);
-          else setState({ view: p.target });
-          setState({ agentOpen: false });
+          else navigateView(p.target, { agentOpen: false });
+          if (p.target === "file") setState({ agentOpen: false });
         }
         if (action === "file") {
           openFile(p, true);
@@ -1241,16 +2199,16 @@ export function useClinicoScreen() {
             "/informes?id=" + p + "&back=" + encodeURIComponent("/clinico"),
           );
         if (action === "use-ref-gloria")
-          setState({
+          navigateView("file", {
             refReason: p.draft,
             pid: "gloria",
-            view: "file",
             msg: "Borrador confirmado en el formulario de remisión. Revise y envíe.",
           });
       },
       screenCode: {
         home: "ClinicianHome",
         alerts: "ClinicianCrisis",
+        crisisHistory: "ClinicianCrisisHistory",
         patients: "ClinicianCaseload",
         approvals: "ClinicianApprovals",
         file: "CaseFile",
@@ -1259,6 +2217,7 @@ export function useClinicoScreen() {
         ["home", "Inicio"],
         ["approvals", apprN ? "Aprobaciones · " + apprN : "Aprobaciones"],
         ["patients", "Mis pacientes"],
+        ["crisisHistory", "Historial de crisis"],
       ].map(([k, label]) => {
         const active =
           (st.view === "file" ? (st.fileFrom || {}).view : st.view) === k;
@@ -1266,36 +2225,41 @@ export function useClinicoScreen() {
           key: k,
           label,
           active,
+          href: clinicoPathForView(k),
           bd: active ? C.amarillo : "transparent",
           fg: active ? C.verde : C.tinta,
-          go: () => setState({ view: k }),
+          go: () => navigateView(k),
         };
       }),
       critText: pending
-        ? pending + (pending === 1 ? " crisis sin tomar" : " crisis sin tomar")
+        ? "en crisis " + pending
         : "Sin crisis pendientes",
-      critBd: pending ? C.rojo : C.lineas,
-      critBg: pending ? C.rojoBg : "#fff",
-      critFg: pending ? "#8A1C14" : C.texto2,
+      critBd: pending ? "#6B0000" : C.lineas,
+      critBg: pending ? "#6B0000" : "#fff",
+      critFg: pending ? "#FFFFFF" : C.texto2,
       hasCrisisPending: pending > 0,
       isAlerts: st.view === "alerts",
+      isCrisisHistory: st.view === "crisisHistory",
       isPatients: st.view === "patients",
       isFile: st.view === "file",
       isApprovals: st.view === "approvals",
-      goHome: () => setState({ view: "home" }),
+      goHome: () => navigateView("home"),
+      crisisHistory: allCrisisHistory,
       fileBackLabel:
         "← Volver a " +
         ({
           home: "Inicio",
           alerts: "Crisis",
+          crisisHistory: "Historial de crisis",
           patients: "Mis pacientes",
           approvals: "Aprobaciones",
         }[(st.fileFrom || {}).view] || "Mis pacientes") +
         ((st.fileFrom || {}).agent ? " y al asistente" : ""),
       fileBack: () => {
         const fr = st.fileFrom || { view: "patients" };
-        setState({ view: fr.view || "patients", agentOpen: !!fr.agent && fr.view !== "home" });
-        window.scrollTo(0, 0);
+        navigateView(fr.view || "patients", {
+          agentOpen: !!fr.agent && fr.view !== "home",
+        });
       },
       approvals: filteredApprovals,
       approvalsAll: approvals,
@@ -1314,7 +2278,12 @@ export function useClinicoScreen() {
       patientStates: PATIENT_STATES,
       stateFilter: st.stateFilter,
       stateFilters: [{ id: "all", label: "Todos" }]
-        .concat(PATIENT_STATES.map((s) => ({ id: s.id, label: s.label })))
+        .concat(
+          PATIENT_STATES.filter((s) => s.id !== "aprobado").map((s) => ({
+            id: s.id,
+            label: s.label,
+          })),
+        )
         .map((x) => ({
           ...x,
           active: st.stateFilter === x.id,
@@ -1329,10 +2298,67 @@ export function useClinicoScreen() {
           freq: x.freq + (x.channel ? " · " + x.channel : ""),
         }));
       })(),
+      /** Servicios del paciente para la sección Herramientas (2 por fila). */
+      fHerramientas: (() => {
+        const pc2 = A.parseCode(P.profile);
+        if (pc2.r < 0 || pc2.d < 0) return [];
+        return A.pathList(pc2.r, pc2.d, null, P.ctx).map((x) => ({
+          id: x.id,
+          name: x.name,
+          freq: x.freq,
+          channel: x.channel || "",
+        }));
+      })(),
       alerts,
       noAlerts: alerts.length === 0,
       closed,
       noClosed: closed.length === 0,
+      crisisTab: st.crisisTab || "take",
+      crisisBoard: (() => {
+        const toTake = alerts.filter((a) => a.canTake);
+        const mine = alerts.filter((a) => a.isMine);
+        const others = alerts.filter((a) => a.isOther);
+        const info = alerts.filter((a) => a.isInfo);
+        const late = alerts.filter((a) => a.isCrisis && a.isLate && a.status !== "closed");
+        const tab = st.crisisTab || "take";
+        const tabs = [
+          { id: "take", label: "Por tomar", n: toTake.length, hint: "Esperan que alguien las tome" },
+          { id: "mine", label: "En atención", n: mine.length, hint: "Casos que usted tomó" },
+          { id: "all", label: "Cola abierta", n: alerts.length, hint: "Todas las alertas abiertas" },
+          {
+            id: "done",
+            label: "Gestionadas hoy",
+            n: closed.length,
+            hint: "Atendidas por el clínico · cerradas solo tras «estoy bien»",
+          },
+        ].map((t) => ({
+          ...t,
+          active: tab === t.id,
+          pick: () => setState({ crisisTab: t.id }),
+        }));
+        return {
+          tabs,
+          toTake,
+          mine,
+          others,
+          info,
+          late,
+          closed,
+          counts: {
+            toTake: toTake.length,
+            mine: mine.length,
+            others: others.length,
+            info: info.length,
+            late: late.length,
+            done: closed.length,
+            open: alerts.length,
+          },
+          emptyTake: toTake.length === 0,
+          emptyMine: mine.length === 0,
+          emptyAll: alerts.length === 0,
+          emptyDone: closed.length === 0,
+        };
+      })(),
       patients,
       f,
       noteText: st.note,
@@ -1400,7 +2426,7 @@ export function useClinicoScreen() {
           });
           s.alerts = s.alerts.filter((a) => a.pid !== P.id || a.sev === "crisis");
           if (st.refInst === "hsal")
-            A.pushNotif(s, "inst", "Nueva remisión: " + P.name, "/observador?view=casos");
+            A.pushNotif(s, "inst", "Nueva remisión: " + P.name, "/observador");
           if (P.id === "diana")
             s.dianaInbox.push({
               id: "d" + Date.now(),
@@ -1422,7 +2448,7 @@ export function useClinicoScreen() {
     const base = rv();
     const asPart = asVals(store, store.get(), st);
     return { ...base, ...asPart };
-  }, [session, st, store, router]);
+  }, [session, st, store, router, live]);
 
   return { v, session };
 }

@@ -261,27 +261,38 @@ const A = () => (typeof window !== 'undefined' ? window.AlientoStore : null);
   const basisEx = ex => (ex === 'andres' ? 'Con los datos de la última sincronización · hoy 7:05 · ' : 'Datos al momento · ') + 'su lista de hoy';
 
   function briefing(ex, S) {
-    const q = A().quotas(S, ex), wl = S.worklists[ex];
-    const pendR = wl.filter(w => w.rural && ['siguiente', 'programada', 'curso'].includes(w.status));
+    const q = A().quotas(S, ex), wl = S.worklists[ex] || [];
+    const pend = wl.filter(w => ['siguiente', 'programada', 'curso', 'sin_evaluacion', 'rechazada', 'cierre', 'asignada', 'ausente'].includes(w.status));
+    const pendR = pend.filter(w => w.rural);
     const byPlace = {}; pendR.forEach(w => { byPlace[w.place] = (byPlace[w.place] || 0) + 1; });
     const best = Object.keys(byPlace).sort((a, b) => byPlace[b] - byPlace[a])[0];
     const r = Math.max(0, q.ruralT - q.rural), s6 = Math.max(0, q.sixtyT - q.sixty);
-    let t = 'Hoy tiene ' + wl.length + ' visitas. ';
+    let t = 'Hoy lleva ' + q.today + ' de ' + q.todayT + ' visitas validadas';
+    if (pend.length) t += ' · ' + pend.length + (pend.length === 1 ? ' pendiente' : ' pendientes');
+    t += '. ';
     if (r || s6) t += 'Le faltan ' + [r ? r + (r === 1 ? ' rural' : ' rurales') : '', s6 ? s6 + ' de 60+' : ''].filter(Boolean).join(' y ') + ' para la cuota. ';
     if (best && byPlace[best] > 1) t += 'Empiece por la ' + best + ': ahí están ' + byPlace[best] + ' de las rurales.';
-    return { text: t.trim(), dots: wl.map(w => ({ ok: w.status === 'validada' || w.status === 'crisis' })), revisits: S.revisits[ex] || [], crisis: (S.notices[ex] || []).filter(n => n.kind === 'crisis') };
+    return { text: t.trim(), dots: wl.map(w => ({ ok: w.status === 'validada' || w.status === 'por_aprobar' || w.status === 'crisis' })), revisits: S.revisits[ex] || [], crisis: (S.notices[ex] || []).filter(n => n.kind === 'crisis') };
   }
 
   // El saludo con nombre lo arma AgentPanel desde store.session() (login).
   const ROLE = {
-    admin: { name: 'TEO · Asistente de datos', greet: '', sub: '¿En qué le puedo ayudar hoy? Puedo orientarle sobre territorios, equipos, rutas o activos.' },
-    clin: { name: 'TEO · Asistente clínico', greet: '', sub: 'Le ayudo a preparar sesiones y a ver patrones en su carga de casos. No doy diagnósticos ni cambio rutas.' },
-    fin: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo con datos agregados del programa. Nunca muestro datos personales.' },
-    inv: { name: 'TEO · Asistente de datos', greet: '', sub: 'Respondo sobre datos seudonimizados, con el n y el método. Aprobación ética CEI-2026-114.' },
-    inst: { name: 'TEO · Asistente de datos', greet: '', sub: 'Solo conozco los casos remitidos a esta institución. No sé nada del resto de la cohorte.' },
-    expert: { name: 'TEO · Asistente de datos', greet: '', sub: '' }
+    admin: { name: 'TEO', greet: '', sub: 'Pregúnteme lo que necesite del programa: captación, personas, rutas, crisis, equipos o activos.' },
+    clin: { name: 'TEO', greet: '', sub: 'Le oriento con aprobaciones, caseload, crisis e inactividad. No doy diagnósticos ni cambio rutas.' },
+    fin: { name: 'TEO', greet: '', sub: 'Respondo con datos agregados del programa, sin datos personales.' },
+    inv: { name: 'TEO', greet: '', sub: 'Respondo sobre datos seudonimizados del programa.' },
+    inst: { name: 'TEO', greet: '', sub: 'Solo conozco los casos remitidos a esta institución.' },
+    expert: { name: 'TEO', greet: '', sub: 'Pregúnteme por su territorio, visitas, alertas o el avance del programa.' },
+    obs: { name: 'TEO', greet: '', sub: 'Le cuento el avance del programa con datos agregados, sin nombres ni datos personales.' },
+    observador: { name: 'TEO', greet: '', sub: 'Le cuento el avance del programa con datos agregados, sin nombres ni datos personales.' },
   };
-  const list = role => role.indexOf('expert') === 0 ? expertQ(role.split(':')[1]) : Q[role];
+  const list = role => {
+    const key = role.split(':')[0];
+    if (role.indexOf('expert') === 0) return expertQ(role.split(':')[1]);
+    // Observador: mismas consultas agregadas que finanzas (sin datos personales).
+    if (key === 'obs' || key === 'observador') return Q.fin || [];
+    return Q[key] || Q.admin || [];
+  };
 
   async function ask(role, text) {
     const S = A().get(), L = list(role), t = norm(text), f = parseFilters(text);

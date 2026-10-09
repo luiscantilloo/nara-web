@@ -8,6 +8,7 @@ export const APP_STATE_SLICES = [
   "referrals",
   "consents",
   "alerts",
+  "crisisLog",
   "closedToday",
   "revisits",
   "notifs",

@@ -81,16 +81,25 @@ function PerfilTopbar({
   const clinNav =
     kind === "clin"
       ? [
-          { key: "home", label: "Inicio", href: "/clinico" },
+          {
+            key: "home",
+            label: "Inicio",
+            href: "/clinico",
+          },
           {
             key: "approvals",
             label: "Aprobaciones",
-            href: "/clinico?view=approvals",
+            href: "/clinico/aprobaciones",
           },
           {
             key: "patients",
             label: "Mis pacientes",
-            href: "/clinico?view=patients",
+            href: "/clinico/pacientes",
+          },
+          {
+            key: "crisisHistory",
+            label: "Historial de crisis",
+            href: "/clinico/crisis/historial",
           },
         ]
       : [];
@@ -120,7 +129,7 @@ function PerfilTopbar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        {kind === "clin" || kind === "expert" ? (
+        {kind === "expert" ? (
           <button
             type="button"
             onClick={onOpenAgent}
@@ -215,7 +224,7 @@ export function PerfilScreen() {
     name.trim() !== baseline.name.trim() ||
     contact.trim() !== baseline.contact.trim() ||
     org.trim() !== baseline.org.trim();
-  const showAgent = kind === "admin" || kind === "clin" || kind === "expert";
+  const showAgent = kind === "admin" || kind === "expert";
   const aRole = agentRole(kind, session.nk);
 
   const save = async () => {

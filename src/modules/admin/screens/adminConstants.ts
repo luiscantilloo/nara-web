@@ -17,7 +17,7 @@ export const EXPERTS: (string | number)[][] = [];
 
 export const CHECKS: [string, string][] = [
   ["GPS al inicio y al final", "Visita no presencial o fuera del territorio"],
-  ["Duración de la entrevista (mín. ~20 min)", "Visitas apuradas o inventadas"],
+  ["Duración de la entrevista", "Solo informativa; ya no hay mínimo de tiempo"],
   ["Consentimiento firmado", "Personas inventadas"],
   ["Detección de duplicados", "Persona registrada dos veces o teléfono compartido"],
   ["Patrones de respuesta", "Respuestas idénticas entre visitas"],
@@ -26,8 +26,9 @@ export const CHECKS: [string, string][] = [
   ["SMS o WhatsApp a la persona", "«¿Le visitó [experto] hoy?»"],
 ];
 
+/** @deprecated Usar `src/lib/nara-services/<id>.js` (note). Se mantiene por compat. */
 export const NOTES: Record<string, string> = {
-  mood: "Check-in «¿Cómo se siente hoy?» en la app · solo en rutas con capacidad digital alta; en baja y media se pregunta en la llamada, la revisita o el WhatsApp",
+  mood: "Check-in «¿Cómo se siente hoy?» en la app · Diario, Semanal o Quincenal",
   clin: "Canal según capacidad digital (persona / teléfono / videollamada)",
   ia: "Botón TEO en la app del paciente",
   tech: "Respiración, sueño, anclaje",
@@ -62,7 +63,7 @@ export type AdminUiState = {
   gf: { daily: string; weekly: string };
   gfErr: string;
   sel: string;
-  drafts: Record<string, { s: Record<string, string>; months: number }>;
+  drafts: Record<string, { s: Record<string, string>; months: number; inactiveMinutes?: number }>;
   scope: string;
   zoom?: number;
   teamTab?: string;
@@ -88,11 +89,6 @@ export type AdminUiState = {
   q?: string;
   pf?: Record<string, string>;
   pendingAsk?: string;
-  /**
-   * Personas · depuración: solo 15 perfiles representativos (P01–P15)
-   * en lugar de toda la cohorte histórica.
-   */
-  peopleSample?: boolean;
   /** Detalle de activos: territorio + manilla | tablet */
   assetTerr?: string;
   assetKind?: "manilla" | "tablet";
@@ -126,6 +122,4 @@ export const INITIAL_ADMIN_STATE: AdminUiState = {
   sel: "P08",
   drafts: {},
   scope: "all",
-  /** Por defecto: depuración liviana con 15 perfiles. */
-  peopleSample: true,
 };

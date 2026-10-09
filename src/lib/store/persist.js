@@ -29,6 +29,22 @@ function pickSlices(s) {
   return out;
 }
 
+function mergeAlertsById(local, remote) {
+  const map = new Map();
+  const put = (a) => {
+    if (!a || typeof a !== "object") return;
+    const id = String(a.id || "");
+    if (!id) return;
+    const prev = map.get(id);
+    if (!prev || Number(a.at || 0) >= Number(prev.at || 0)) map.set(id, a);
+  };
+  (Array.isArray(local) ? local : []).forEach(put);
+  (Array.isArray(remote) ? remote : []).forEach(put);
+  return Array.from(map.values()).sort(
+    (a, b) => Number(b.at || 0) - Number(a.at || 0),
+  );
+}
+
 export async function hydrateAppState(store) {
   try {
     const res = await apiFetch("/api/app-state");
@@ -37,7 +53,94 @@ export async function hydrateAppState(store) {
     const slices = data.slices;
     store.set((s) => {
       Object.keys(slices).forEach((k) => {
-        if (slices[k] !== undefined) s[k] = slices[k];
+        if (slices[k] === undefined) return;
+        // Alertas: unir por id para que crisis del paciente llegue al clínico
+        // sin que un persist viejo las borre.
+        if (k === "alerts") {
+          s.alerts = mergeAlertsById(s.alerts, slices.alerts);
+          return;
+        }
+        if (k === "crisisLog") {
+          s.crisisLog = mergeAlertsById(s.crisisLog, slices.crisisLog);
+          return;
+        }
+        if (k === "notifs" && slices.notifs && typeof slices.notifs === "object") {
+          s.notifs = s.notifs || {};
+          Object.keys(slices.notifs).forEach((role) => {
+            const remote = slices.notifs[role] || [];
+            const local = s.notifs[role] || [];
+            const byId = new Map();
+            [...local, ...remote].forEach((n) => {
+              if (n?.id) byId.set(n.id, n);
+            });
+            s.notifs[role] = Array.from(byId.values()).sort(
+              (a, b) => Number(b.at || 0) - Number(a.at || 0),
+            );
+          });
+          return;
+        }
+        // Aprobaciones de ruta: unir por id (pending del admin no se pierde).
+        if (k === "pathRequests") {
+          const map = new Map();
+          const put = (row) => {
+            if (!row || typeof row !== "object") return;
+            const id = String(row.id || `${row.code || ""}-${row.scope || "all"}`);
+            if (!id || id === "-") return;
+            const prev = map.get(id);
+            if (!prev) {
+              map.set(id, { ...row, id });
+              return;
+            }
+            const rank = (a) => {
+              const st = String(a.status || "pending").toLowerCase();
+              if (st === "approved" || st === "rejected") return 3;
+              return 1;
+            };
+            const aAt = Math.max(Number(row.at || 0), Number(row.resolvedAt || 0));
+            const bAt = Math.max(Number(prev.at || 0), Number(prev.resolvedAt || 0));
+            if (rank(row) > rank(prev) || (rank(row) === rank(prev) && aAt >= bAt)) {
+              map.set(id, { ...prev, ...row, id });
+            }
+          };
+          (Array.isArray(s.pathRequests) ? s.pathRequests : []).forEach(put);
+          (Array.isArray(slices.pathRequests) ? slices.pathRequests : []).forEach(put);
+          s.pathRequests = Array.from(map.values()).sort(
+            (a, b) => Number(b.at || 0) - Number(a.at || 0),
+          );
+          return;
+        }
+        if (k === "pathOverrides" && slices.pathOverrides && typeof slices.pathOverrides === "object") {
+          s.pathOverrides = {
+            ...(s.pathOverrides && typeof s.pathOverrides === "object" ? s.pathOverrides : {}),
+            ...slices.pathOverrides,
+          };
+          return;
+        }
+        if (k === "rules" && slices.rules && typeof slices.rules === "object") {
+          const local = s.rules && typeof s.rules === "object" ? s.rules : {};
+          const remote = slices.rules;
+          const merged = { ...local, ...remote };
+          const lPend = local.pending;
+          const rPend = remote.pending;
+          if (rPend && lPend) {
+            merged.pending =
+              Number(rPend.at || 0) >= Number(lPend.at || 0) ? rPend : lPend;
+          } else if (rPend) {
+            merged.pending = rPend;
+          } else if (lPend && (remote.pending === null || remote.pending === undefined)) {
+            const verAt = Number(remote.versions?.[0]?.at || 0);
+            const cleared = Number(remote.pendingClearedAt || 0);
+            const pendAt = Number(lPend.at || 0);
+            if (Math.max(verAt, cleared) >= pendAt && pendAt > 0) {
+              merged.pending = null;
+            } else {
+              merged.pending = lPend;
+            }
+          }
+          s.rules = merged;
+          return;
+        }
+        s[k] = slices[k];
       });
     });
   } catch (e) {
@@ -69,6 +172,19 @@ export async function flushPersist(store) {
   } catch (e) {
     lastError = e;
   }
+}
+
+/** Espera a que el hydrate suelte pausePersist y luego escribe app-state. */
+export async function flushPersistWhenReady(store, tries = 12) {
+  if (typeof window === "undefined") return;
+  for (let i = 0; i < tries; i++) {
+    if (!paused) {
+      await flushPersist(store);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  await flushPersist(store);
 }
 
 export function getPersistError() {

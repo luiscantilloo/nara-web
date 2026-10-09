@@ -4,6 +4,7 @@
 import { FormModal } from "@/components/shared/form-modal/FormModal";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
+import { PhoneInput } from "@/components/shared/phone-input/PhoneInput";
 import { ix } from "../inlineStyle";
 
 function UsuariosPager({ v }: { v: Record<string, any> }) {
@@ -216,25 +217,14 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
         open={!!v.hasForm}
         onClose={() => v.closeForm()}
         title={String(v.formTitle || "Usuario")}
-        description="Quién entra a NARA, con qué rol y qué puede ver."
-        size="md"
+        description={String(v.formDesc || "Quién entra a NARA, con qué rol y qué puede ver.")}
+        size={(v.formSize as "sm" | "md" | "lg") || "md"}
         footer={(
           <>
             <button
               type="button"
               onClick={() => v.save()}
-              style={{
-                fontFamily: "Figtree,system-ui,sans-serif",
-                fontSize: 15,
-                fontWeight: 500,
-                height: 44,
-                padding: "0 18px",
-                borderRadius: 14,
-                border: "none",
-                background: "#FDCD22",
-                color: "#161413",
-                cursor: "pointer",
-              }}
+              className="h-11 cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-[18px] font-texto text-[15px] font-medium text-nara-tinta"
             >
               {v.saveLabel}
             </button>
@@ -242,17 +232,7 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
               <button
                 type="button"
                 onClick={() => v.toggleStatus()}
-                style={{
-                  fontFamily: "Figtree,system-ui,sans-serif",
-                  fontSize: 15,
-                  height: 44,
-                  padding: "0 16px",
-                  borderRadius: 10,
-                  border: "1.5px solid #DCD6CD",
-                  background: "#fff",
-                  color: "#161413",
-                  cursor: "pointer",
-                }}
+                className="h-11 cursor-pointer rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] text-nara-tinta"
               >
                 {v.statusLabel}
               </button>
@@ -260,97 +240,339 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
             <button
               type="button"
               onClick={() => v.closeForm()}
-              style={{
-                fontFamily: "Figtree,system-ui,sans-serif",
-                fontSize: 15,
-                height: 44,
-                padding: "0 16px",
-                borderRadius: 10,
-                border: "1.5px solid #DCD6CD",
-                background: "#fff",
-                color: "#161413",
-                cursor: "pointer",
-              }}
+              className="h-11 cursor-pointer rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] text-nara-tinta"
             >
               Cancelar
             </button>
           </>
         )}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-            Nombre
-            <input
-              value={v.f.name ?? ""}
-              onChange={v.fSet.name}
-              style={{
-                height: 42,
-                borderRadius: 9,
-                border: "1.5px solid #DCD6CD",
-                padding: "0 12px",
-                fontSize: 15,
-              }}
-            />
+        <div className="flex flex-col gap-3.5">
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+            Rol
+            <select
+              value={v.f.role ?? ""}
+              onChange={v.fSet.role}
+              className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+            >
+              <option>Administrador</option>
+              <option>Experto de campo</option>
+              <option>Clínico</option>
+              <option>Paciente</option>
+              <option>Observador</option>
+            </select>
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-            Correo
-            <input
-              type="email"
-              value={v.f.contact ?? ""}
-              onChange={v.fSet.contact}
-              placeholder="nombre@nara.com"
-              style={{
-                height: 42,
-                borderRadius: 9,
-                border: "1.5px solid #DCD6CD",
-                padding: "0 12px",
-                fontSize: 15,
-              }}
-            />
-          </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
+
+          {v.isPaciente && !v.isEdit ? (
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-nara-tinta">Cómo crear al paciente</span>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => v.setPatientPath?.("campo")}
+                  className={`cursor-pointer rounded-[12px] border-[1.5px] px-3 py-3 text-left font-texto text-sm ${
+                    v.patientPath === "campo"
+                      ? "border-nara-tinta bg-nara-crema"
+                      : "border-linea bg-nara-blanco"
+                  }`}
+                >
+                  <span className="block font-medium text-nara-tinta">Desde campo</span>
+                  <span className="mt-0.5 block text-xs text-texto-secundario">
+                    Persona ya registrada por el experto
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => v.setPatientPath?.("manual")}
+                  className={`cursor-pointer rounded-[12px] border-[1.5px] px-3 py-3 text-left font-texto text-sm ${
+                    v.patientPath === "manual"
+                      ? "border-nara-tinta bg-nara-crema"
+                      : "border-linea bg-nara-blanco"
+                  }`}
+                >
+                  <span className="block font-medium text-nara-tinta">Manual</span>
+                  <span className="mt-0.5 block text-xs text-texto-secundario">
+                    Misma ficha que Nueva persona · sin evaluación
+                  </span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {v.isCampoPatient ? (
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+              Persona
+              <select
+                value={v.personId ?? ""}
+                onChange={v.pickPerson}
+                className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+              >
+                <option value="">Seleccione la persona…</option>
+                {v.personOpts?.map((o: { id: string; label: string }) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {!v.personOpts?.length ? (
+                <span className="text-xs font-normal text-texto-secundario">
+                  No hay personas pendientes de credenciales.
+                </span>
+              ) : null}
+            </label>
+          ) : null}
+
+          {v.isManualPatient ? (
+            <>
+              <section className="flex flex-col gap-3">
+                <h3 className="font-titulos text-base font-semibold text-nara-tinta">Identidad</h3>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Nombre
+                    <input
+                      value={v.f.firstName ?? ""}
+                      onChange={v.fSet.firstName}
+                      placeholder="Nombre"
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Apellido
+                    <input
+                      value={v.f.lastName ?? ""}
+                      onChange={v.fSet.lastName}
+                      placeholder="Apellidos"
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Fecha de nacimiento
+                    <input
+                      type="date"
+                      value={v.f.birthDate ?? ""}
+                      onChange={v.fSet.birthDate}
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Edad
+                    <input
+                      value={v.f.age ?? ""}
+                      readOnly
+                      placeholder="Se calcula sola"
+                      className="box-border h-[42px] w-full cursor-default rounded-[9px] border-[1.5px] border-linea bg-nara-crema px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Género
+                    <select
+                      value={v.f.genero ?? ""}
+                      onChange={v.fSet.genero}
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+                    >
+                      <option value="">Seleccione…</option>
+                      {(v.generoOpts || []).map((o: string) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Estado civil
+                    <select
+                      value={v.f.estadoCivil ?? ""}
+                      onChange={v.fSet.estadoCivil}
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+                    >
+                      <option value="">Seleccione…</option>
+                      {(v.civilOpts || []).map((o: string) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </section>
+              <section className="flex flex-col gap-3">
+                <h3 className="font-titulos text-base font-semibold text-nara-tinta">Contacto</h3>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Teléfono
+                    <PhoneInput
+                      value={v.f.phone ?? ""}
+                      onChange={v.fSet.phone}
+                      placeholder="3xx xxx xxxx"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Correo
+                    <input
+                      type="email"
+                      value={v.f.contact ?? ""}
+                      onChange={v.fSet.contact}
+                      placeholder="correo@ejemplo.com"
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                </div>
+              </section>
+              <section className="flex flex-col gap-3">
+                <h3 className="font-titulos text-base font-semibold text-nara-tinta">Ubicación</h3>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Territorio
+                    <select
+                      value={v.f.terr ?? ""}
+                      onChange={v.fSet.terr}
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+                    >
+                      <option value="">Seleccione…</option>
+                      {v.terrOpts?.map((o: string, i: number) => (
+                        <option key={`${o}-${i}`} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Vereda o barrio
+                    <input
+                      value={v.f.place ?? ""}
+                      onChange={v.fSet.place}
+                      placeholder="Ej.: Vereda Cocora"
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                    Estrato
+                    <select
+                      value={v.f.estrato ?? ""}
+                      onChange={v.fSet.estrato}
+                      className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
+                    >
+                      <option value="">Seleccione…</option>
+                      {(v.estratoOpts || []).map((o: string) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </section>
+            </>
+          ) : null}
+
+          {v.isCampoPatient || (v.isPaciente && v.isEdit) ? (
+            <>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                  Nombre
+                  <input
+                    value={v.f.firstName ?? ""}
+                    onChange={v.fSet.firstName}
+                    readOnly={!!v.fieldsReadonly}
+                    placeholder="Nombre"
+                    className={`box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea px-3 font-texto text-[15px] font-normal text-nara-tinta ${
+                      v.fieldsReadonly ? "bg-nara-crema" : "bg-nara-blanco"
+                    }`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                  Apellido
+                  <input
+                    value={v.f.lastName ?? ""}
+                    onChange={v.fSet.lastName}
+                    readOnly={!!v.fieldsReadonly}
+                    placeholder="Apellidos"
+                    className={`box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea px-3 font-texto text-[15px] font-normal text-nara-tinta ${
+                      v.fieldsReadonly ? "bg-nara-crema" : "bg-nara-blanco"
+                    }`}
+                  />
+                </label>
+              </div>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                Correo
+                <input
+                  type="email"
+                  value={v.f.contact ?? ""}
+                  onChange={v.fSet.contact}
+                  readOnly={!v.emailEditable}
+                  placeholder="nombre@nara.com"
+                  className={`box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea px-3 font-texto text-[15px] font-normal text-nara-tinta ${
+                    v.emailEditable ? "bg-nara-blanco" : "bg-nara-crema"
+                  }`}
+                />
+                {v.fieldsReadonly && v.emailEditable ? (
+                  <span className="text-xs font-normal text-texto-secundario">
+                    Esta persona no tiene correo en la ficha; escríbalo para el acceso.
+                  </span>
+                ) : null}
+              </label>
+            </>
+          ) : null}
+
+          {!v.isPaciente ? (
+            <>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                Nombre
+                <input
+                  value={v.f.name ?? ""}
+                  onChange={v.fSet.name}
+                  className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
+                Correo
+                <input
+                  type="email"
+                  value={v.f.contact ?? ""}
+                  onChange={v.fSet.contact}
+                  placeholder="nombre@nara.com"
+                  className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+                />
+              </label>
+            </>
+          ) : null}
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
             Contraseña
-            <input
-              type="password"
-              value={v.f.password ?? ""}
-              onChange={v.fSet.password}
-              placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
-              autoComplete="new-password"
-              style={{
-                height: 42,
-                borderRadius: 9,
-                border: "1.5px solid #DCD6CD",
-                padding: "0 12px",
-                fontSize: 15,
-              }}
-            />
-            <span style={{ fontSize: 12, fontWeight: 400, color: "#5E5750" }}>
+            {v.isPaciente ? (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={v.f.password ?? ""}
+                  onChange={v.fSet.password}
+                  placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
+                  autoComplete="new-password"
+                  className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco py-0 pl-3 pr-[5.5rem] font-texto text-[15px] font-normal text-nara-tinta"
+                />
+                <button
+                  type="button"
+                  onClick={() => v.genPassword?.()}
+                  className="absolute right-1.5 top-1/2 h-8 -translate-y-1/2 cursor-pointer rounded-lg border-none bg-nara-crema px-2.5 font-texto text-xs font-medium text-nara-tinta"
+                >
+                  Generar
+                </button>
+              </div>
+            ) : (
+              <input
+                type="password"
+                value={v.f.password ?? ""}
+                onChange={v.fSet.password}
+                placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
+                autoComplete="new-password"
+                className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
+              />
+            )}
+            <span className="text-xs font-normal text-texto-secundario">
               {v.isEdit
                 ? "Solo complete si quiere cambiar la contraseña."
                 : "Esta contraseña se usa en Ingreso (correo + clave)."}
             </span>
           </label>
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
-              Rol
-              <select
-                value={v.f.role ?? ""}
-                onChange={v.fSet.role}
-                className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] text-nara-tinta"
-              >
-                <option>Administrador</option>
-                <option>Experto de campo</option>
-                <option>Clínico</option>
-                <option>Paciente</option>
-                <option>Observador</option>
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 5, fontWeight: 500, fontSize: 14 }}>
+
+          {!v.isPaciente ? (
+            <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
               Territorio
               <select
                 value={v.f.terr ?? ""}
                 onChange={v.fSet.terr}
-                className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] text-nara-tinta"
+                className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-2 font-texto text-[15px] font-normal text-nara-tinta"
               >
                 {v.terrOpts?.map((o: string, i: number) => (
                   <option key={`${o}-${i}`} value={o}>
@@ -359,54 +581,10 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 ))}
               </select>
             </label>
-          </div>
-
-          {v.isPaciente ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                borderTop: "1px solid #E6E1D9",
-                paddingTop: 12,
-              }}
-            >
-              <span style={{ fontWeight: 500, fontSize: 14 }}>Módulos de la app del paciente</span>
-              <span style={{ fontSize: 13, color: "#5E5750", lineHeight: 1.4 }}>
-                Active lo que el programa ofrece a esta persona. Ella podrá ocultar en su perfil lo que no quiera ver.
-              </span>
-              {v.patientMods?.map((m: any) => (
-                <div
-                  key={m.key}
-                  onClick={() => m.toggle()}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "52px minmax(0,1fr)",
-                    gap: 10,
-                    alignItems: "center",
-                    padding: "8px 0",
-                    borderTop: "1px solid #F0ECE6",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div
-                    style={ix`width:44px;height:26px;border-radius:13px;background:${m.swBg};position:relative`}
-                  >
-                    <div
-                      style={ix`position:absolute;top:3px;left:${m.x};width:20px;height:20px;border-radius:10px;background:#fff`}
-                    />
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                    <span style={{ fontWeight: 500, fontSize: 14 }}>{m.name}</span>
-                    <span style={{ fontSize: 12, color: "#5E5750" }}>{m.desc}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
           ) : null}
 
           {v.isObs ? (
-            <div className="flex flex-col gap-3 border-t border-[#E6E1D9] pt-3">
+            <div className="flex flex-col gap-3 border-t border-linea pt-3">
               <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
                 Organización
                 <input
@@ -423,34 +601,19 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
           ) : null}
 
           {v.isEdit ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                borderTop: "1px solid #E6E1D9",
-                paddingTop: 12,
-              }}
-            >
-              <span style={{ fontWeight: 500 }}>Registro de actividad</span>
+            <div className="flex flex-col gap-1.5 border-t border-linea pt-3">
+              <span className="text-sm font-medium text-nara-tinta">Registro de actividad</span>
               {v.activity?.map((a: any) => (
                 <div
                   key={a.key}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "110px minmax(0,1fr)",
-                    gap: 10,
-                    fontSize: 14,
-                    padding: "5px 0",
-                    borderTop: "1px solid #F0ECE6",
-                  }}
+                  className="grid grid-cols-[110px_minmax(0,1fr)] gap-2.5 border-t border-[#F0ECE6] py-1 text-sm"
                 >
-                  <span style={{ color: "#5E5750" }}>{a.when}</span>
+                  <span className="text-texto-secundario">{a.when}</span>
                   <span>{a.text}</span>
                 </div>
               ))}
               {v.noActivity ? (
-                <span style={{ fontSize: 14, color: "#5E5750" }}>Sin actividad registrada.</span>
+                <span className="text-sm text-texto-secundario">Sin actividad registrada.</span>
               ) : null}
             </div>
           ) : null}

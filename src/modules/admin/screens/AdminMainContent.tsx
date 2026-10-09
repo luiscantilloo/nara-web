@@ -8,6 +8,7 @@ import { PhoneInput } from "@/components/shared/phone-input/PhoneInput";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
 import { VisitsMap } from "@/components/shared/visits-map/VisitsMap";
+import { PathServicesList } from "@/modules/admin/rutas/servicios";
 import { ix } from "./inlineStyle";
 
 export function AdminMainContent({ v }: { v: Record<string, any> }) {
@@ -32,20 +33,55 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
           />
 
           {v.vHome && (
-            <div className="nara-home-grid" style={{ paddingTop: "var(--nara-page-pad-y, 20px)" }}>
-              <div className="nara-home-main">
-                <AgentPanel role="admin" mode="home" onAction={v.agentAction} onOpenDrawer={v.askFromHome} style={{ flex: 1, minWidth: 0, width: '100%' }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
-                <Link href="/informe?t=admin-weekly&back=/inicio" style={{ background: '#FDCD22', color: '#161413', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontSize: '13px', opacity: '.9' }}>Generado el lunes 28 sep</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '22px' }}>Operaciones de la semana</span><span style={{ fontSize: '14px', lineHeight: '1.45' }}>Captación frente al ritmo, territorios en riesgo, control de calidad, manillas y tres acciones.</span><span style={{ fontWeight: '500', marginTop: '6px' }}>Abrir one-pager →</span></Link>
-              </div>
+            <div
+              className={`nara-home-grid${v.agentOpen ? " nara-home-grid--teo" : ""}`}
+              style={{ paddingTop: "var(--nara-page-pad-y, 20px)" }}
+            >
+              {v.agentOpen ? (
+                <div className="nara-home-teo-standin">
+                  <button
+                    type="button"
+                    onClick={() => v.openAgent?.()}
+                    aria-label="TEO está conversando. Mantener asistente abierto"
+                    className="group flex cursor-pointer flex-col items-center gap-4 border-none bg-transparent p-4"
+                  >
+                    <span className="grid size-[200px] place-items-center rounded-[52px] bg-nara-rosa shadow-[0_16px_48px_rgba(255,163,208,0.4)] transition group-hover:scale-[1.03] group-active:scale-[0.98] motion-safe:animate-[nara-float_3.6s_ease-in-out_infinite_alternate] sm:size-[260px] sm:rounded-[64px]">
+                      <img
+                        src="/nara/marca/logo/teo-isotipo.svg"
+                        alt=""
+                        className="block size-[148px] sm:size-[196px]"
+                      />
+                    </span>
+                    <span className="font-titulos text-2xl font-semibold text-nara-tinta sm:text-[28px]">TEO</span>
+                    <span className="max-w-[280px] text-center font-texto text-base text-texto-secundario">
+                      Aquí estoy, cuando quiera.
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="nara-home-main">
+                    <AgentPanel
+                      role="admin"
+                      mode="home"
+                      onAction={v.agentAction}
+                      onOpenDrawer={v.askFromHome}
+                      style={{ flex: 1, minWidth: 0, width: "100%" }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
+                    <Link href="/informe?t=admin-weekly&back=/inicio" style={{ background: '#FDCD22', color: '#161413', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontSize: '13px', opacity: '.9' }}>Generado el lunes 28 sep</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '22px' }}>Operaciones de la semana</span><span style={{ fontSize: '14px', lineHeight: '1.45' }}>Captación frente al ritmo, territorios en riesgo, control de calidad, manillas y tres acciones.</span><span style={{ fontWeight: '500', marginTop: '6px' }}>Abrir one-pager →</span></Link>
+                    {v.homeLinks?.map((l) => (<button key={l.id || l.label} onClick={() => l.go()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', textAlign: 'left', background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '3px', cursor: 'pointer', color: '#161413', whiteSpace: 'normal' }}><span style={{ fontWeight: '500' }}>{l.label}</span><span style={{ fontSize: '13px', color: '#5E5750' }}>{l.sub}</span></button>))}
+                  </div>
+                </>
+              )}
             </div>
           )}
           {v.hasFilter && (<div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}><span style={{ fontWeight: '500', padding: '6px 12px', borderRadius: '8px', background: '#E6E1D9', color: '#161413' }}>Filtro: {v.terrFilter}</span><button onClick={() => v.clearFilter()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', border: 'none', background: 'none', color: '#161413', cursor: 'pointer' }}>Quitar filtro</button></div>)}
           {v.vTerr && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <PageHead>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Territorios</span><span style={{ color: '#5E5750' }}>Meta fase 1: 8.700 personas · {v.totalCap} evaluadas</span></div><button onClick={() => v.toggleTerrForm()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '15px', fontWeight: '500', height: '46px', padding: '0 20px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer', whiteSpace: 'nowrap' }}>{v.terrFormBtn}</button></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Territorios</span><span style={{ color: '#5E5750' }}>Meta fase 1: 8.700 personas · {v.totalEvaluadas ?? v.totalCap} evaluadas · {v.totalCap} en captación</span></div><button onClick={() => v.toggleTerrForm()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '15px', fontWeight: '500', height: '46px', padding: '0 20px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer', whiteSpace: 'nowrap' }}>{v.terrFormBtn}</button></div>
               </PageHead>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 500, fontSize: 16, marginRight: 'auto' }}>{v.terrCountLabel}</span>
@@ -150,13 +186,15 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                         type="text"
                         inputMode="numeric"
                         value={String(v.gf?.weekly ?? "")}
-                        onChange={v.gfSet?.weekly}
-                        className="h-11 w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] text-nara-tinta"
+                        readOnly
+                        aria-readonly="true"
+                        title="Se calcula sola: meta diaria × 5"
+                        className="h-11 w-full cursor-default rounded-[9px] border-[1.5px] border-linea bg-nara-crema px-3 font-texto text-[15px] text-nara-tinta"
                       />
                     </label>
                   </div>
                   <p className="m-0 text-[15px] text-texto-secundario">
-                    Al guardar, se actualizan las columnas Hoy y Semana de todos los expertos.
+                    La meta semanal se calcula sola (diaria × 5). Puede ser 0. Al guardar, se actualizan Hoy y Semana de todos los expertos.
                   </p>
                 </div>
               </FormModal>
@@ -287,24 +325,18 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                 <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(20px,4vw,24px)' }}>{v.pe.title}</span><span style={{ color: '#5E5750' }}>{v.pe.people} personas hoy en este perfil</span></div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'stretch' }}><span style={{ fontSize: '13px', color: '#5E5750' }}>Alcance</span><select value={String(v.scope ?? "")} onChange={v.setScope} style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '15px', background: '#fff', maxWidth: '100%' }}><option value="all">Todos los territorios</option>{v.terrNames?.map((n: string) => (<option key={n} value={n}>Solo {n}</option>))}</select></div></div>
-                  {v.pe.rows?.map((s) => (
-                    <div key={s.name || s.id} style={ix`display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 0;border-top:1px solid #E6E1D9;opacity:${s.op}`}>
-                      <div onClick={() => s.toggle()} style={ix`flex:none;width:52px;height:30px;border-radius:15px;background:${s.swBg};position:relative;cursor:${s.cur}`}><div style={ix`position:absolute;top:3px;left:${s.x};width:24px;height:24px;border-radius:12px;background:#fff`}></div></div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: '1 1 140px', minWidth: 0 }}><span style={{ fontWeight: '500' }}>{s.name}</span><span style={{ fontSize: '13px', color: '#5E5750' }}>{s.note}</span></div>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: '1 1 200px' }}>
-                        {s.freqs?.map((q) => (<button key={q.label} onClick={() => q.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;height:38px;padding:0 12px;border-radius:8px;border:1.5px solid ${q.bd};background:${q.bg};color:${q.fg};cursor:pointer`}>{q.label}</button>))}
-                        {s.libBtn ? (
-                          <button type="button" onClick={() => s.libBtn.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:38px;padding:0 14px;border-radius:8px;border:1.5px solid #161413;background:#FDCD22;color:#161413;cursor:pointer`}>
-                            {s.libBtn.label}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
+                  <PathServicesList rows={v.pe.rows} />
                   {v.pe.warn && (<div style={{ background: '#F7E2D2', borderRadius: '10px', padding: '12px 14px', color: '#7A3A10', fontWeight: '500' }}>Atención: desde Moderado, el psicólogo IA no puede ser el único apoyo. Active el psicólogo clínico.</div>)}
                   <div style={{ display: 'flex', gap: '14px', alignItems: 'center', borderTop: '1px solid #E6E1D9', paddingTop: '14px', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: '500' }}>Duración total</span>
                     {v.pe.durs?.map((d) => (<button key={d.label} onClick={() => d.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;height:38px;padding:0 14px;border-radius:8px;border:1.5px solid ${d.bd};background:${d.bg};color:${d.fg};cursor:pointer`}>{d.label}</button>))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '14px', alignItems: 'center', borderTop: '1px solid #E6E1D9', paddingTop: '14px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                      <span style={{ fontWeight: '500' }}>Tiempo para establecer inactividad</span>
+                      <span style={{ fontSize: '13px', color: '#5E5750' }}>Sin login ni clics en la app · pasa a Inactivo / Sin contacto</span>
+                    </div>
+                    {v.pe.inactiveMins?.map((d) => (<button key={d.label} onClick={() => d.pick()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;height:38px;padding:0 14px;border-radius:8px;border:1.5px solid ${d.bd};background:${d.bg};color:${d.fg};cursor:pointer`}>{d.label}</button>))}
                     <button onClick={() => v.sendPath()} style={ix`margin-left:auto;font-family:Figtree,system-ui,sans-serif;font-size:15px;font-weight:500;height:46px;padding:0 20px;border-radius:10px;border:none;background:${v.pe.sendBg};color:#fff;cursor:pointer`}>Enviar a aprobación clínica</button>
                   </div>
                   <span style={{ color: '#5E5750' }}>{v.pe.status}</span>
@@ -362,8 +394,8 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0, overflow: 'hidden' }}>
                     <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '20px' }}>Regla de crisis</span><span style={{ fontSize: '13px', fontWeight: '500', padding: '3px 9px', borderRadius: '6px', background: '#F0ECE6', color: '#161413' }}>Solo lectura</span></div>
-                      <span style={{ fontSize: '17px', fontWeight: '500' }}>Pregunta 9 mayor que 0</span>
-                      <span style={{ color: '#5E5750', lineHeight: '1.5' }}>Activa de inmediato el protocolo de crisis: línea 123, alerta a la clínica de turno (meta 30 min) y ruta de crisis. No se puede desactivar ni editar.</span>
+                      <span style={{ fontSize: '17px', fontWeight: '500' }}>Botón «Estoy en crisis» en la app del paciente</span>
+                      <span style={{ color: '#5E5750', lineHeight: '1.5' }}>Solo esa acción activa el protocolo: alerta a la clínica de turno, pantalla roja en la app y bloqueo hasta «estoy bien». La pregunta 9 del PHQ-9 se registra en la evaluación, pero ya no dispara crisis.</span>
                     </div>
                     <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '20px' }}>Asignación automática</span>
@@ -377,8 +409,7 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '12px' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Puntaje PHQ-9 (0–27)<input value={String(v.simPhq ?? "")} onChange={v.setSimPhq} inputMode="numeric" style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: '15px' }} /></label><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Puntaje digital (0–{v.digMax})<input value={String(v.simDig ?? "")} onChange={v.setSimDig} inputMode="numeric" style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: '15px' }} /></label></div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: '12px', alignItems: 'end' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontWeight: '500' }}>Daño en la vivienda<select value={String(v.simDano ?? "")} onChange={v.setSimDano} style={{ height: '42px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '15px', background: '#fff' }}><option value="0">Ninguno</option><option value="1">Parcial</option><option value="2">Total</option></select></label><div onClick={() => v.toggleSimLoss()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer', height: '42px' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simLossBd};background:${v.simLossBg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simLossMark}</span>Perdió a un familiar</div></div>
                       <div onClick={() => v.toggleSimNoPhone()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simNoPhoneBd};background:${v.simNoPhoneBg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simNoPhoneMark}</span>Sin teléfono</div>
-                      <div onClick={() => v.toggleSimQ9()} style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}><span style={ix`width:20px;height:20px;border-radius:5px;border:2px solid ${v.simQ9Bd};background:${v.simQ9Bg};color:#fff;font-size:12px;display:grid;place-items:center;box-sizing:border-box`}>{v.simQ9Mark}</span>Pregunta 9 mayor que 0</div>
-                      {v.simOk && (<div style={{ borderTop: '1px solid #E6E1D9', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}><div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '24px' }}>{v.sim.code}</span><span style={ix`font-size:14px;font-weight:500;padding:3px 9px;border-radius:6px;background:${v.sim.bg};color:#161413`}>{v.sim.label}</span></div>{v.sim.crisis && (<span style={{ background: '#FDE7E4', color: '#8A1C14', borderRadius: '8px', padding: '8px 10px', fontWeight: '500' }}>Crisis: protocolo inmediato y ruta de crisis antes que la ruta del perfil.</span>)}{v.sim.services?.map((sv) => (<span key={sv.name} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '14px', borderTop: '1px solid #F0ECE6', paddingTop: '6px' }}><span style={{ fontWeight: '500' }}>{sv.name}</span><span style={{ color: '#5E5750', textAlign: 'right' }}>{sv.freq}</span></span>))}<span style={{ fontSize: '13px', color: '#5E5750' }}>Duración: {v.sim.months} meses</span></div>)}
+                      {v.simOk && (<div style={{ borderTop: '1px solid #E6E1D9', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}><div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '24px' }}>{v.sim.code}</span><span style={ix`font-size:14px;font-weight:500;padding:3px 9px;border-radius:6px;background:${v.sim.bg};color:#161413`}>{v.sim.label}</span></div>{v.sim.services?.map((sv) => (<span key={sv.name} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '14px', borderTop: '1px solid #F0ECE6', paddingTop: '6px' }}><span style={{ fontWeight: '500' }}>{sv.name}</span><span style={{ color: '#5E5750', textAlign: 'right' }}>{sv.freq}</span></span>))}<span style={{ fontSize: '13px', color: '#5E5750' }}>Duración: {v.sim.months} meses</span></div>)}
                       {v.simBad && (<span style={{ color: '#9A4D14', fontWeight: '500' }}>Escriba puntajes dentro del rango.</span>)}
                     </div>
                     <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -396,32 +427,8 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                   <span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: 'clamp(22px,4vw,28px)' }}>Personas</span>
-                  <span style={{ color: '#5E5750' }}>
-                    {v.peopleSample
-                      ? 'Datos de prueba · 15 perfiles representativos (P01–P15), no toda la cohorte histórica'
-                      : 'Cohorte completa · mayor carga operativa'}
-                  </span>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => v.togglePeopleSample?.()}
-                    style={{
-                      fontFamily: 'Figtree,system-ui,sans-serif',
-                      fontSize: '14px',
-                      fontWeight: 500,
-                      height: '40px',
-                      padding: '0 14px',
-                      borderRadius: '9px',
-                      border: '1.5px solid #161413',
-                      background: v.peopleSample ? '#FDCD22' : '#fff',
-                      color: '#161413',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {v.peopleSample ? '15 perfiles · activo' : 'Usar 15 perfiles'}
-                  </button>
                   <span style={{ fontWeight: '500', padding: '6px 12px', borderRadius: '8px', background: '#fff', border: '1px solid #DCD6CD', whiteSpace: 'nowrap' }}>Datos de identidad ocultos</span>
                 </div>
               </div>
@@ -437,7 +444,66 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                 <div style={{ minWidth: 960 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '100px minmax(0,1fr) minmax(0,1fr) 60px 70px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr)', gap: '12px', padding: '10px 20px', background: '#F0ECE6', color: '#5E5750', fontSize: '13px', fontWeight: '500' }}><span>Código</span><span>Territorio</span><span>Vereda o barrio</span><span>Edad</span><span>Perfil</span><span>Avance en la ruta</span><span>Experto</span><span>Estado</span></div>
                 <div style={{ maxHeight: '460px', overflow: 'auto' }}>
-                  {v.roster?.map((p) => (<div key={p.code} onClick={() => p.open()} style={{ display: 'grid', gridTemplateColumns: '100px minmax(0,1fr) minmax(0,1fr) 60px 70px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr)', gap: '12px', padding: '10px 20px', borderTop: '1px solid #E6E1D9', alignItems: 'center', fontSize: '14px', cursor: 'pointer' }} ><span style={{ fontFamily: 'ui-monospace,Menlo,monospace', fontSize: '13px' }}>{p.code}</span><span>{p.terr}</span><span>{p.place}</span><span>{p.age}</span><span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><span style={ix`width:8px;height:8px;border-radius:2px;background:${p.rc}`}></span>{p.profile}</span><div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><div style={{ flex: '1', height: '6px', borderRadius: '3px', background: '#E6E1D9' }}><div style={ix`height:100%;width:${p.pct};border-radius:3px;background:#161413`}></div></div><span style={{ fontSize: '12px', color: '#5E5750', whiteSpace: 'nowrap' }}>{p.prog}</span></div><span>{p.expert}</span><span style={ix`font-weight:${p.fw}`}>{p.status}</span></div>))}
+                  {v.roster?.map((p) => (
+                    <div
+                      key={p.code}
+                      onClick={() => p.open()}
+                      className={
+                        p.inCrisis
+                          ? 'grid cursor-pointer items-center gap-3 border-t border-[#4A0000] bg-[#6B0000] px-5 py-2.5 text-sm text-white hover:bg-[#5A0000]'
+                          : 'grid cursor-pointer items-center gap-3 border-t border-[#E6E1D9] px-5 py-2.5 text-sm text-[#161413] hover:bg-[#FAF8F5]'
+                      }
+                      style={{
+                        gridTemplateColumns:
+                          '100px minmax(0,1fr) minmax(0,1fr) 60px 70px minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr)',
+                      }}
+                    >
+                      <span className="font-mono text-[13px]">{p.code}</span>
+                      <span>{p.terr}</span>
+                      <span>{p.place}</span>
+                      <span>{p.age}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="h-2 w-2 rounded-sm"
+                          style={{ background: p.inCrisis ? '#FFFFFF' : p.rc }}
+                        />
+                        {p.profile}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={
+                            p.inCrisis
+                              ? 'h-1.5 flex-1 rounded-sm bg-white/25'
+                              : 'h-1.5 flex-1 rounded-sm bg-[#E6E1D9]'
+                          }
+                        >
+                          <div
+                            className="h-full rounded-sm"
+                            style={{
+                              width: p.pct,
+                              background: p.inCrisis ? '#FFFFFF' : '#161413',
+                            }}
+                          />
+                        </div>
+                        <span
+                          className={
+                            p.inCrisis
+                              ? 'whitespace-nowrap text-xs text-white/75'
+                              : 'whitespace-nowrap text-xs text-[#5E5750]'
+                          }
+                        >
+                          {p.prog}
+                        </span>
+                      </div>
+                      <span>{p.expert}</span>
+                      <span
+                        className={p.inCrisis ? 'font-semibold' : undefined}
+                        style={p.inCrisis ? undefined : { fontWeight: p.fw }}
+                      >
+                        {p.status}
+                      </span>
+                    </div>
+                  ))}
                   {v.noRoster && (<span style={{ display: 'block', padding: '20px', color: '#5E5750' }}>Ninguna persona coincide con el filtro.</span>)}
                 </div>
                 </div>
