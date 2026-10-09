@@ -6,6 +6,7 @@ import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingS
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import {
   ClinPanel,
+  IaPanel,
   PacienteHerramientasNav,
   RevisitPanel,
   TechPanel,
@@ -636,94 +637,7 @@ function DianaApp({ vm }: { vm: Vm }) {
 }
 
 function DianaChat({ vm }: { vm: Vm }) {
-  return (
-    <div style={{ animation: "naraTab .22s ease-out", display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <div style={{ margin: "0 14px", background: "#fff", border: "1px solid #DCD6CD", borderRadius: 12, padding: "10px 12px", fontSize: 14, lineHeight: 1.4, color: "#161413" }}>
-        TEO es un acompañante con inteligencia artificial. No reemplaza a su psicóloga. Si está en peligro, use el botón de ayuda.
-      </div>
-      <div style={{ flex: 1, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-        {vm.chatMsgs.map((m, i) => (
-          <div key={i}>
-            {m.ai ? (
-              <div style={{ alignSelf: "flex-start", maxWidth: "90%", display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <img src={m.avatar} alt="" style={{ flex: "none", width: 36, height: 36, display: "block", marginTop: 18 }} />
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 12, color: "#5E5750", display: "flex", gap: 6, alignItems: "center" }}>
-                    TEO <span style={{ fontSize: 11, fontWeight: 500, border: "1px solid #5E5750", borderRadius: 4, padding: "0 4px" }}>IA</span>
-                  </span>
-                  <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: "4px 18px 18px 18px", padding: "11px 14px", lineHeight: 1.45 }}>{m.text}</div>
-                </div>
-              </div>
-            ) : null}
-            {m.me ? (
-              <div style={{ alignSelf: "flex-end", maxWidth: "82%", background: "#161413", color: "#fff", borderRadius: "18px 4px 18px 18px", padding: "11px 14px", lineHeight: 1.45, marginLeft: "auto" }}>{m.text}</div>
-            ) : null}
-            {m.crisis ? (
-              <div style={{ alignSelf: "stretch", background: "#FDE7E4", border: "1.5px solid #B42318", borderRadius: 16, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 500, color: "#8A1C14" }}>
-                  <img src={naraAsset("marca/personajes/teo-calma.svg")} alt="" style={{ width: 36, height: 36, display: "block" }} />
-                  TEO · IA · mensaje de cuidado
-                </span>
-                <span style={{ lineHeight: 1.45 }}>{m.text}</span>
-                {vm.dianaLines.map((cl) => (
-                  <a key={cl.label} href={cl.tel} style={{ minHeight: 52, padding: "4px 14px", boxSizing: "border-box", borderRadius: 26, border: "2px solid #B42318", background: cl.bg, color: cl.fg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 16, textAlign: "center", textDecoration: "none" }}>
-                    <span>{cl.label}</span>
-                    <span style={{ fontSize: 12, fontWeight: 400 }}>{cl.sub}</span>
-                  </a>
-                ))}
-              </div>
-            ) : null}
-            {m.breath ? (
-              <div style={{ alignSelf: "stretch", background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <BreathExercise onDone={vm.onBreathDone} />
-              </div>
-            ) : null}
-          </div>
-        ))}
-        {vm.typing ? (
-          <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#5E5750" }}>
-            <img src={naraAsset("marca/personajes/teo-duda.svg")} alt="" style={{ width: 32, height: 32, display: "block" }} />
-            TEO está escribiendo…
-          </span>
-        ) : null}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
-          {vm.quick.map((q) => (
-            <button key={q.label} type="button" onClick={q.go} style={{ ...btnFont(), fontSize: 16, minHeight: 48, padding: "0 16px", borderRadius: 22, border: "1.5px solid #161413", background: "#fff", color: "#161413", cursor: "pointer" }}>
-              {q.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {vm.paused ? (
-        <div style={{ position: "sticky", bottom: 0, background: "#fff", borderTop: "1px solid #DCD6CD", padding: 14, textAlign: "center", fontWeight: 500, fontSize: 16 }}>
-          Conversación en pausa · el equipo la llamará
-        </div>
-      ) : null}
-      {vm.notPaused ? (
-        <div style={{ position: "sticky", bottom: 0, background: "#F0ECE6", borderTop: "1px solid #DCD6CD", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
-            {vm.askChips.map((q) => (
-              <button key={q.label} type="button" onClick={q.go} style={{ flex: "none", ...btnFont(), fontSize: 15, minHeight: 48, padding: "0 14px", borderRadius: 22, border: "1px solid #DCD6CD", background: "#fff", color: "#161413", cursor: "pointer" }}>
-                {q.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={vm.input}
-              onChange={(e) => vm.setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && vm.sendDiana()}
-              placeholder="Escríbale a TEO"
-              style={{ flex: 1, height: 48, borderRadius: 24, border: "1.5px solid #DCD6CD", padding: "0 16px", fontSize: 17, background: "#fff", fontFamily: "Figtree, system-ui, sans-serif" }}
-            />
-            <button type="button" onClick={() => vm.sendDiana()} style={{ ...btnFont(), fontSize: 16, fontWeight: 500, height: 48, padding: "0 16px", borderRadius: 24, border: "none", background: "#FDCD22", color: "#161413", cursor: "pointer" }}>
-              Enviar
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <IaPanel vm={vm} />;
 }
 
 function DianaResumen({ vm }: { vm: Vm }) {
