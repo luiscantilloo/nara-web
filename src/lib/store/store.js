@@ -485,7 +485,7 @@ const KEY = 'nara-memory-v1';
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new Event('nara-change'));
   }
-  function set(fn) { const s = get(); fn(s); ensure(s); cache = s; save(); schedulePersist({ get }); }
+  function set(fn) { const s = get(); fn(s); ensure(s); cache = s; save(); schedulePersist({ get, session }); }
   function reset() {
     cache = seed();
     ensure(cache);

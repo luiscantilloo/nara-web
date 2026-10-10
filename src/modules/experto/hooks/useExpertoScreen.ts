@@ -507,13 +507,13 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           (p.name && x.name === p.name),
       ) || null;
     const personId = String(canonical?.id || p.id || st.pid || '');
-    const personCode = String(
-      canonical?.code ||
-        p.code ||
-        ((store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase()) +
-          '-' +
-          String(1000 + people0.length + 1),
-    );
+    // Código nuevo: el mayor número existente del prefijo + 1 (antes era un conteo y se repetía).
+    const prefijo = (store.TCODE && store.TCODE[terr]) || terr.slice(0, 3).toUpperCase();
+    const maxCodigo = people0.reduce((m: number, x: { code?: string }) => {
+      const mm = String(x.code || '').match(new RegExp('^' + prefijo + '-(\\d+)$'));
+      return mm ? Math.max(m, Number(mm[1])) : m;
+    }, 1000);
+    const personCode = String(canonical?.code || p.code || prefijo + '-' + String(maxCodigo + 1));
     const personName = String(canonical?.name || p.name || '');
     const personAge = canonical?.age ?? p.age;
     const personPlace = String(canonical?.place || p.place || '');

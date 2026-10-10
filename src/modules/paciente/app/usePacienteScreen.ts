@@ -502,7 +502,9 @@ export function usePacienteScreen() {
     store.PATIENTS[pid] ||
     store.emptyPatient(pid, sessionNow?.name || "Paciente", 0);
   const firstName = String(DP.name || "Paciente").split(/\s+/)[0] || "Paciente";
-  const cons = (S.consents && S.consents[pid]) || {};
+  // El consentimiento se guarda con el id del paciente de la sesión (la API solo acepta esa clave).
+  const consKey = String((sessionNow as { patientId?: string } | null)?.patientId || pid);
+  const cons = (S.consents && (S.consents[consKey] || S.consents[pid])) || {};
 
   const recP = useCallback(() => {
     const st = store.get();
@@ -2540,7 +2542,7 @@ export function usePacienteScreen() {
   // app antes de que se registre nada desde ella. Queda en consents[pid].appAt (fecha) y appVersion.
   const needsAppConsent = ready && isDiana && !cons.appAt;
   const acceptAppConsent = () => {
-    const id = pidRef.current;
+    const id = consKey;
     store.set((s: { consents?: Record<string, Record<string, unknown>> }) => {
       s.consents = s.consents || {};
       s.consents[id] = { ...(s.consents[id] || {}), appAt: Date.now(), appVersion: "app-v1" };

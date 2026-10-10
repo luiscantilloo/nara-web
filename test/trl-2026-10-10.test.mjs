@@ -61,6 +61,16 @@ test('H-011: sin cambios después de cargar no hay PUT; con un cambio, uno solo'
   assert.equal(puts.length, 1, 'un cambio produce un solo PUT');
 });
 
+test('H-011: un cambio hecho con store.set se guarda solo (guardado automático con la sesión)', async () => {
+  S.login('e1', { id: 'e1', role: 'Experto de campo', roleId: 'experto', terr: 'Bucaramanga', status: 'Activo' });
+  P.pausePersist(false);
+  await P.hydrateAppState(S);
+  puts.length = 0;
+  S.set((s) => { s.notes = [...(s.notes || []), { pid: 'auto' }]; });
+  await new Promise((r) => setTimeout(r, 700)); // el guardado automático espera 450 ms
+  assert.equal(puts.length, 1, 'store.set debe disparar un PUT sin llamar flushPersist a mano');
+});
+
 test('H-011: el observador y la carga sin sesión nunca escriben', async () => {
   puts.length = 0;
   S.login('o1', { id: 'o1', role: 'Observador', roleId: 'observador', status: 'Activo' });
