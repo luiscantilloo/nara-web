@@ -19,6 +19,8 @@ export function useAdminPersonaScreen() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [tick, setTick] = useState(0);
+  // H-014 (reporte TRL 2026-10-10): archivar desde la interfaz, con motivo y registro en el servidor.
+  const [archivo, setArchivo] = useState<{ abierto: boolean; motivo: string; enviando: boolean }>({ abierto: false, motivo: "", enviando: false });
 
   useEffect(() => {
     const u = store.session() as { role?: string; roleId?: string } | null;
@@ -234,8 +236,35 @@ export function useAdminPersonaScreen() {
       err,
       clearMsg: () => setMsg(""),
       clearErr: () => setErr(""),
+      archivo,
+      abrirArchivo: () => setArchivo({ abierto: true, motivo: "", enviando: false }),
+      cancelarArchivo: () => setArchivo({ abierto: false, motivo: "", enviando: false }),
+      motivoArchivo: (motivo: string) => setArchivo((a) => ({ ...a, motivo })),
+      confirmarArchivo: async () => {
+        const motivo = archivo.motivo.trim();
+        if (motivo.length < 5) return setErr("Escriba el motivo (al menos 5 caracteres).");
+        setArchivo((a) => ({ ...a, enviando: true }));
+        try {
+          const res = await fetch(`/api/people/${encodeURIComponent(id)}/archive`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason: motivo }),
+          });
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(j.error || "No se pudo archivar.");
+          store.set((s: any) => {
+            s.people = (s.people || []).filter((x: any) => x.id !== id);
+            if (s.patients) delete s.patients[id];
+          });
+          router.push("/personas");
+        } catch (e) {
+          setErr(e instanceof Error ? e.message : "No se pudo archivar.");
+          setArchivo((a) => ({ ...a, enviando: false }));
+        }
+      },
     };
-  }, [store, code, tick, agentOpen, msg, err, router]);
+  }, [store, code, tick, agentOpen, msg, err, router, archivo]);
 
   return { v };
 }

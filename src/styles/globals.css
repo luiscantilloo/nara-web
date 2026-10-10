@@ -137,18 +137,19 @@ body {
   background-clip: padding-box;
 }
 
+/* H-011 (reporte TRL 2026-10-10, WCAG 2.4.7): el foco del teclado siempre se ve.
+   Antes `outline: none` lo ocultaba en toda la app. */
 :focus-visible {
-  outline: none;
+  outline: 3px solid #161413;
+  outline-offset: 2px;
 }
 
-input:focus,
 input:focus-visible,
-select:focus,
 select:focus-visible,
-textarea:focus,
 textarea:focus-visible {
-  outline: none;
-  box-shadow: none;
+  outline: 2px solid #161413;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(253, 205, 34, 0.6);
 }
 
 a {

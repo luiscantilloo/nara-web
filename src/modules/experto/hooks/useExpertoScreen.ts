@@ -16,7 +16,6 @@ import {
 const blank = (n: number) =>
   Array.from({ length: n }, () => ({ v: null as number | null, st: "none" as const }));
 const OK_BG = "#FFF4CC";
-const DEFAULT_CLIN = "Dra. Lucía Marín";
 
 const GENERO_OPTS = ["Femenino", "Masculino", "No binario", "Otro", "Prefiere no decir"];
 const CIVIL_OPTS = ["Soltero/a", "Casado/a", "Unión libre", "Separado/a", "Divorciado/a", "Viudo/a"];
@@ -40,14 +39,12 @@ function splitFullName(full: string): { firstName: string; lastName: string } {
   return { firstName: parts[0]!, lastName: parts.slice(1).join(" ") };
 }
 
-/** Clínico por territorio (departamento del Eje Cafetero). */
-function clinForTerr(terr: string): string {
-  const t = String(terr || "").toLowerCase();
-  if (/pereira|dosquebradas|santa rosa|risaralda/.test(t)) return "Dr. Felipe Ruiz";
-  if (/manizales|chinchiná|chinchina|villamaría|villamaria|caldas/.test(t)) {
-    return "Dra. Carolina Úsuga";
-  }
-  return DEFAULT_CLIN;
+/**
+ * H-009 (reporte TRL 2026-10-10): el clínico de la ficha lo resuelve el servidor (la cuenta Clínico activa
+ * del territorio). El navegador ya no inventa un nombre por departamento.
+ */
+function clinForTerr(_terr: string): string {
+  return "";
 }
 
 function emptyPersonForm(partial: Record<string, string> = {}) {
@@ -66,7 +63,7 @@ function emptyPersonForm(partial: Record<string, string> = {}) {
     estadoCivil: "",
     estrato: "",
     expert: "",
-    clin: DEFAULT_CLIN,
+    clin: "",
     ...partial,
   };
 }
@@ -77,7 +74,7 @@ function emptyPersonForm(partial: Record<string, string> = {}) {
  * sessionStorage por persona mientras dura la visita; se borra al guardarla o al volver a la lista.
  */
 const VISITA_KEY = (pid: string) => `nara-visita-${pid}`;
-const VISITA_CAMPOS = ["consent", "signed", "ruego", "witness", "mode", "sec", "items", "crisis", "override", "reason", "startTime", "courseSel", "chat", "step"] as const;
+const VISITA_CAMPOS = ["consent", "signed", "ruego", "witness", "mode", "sec", "items", "crisis", "override", "reason", "startTime", "courseSel", "chat", "step", "gps"] as const;
 function leerBorradorVisita(pid: string | null): Record<string, unknown> | null {
   if (!pid || typeof window === "undefined") return null;
   try {
@@ -144,6 +141,7 @@ export function useExpertoScreen() {
     const inicial = {
     screen: "list",
     pid: null as string | null,
+    gps: null as null | { lat?: number; lng?: number; precision?: number; at?: number; error?: string },
     consent: {} as Record<string, boolean>,
     signed: false,
     ruego: false,
@@ -219,6 +217,20 @@ export function useExpertoScreen() {
     // Loading en el mismo turno (flushSync) para no ver la pantalla nueva sin overlay.
     if (navAway) startRouteLoading();
   }, [pathname, startRouteLoading]);
+
+  // H-008 (reporte TRL 2026-10-10, SPEC-006): la evidencia de la visita usa la posición real del navegador.
+  useEffect(() => {
+    if (st.screen !== 'consent' || !st.pid || st.gps) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setStateRaw((prev: any) => ({ ...prev, gps: { error: 'el dispositivo no da ubicación' } }));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setStateRaw((prev: any) => ({ ...prev, gps: { lat: pos.coords.latitude, lng: pos.coords.longitude, precision: Math.round(pos.coords.accuracy), at: Date.now() } })),
+      (err) => setStateRaw((prev: any) => ({ ...prev, gps: { error: err.code === 1 ? 'permiso de ubicación negado' : 'no se pudo obtener' } })),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }, [st.screen, st.pid, st.gps]);
 
   useEffect(() => {
     const path = pendingPathRef.current;
@@ -388,7 +400,7 @@ const SCRIPT = [
       setState({ pid: w.id, screen: 'eval', newForm: false, editPid: null, mode: 'form', sec: 'phq', items: { phq, dig, ctx }, consent: { r0: 1, r1: 1, r2: 1, o0: 1, o1: 1, o2: 1 }, signed: true, crisis: false, chat: [], step: 0, override: 'keep', reason: '', startTime: '10:58' });
       return;
     }
-    setState({ pid: w.id, screen: 'consent', newForm: false, editPid: null, consent: {}, signed: false, ruego: false, witness: '', mode: 'form', sec: 'phq', items: { phq: blank(9), dig: blank(6), ctx: blank(2) }, crisis: false, step: 0, override: 'keep', reason: '', reasonErr: '', consentMsg: '', startTime: hh,
+    setState({ pid: w.id, screen: 'consent', newForm: false, editPid: null, gps: null, consent: {}, signed: false, ruego: false, witness: '', mode: 'form', sec: 'phq', items: { phq: blank(9), dig: blank(6), ctx: blank(2) }, crisis: false, step: 0, override: 'keep', reason: '', reasonErr: '', consentMsg: '', startTime: hh,
       chat: [{ who: 'ai', label: 'TEO sugiere · cómo abrir', text: 'Empiece sin mencionar el cuestionario. Puede decir:\n«¿Cómo ha estado usted y su familia desde el sismo?»' }] });
   }
   function setItem(sec: string, i: number, v: number, stItem: string) {
@@ -631,6 +643,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         crisis,
         override: 'keep',
         reason: '',
+        gps: st.gps || null, // H-008: se guarda con la visita
       };
       s.people = s.people || [];
       const existing = s.people.find(
@@ -700,7 +713,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
                 profile: profileCode,
                 phone: personPhone,
                 phq: [res.phqT],
-                phqDates: ['Hoy'],
+                phqDates: [new Date().toISOString().slice(0, 10)], // H-013: fecha ISO, no «Hoy»
                 sleep: null,
                 braceletStatus: '',
                 adherence: null,
@@ -721,7 +734,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         pat.previousProfile = pat.profile || null;
         pat.profile = profileCode;
         pat.phq = (pat.phq || []).concat([res.phqT]);
-        pat.phqDates = (pat.phqDates || []).concat(['Hoy']);
+        pat.phqDates = (pat.phqDates || []).concat([new Date().toISOString().slice(0, 10)]); // H-013
         pat.signal = nextStatus;
         pat.status = nextStatus;
         pat.pendingEval = !closingEval;
@@ -1356,8 +1369,9 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
     const sigOk = st.signed && (!st.ruego || st.witness.trim());
     const territory = terrName + (terrName === 'Armenia' ? ' · Barrios seleccionados' : ' · Veredas seleccionadas');
     const evidence = [
-      { k: 'GPS al inicio', v: terrName === 'Armenia' ? '4,5339° N · 75,6811° O' : '4,6378° N · 75,5703° O' },
-      { k: 'Territorio', v: 'Dentro del territorio asignado' },
+      // H-008: posición real o «sin ubicación»; los territorios no tienen límites cargados, así que no se afirma que esté dentro.
+      { k: 'GPS al inicio', v: st.gps?.lat != null ? Math.abs(st.gps.lat).toFixed(4).replace('.', ',') + '° ' + (st.gps.lat >= 0 ? 'N' : 'S') + ' · ' + Math.abs(Number(st.gps.lng)).toFixed(4).replace('.', ',') + '° ' + (Number(st.gps.lng) >= 0 ? 'E' : 'O') + ' (±' + st.gps.precision + ' m)' : st.gps?.error ? 'Sin ubicación: ' + st.gps.error : 'Obteniendo ubicación…' },
+      { k: 'Territorio', v: st.gps?.lat != null ? 'Sin comparar: el territorio no tiene límites cargados' : '—' },
       { k: 'Hora de inicio', v: st.startTime || '—' }
     ];
 
@@ -1591,6 +1605,17 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
                 ? 'Falta el dato: ' + missing[0] + '.'
                 : 'Faltan datos: ' + missing.join(', ') + '.',
           });
+        }
+        // H-007 (SPEC-005): mismas reglas que la API (libs/common/src/validar-persona.ts).
+        const nac = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
+        const nacDate = nac ? new Date(Date.UTC(+nac[1], +nac[2] - 1, +nac[3])) : null;
+        if (!nacDate || Number.isNaN(nacDate.getTime())) return setState({ newMsg: 'La fecha de nacimiento no es válida.' });
+        if (nacDate.getTime() > Date.now()) return setState({ newMsg: 'La fecha de nacimiento no puede ser futura.' });
+        const edadAlta = ageFromBirth(birthDate);
+        if (!(edadAlta >= 18 && edadAlta <= 110)) return setState({ newMsg: 'La edad debe estar entre 18 y 110 años.' });
+        const telAlta = String(draft.phone || '').replace(/[\s-]/g, '');
+        if (telAlta && !/^3\d{9}$/.test(telAlta)) {
+          return setState({ newMsg: 'El teléfono debe tener 10 dígitos y empezar por 3.' });
         }
         const phoneDigits = String(draft.phone || '').replace(/\D/g, '');
         if (phoneDigits === '3124550178' && !st.dupOk) {

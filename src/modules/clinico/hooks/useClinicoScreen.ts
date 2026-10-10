@@ -759,7 +759,7 @@ export function useClinicoScreen() {
           profile: c.profile,
           phone: "—",
           phq: [c.phq],
-          phqDates: ["Hoy"],
+          phqDates: [new Date().toISOString().slice(0, 10)], // H-013: fecha ISO, no «Hoy»
           sleep: null,
           braceletStatus: "Según la ruta",
           adherence: null,
@@ -1340,7 +1340,6 @@ export function useClinicoScreen() {
               pe.pendingEval = false;
               pe.activeAt = activeAt;
               pe.inactiveLock = false;
-              pe.clin = pe.clin || "Dra. Lucía Marín";
             }
             const patKey =
               (s.patients[ev.id] && ev.id) ||
