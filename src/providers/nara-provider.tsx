@@ -114,10 +114,13 @@ export function NaraProvider({ children }: { children: ReactNode }) {
         return;
       }
       lastTouch = now;
+      // Solo renueva lastLoginAt; no debe disparar pantalla de carga ni remount.
       void apiFetch("/api/accounts/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ touch: true }),
+        // Evita que el cliente trate el touch como navegación/RSC.
+        cache: "no-store",
       }).catch(() => {
         /* sin red */
       });
