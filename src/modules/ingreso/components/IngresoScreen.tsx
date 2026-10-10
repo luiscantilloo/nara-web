@@ -23,7 +23,8 @@ type LoginUser = {
   nk: string | null;
 };
 
-type Mode = "login" | "verify" | "reset";
+// SPEC-01 mínima: «olvido» solo informa a quién pedir ayuda; «cambiar» crea la clave nueva tras una clave temporal.
+type Mode = "login" | "olvido" | "cambiar";
 
 const inputClass =
   "h-[52px] rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-base text-nara-tinta";
@@ -39,9 +40,7 @@ export function IngresoScreen() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [resetToken, setResetToken] = useState("");
+  const [pendingUser, setPendingUser] = useState<LoginUser | null>(null);
   const [newPass, setNewPass] = useState("");
   const [newPass2, setNewPass2] = useState("");
   const [err, setErr] = useState("");
@@ -59,9 +58,7 @@ export function IngresoScreen() {
 
   const goLogin = () => {
     setMode("login");
-    setFirstName("");
-    setLastName("");
-    setResetToken("");
+    setPendingUser(null);
     setNewPass("");
     setNewPass2("");
     setErr("");
@@ -83,6 +80,12 @@ export function IngresoScreen() {
         setErr(data.error || "No se pudo ingresar.");
         return;
       }
+      if ((data.user as { mustChangePassword?: boolean }).mustChangePassword) {
+        setPendingUser(data.user);
+        setPass("");
+        setMode("cambiar");
+        return;
+      }
       applySessionUser(data.user);
       await hydrateProgramData(store, { force: true });
       router.push(data.user.href || "/inicio");
@@ -93,67 +96,33 @@ export function IngresoScreen() {
     }
   };
 
-  const verifyIdentity = async () => {
-    setErr("");
-    setOkMsg("");
-    setLoading(true);
-    try {
-      const { res, data } = await apiJson<{
-        ok?: boolean;
-        error?: string;
-        resetToken?: string;
-        email?: string;
-      }>("/api/auth/verify-identity", {
-        method: "POST",
-        body: JSON.stringify({ email, firstName, lastName }),
-      });
-      if (!res.ok || !data.ok || !data.resetToken) {
-        setErr(data.error || "No pudimos verificar su identidad. Revise correo y nombre.");
-        return;
-      }
-      setResetToken(data.resetToken);
-      if (data.email) setEmail(data.email);
-      setMode("reset");
-    } catch {
-      setErr("No se pudo conectar. Intente de nuevo.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const changePassword = async () => {
     setErr("");
-    setOkMsg("");
-    if (newPass !== newPass2) {
-      setErr("Las contraseñas no coinciden.");
+    if (newPass.length < 8) {
+      setErr("La clave debe tener al menos 8 caracteres.");
       return;
     }
-    if (newPass.length < 8) {
-      setErr("La contraseña debe tener al menos 8 caracteres.");
+    if (newPass !== newPass2) {
+      setErr("Las dos claves no coinciden.");
       return;
     }
     setLoading(true);
     try {
-      const { res, data } = await apiJson<{ ok?: boolean; error?: string; message?: string }>(
-        "/api/auth/reset-password",
-        {
-          method: "POST",
-          body: JSON.stringify({ email, resetToken, password: newPass }),
-        },
-      );
+      const { res, data } = await apiJson<{ ok?: boolean; error?: string }>("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ newPassword: newPass }),
+      });
       if (!res.ok || !data.ok) {
-        setErr(data.error || "No se pudo cambiar la contraseña.");
-        if (res.status === 401) {
-          setMode("verify");
-          setResetToken("");
-          setNewPass("");
-          setNewPass2("");
-        }
+        setErr(data.error || "No se pudo guardar la clave.");
         return;
       }
-      setPass("");
-      setOkMsg(data.message || "Contraseña actualizada. Ya puede ingresar.");
+      const u = pendingUser;
       goLogin();
+      if (u) {
+        applySessionUser({ ...u, mustChangePassword: false } as LoginUser);
+        await hydrateProgramData(store, { force: true });
+        router.push(u.href || "/inicio");
+      }
     } catch {
       setErr("No se pudo conectar. Intente de nuevo.");
     } finally {
@@ -244,7 +213,7 @@ export function IngresoScreen() {
                 onClick={() => {
                   setErr("");
                   setOkMsg("");
-                  setMode("verify");
+                  setMode("olvido");
                 }}
                 className={linkBtnClass}
               >
@@ -253,122 +222,33 @@ export function IngresoScreen() {
             </>
           ) : null}
 
-          {mode === "verify" ? (
+          {mode === "olvido" ? (
             <>
               <p className="text-[15px] leading-relaxed text-texto-secundario">
-                Confirme su correo y el nombre registrado en su cuenta para continuar.
+                Pídale a su experto de campo o al administrador del programa que le restablezca la clave.
+                Le darán una clave temporal de 6 dígitos para entrar y crear una nueva.
               </p>
-              <label className={labelClass}>
-                Correo
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setErr("");
-                  }}
-                  autoComplete="username"
-                  placeholder="correo@nara.com"
-                  className={inputClass}
-                />
-              </label>
-              <label className={labelClass}>
-                Primer nombre
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => {
-                    setFirstName(e.target.value);
-                    setErr("");
-                  }}
-                  autoComplete="given-name"
-                  className={inputClass}
-                />
-              </label>
-              <label className={labelClass}>
-                Primer apellido
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => {
-                    setLastName(e.target.value);
-                    setErr("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !loading) void verifyIdentity();
-                  }}
-                  autoComplete="family-name"
-                  className={inputClass}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => void verifyIdentity()}
-                disabled={loading}
-                className={primaryBtnClass}
-              >
-                {loading ? "Verificando…" : "Continuar"}
-              </button>
               <button type="button" onClick={goLogin} className={linkBtnClass}>
                 Volver a ingresar
               </button>
             </>
           ) : null}
 
-          {mode === "reset" ? (
+          {mode === "cambiar" ? (
             <>
               <p className="text-[15px] leading-relaxed text-texto-secundario">
-                Identidad verificada. Defina su nueva contraseña.
+                Entró con una clave temporal. Cree su clave nueva para continuar.
               </p>
               <label className={labelClass}>
-                Nueva contraseña
-                <input
-                  type="password"
-                  value={newPass}
-                  onChange={(e) => {
-                    setNewPass(e.target.value);
-                    setErr("");
-                  }}
-                  autoComplete="new-password"
-                  className={inputClass}
-                />
+                Nueva clave
+                <input type="password" autoComplete="new-password" value={newPass} onChange={(e) => { setNewPass(e.target.value); setErr(""); }} className={inputClass} />
               </label>
               <label className={labelClass}>
-                Confirmar contraseña
-                <input
-                  type="password"
-                  value={newPass2}
-                  onChange={(e) => {
-                    setNewPass2(e.target.value);
-                    setErr("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !loading) void changePassword();
-                  }}
-                  autoComplete="new-password"
-                  className={inputClass}
-                />
+                Repita la nueva clave
+                <input type="password" autoComplete="new-password" value={newPass2} onChange={(e) => { setNewPass2(e.target.value); setErr(""); }} className={inputClass} />
               </label>
-              <button
-                type="button"
-                onClick={() => void changePassword()}
-                disabled={loading}
-                className={primaryBtnClass}
-              >
-                {loading ? "Guardando…" : "Cambiar contraseña"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("verify");
-                  setResetToken("");
-                  setNewPass("");
-                  setNewPass2("");
-                  setErr("");
-                }}
-                className={linkBtnClass}
-              >
-                Volver
+              <button type="button" onClick={changePassword} disabled={loading} className={primaryBtnClass}>
+                {loading ? "Guardando…" : "Guardar clave"}
               </button>
             </>
           ) : null}

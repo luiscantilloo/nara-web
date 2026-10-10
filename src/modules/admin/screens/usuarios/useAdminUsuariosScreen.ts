@@ -729,6 +729,30 @@ export function useAdminUsuariosScreen() {
       saveLabel: isEdit ? "Guardar cambios" : "Crear",
       isEdit,
       statusLabel: f && f.status === "Activo" ? "Desactivar usuario" : "Activar usuario",
+      // SPEC-01 FR-01.3: el admin genera una clave temporal de 6 dígitos (24 h) para otra cuenta.
+      canReset: !!(isEdit && f && f.id && (f as { roleId?: string }).roleId !== "admin" && f.role !== "Administrador" && f.role !== "Administradora"),
+      tempMsg: (st as { tempMsg?: string }).tempMsg || "",
+      clearTempMsg: () => setState({ tempMsg: "" } as never),
+      resetPassword: async () => {
+        if (!f || !f.id) return;
+        try {
+          const res = await fetch("/api/auth/assisted-reset", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accountId: f.id }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            setState({ err: data.error || "No se pudo restablecer la clave." });
+            return;
+          }
+          const vence = new Date(Number(data.expiresAt)).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "medium", timeStyle: "short" });
+          setState({ tempMsg: `Clave temporal: ${data.tempPassword} · vence ${vence}. Díctesela a la persona; no la envíe por WhatsApp.` } as never);
+        } catch {
+          setState({ err: "No se pudo conectar. Intente de nuevo." });
+        }
+      },
       toggleStatus: async () => {
         if (!f || !f.id) return;
         const nv = f.status === "Activo" ? "Inactivo" : "Activo";

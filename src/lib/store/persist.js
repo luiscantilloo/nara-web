@@ -172,6 +172,9 @@ export function schedulePersist(store) {
 
 export async function flushPersist(store) {
   if (paused || typeof window === "undefined") return;
+  // H-012: el observador es de solo lectura; no escribe el estado compartido (antes daba 403 en consola).
+  const roleId = typeof store.session === "function" ? store.session()?.roleId : null;
+  if (roleId === "observador") return;
   try {
     const slices = pickSlices(store.get());
     const res = await apiFetch("/api/app-state", {

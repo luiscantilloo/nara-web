@@ -955,7 +955,8 @@ const KEY = 'nara-memory-v1';
       ids.some((id) => aliases[id] && aliases[id] === roleId) ||
       ((ids.includes('paula') || ids.includes('admin')) && isAdminRole(role));
     if (!ok) {
-      if (typeof window !== 'undefined') location.replace('/ingreso');
+      // H-015 (T-05): con sesión válida pero otro rol, vuelve a su propio panel sin cerrar la sesión.
+      if (typeof window !== 'undefined') location.replace((u.href || '/ingreso') + (u.href ? '?acceso=denegado' : ''));
       return null;
     }
     return u;

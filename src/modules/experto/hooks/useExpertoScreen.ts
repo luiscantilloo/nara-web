@@ -341,8 +341,34 @@ const SCRIPT = [
     const items = JSON.parse(JSON.stringify(st.items));
     items[sec][i] = { v, st: stItem };
     setState({ items });
-    // La pregunta 9 se registra como cualquier otra; la crisis solo sale
-    // del botón «Estoy en crisis» en la app del paciente.
+    // SPEC-04 (RG-01, matriz v2): la pregunta 9 > 0 avisa de inmediato al clínico del territorio,
+    // sin esperar a cerrar el cuestionario. Mismo mecanismo que «Estoy en crisis» del paciente
+    // (id 'a-<pid>', que es el que muestra la pantalla de resultado). Si después se corrige a 0,
+    // la alerta no se borra: la cierra el clínico.
+    if (sec === 'phq' && i === 8 && Number(v) > 0 && st.pid) {
+      const p = person();
+      store.addAlert({
+        id: 'a-' + st.pid,
+        sev: 'crisis',
+        pid: st.pid,
+        name: p.name,
+        age: p.age,
+        place: (p.place || '').split(',')[0] || p.place,
+        profile: (p as { profile?: string }).profile || '',
+        what: 'Respondió ' + v + ' en la pregunta 9 del PHQ-9 durante la visita del experto de campo.',
+        term: 'PHQ-9 pregunta 9 > 0',
+        source: 'Experto de campo · cuestionario',
+        createdByRole: 'experto',
+        phone: (p as { phone?: string }).phone || '',
+      });
+      setState({ crisis: true });
+      void fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: st.pid, name: p.name || st.pid, status: 'Crisis', signal: 'Crisis', crisisLock: true }),
+      }).catch(() => {});
+    }
   }
   function applyDrafts(list: [string, number, number][]) {
     const items = JSON.parse(JSON.stringify(st.items));

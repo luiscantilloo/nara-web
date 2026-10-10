@@ -149,7 +149,10 @@ async function hydratePeopleFlagsWorklists(store: Store) {
       apiFetch("/api/flags"),
       apiFetch("/api/worklists"),
       apiFetch("/api/patients"),
-      apiFetch("/api/assets"),
+      // H-013: /api/assets es solo del admin; los demás roles no lo piden (antes daba 403 en consola).
+      (store.session() as { roleId?: string | null } | null)?.roleId === "admin"
+        ? apiFetch("/api/assets")
+        : Promise.resolve(new Response(JSON.stringify({ ok: true, assets: [] }), { status: 200 })),
     ]);
     const peopleData = (await peopleRes.json()) as { ok?: boolean; people?: Record<string, unknown>[] };
     const flagsData = (await flagsRes.json()) as { ok?: boolean; flags?: Record<string, unknown>[] };
