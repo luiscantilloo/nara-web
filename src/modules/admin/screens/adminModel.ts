@@ -553,7 +553,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
     const rosterCount =
       list.length + ' de ' + full.length + ' personas' + (list.length > 300 ? ' · se muestran 300' : '');
     return {
-      q: st.q || '', setQ: e => api.setState({ q: e.target.value }), roster, noRoster: roster.length === 0,
+      q: st.q || '', setQ: (value) => api.setState({ q: typeof value === 'string' ? value : value?.target?.value }), roster, noRoster: roster.length === 0,
       rosterCount,
       pFilters, exportRoster, hasPF: Object.values(pf).some(Boolean) || !!q, clearPF: () => api.setState({ pf: {}, q: '' }),
       pk: [
@@ -793,7 +793,7 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
           /por\s*aprobar|activo|crisis|rechazad|terminado/i.test(String(p.status || '')),
       ).length.toLocaleString('es-CO'),
       terrs,
-      terrQ: st.terrQ || '', setTerrQ: (e) => api.setState({ terrQ: e.target.value }),
+      terrQ: st.terrQ || '', setTerrQ: (value) => api.setState({ terrQ: typeof value === 'string' ? value : value?.target?.value }),
       terrCountLabel,
       terrForm: st.terrForm, terrFormBtn: '+ Crear territorio', toggleTerrForm: () => api.setState({ terrForm: true }), closeTerrForm: () => api.setState({ terrForm: false }),
       tf, tfSet: { dep: setTf('dep'), mun: setTf('mun'), goal: setTf('goal'), rural: setTf('rural'), sixty: setTf('sixty') }, tfErr: st.tfErr, clearTfErr: () => api.setState({ tfErr: '' }),

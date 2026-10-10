@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { needsClosingEval } from "@/lib/clinical/patientStates";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
@@ -76,6 +77,7 @@ export function useExpertoScreen() {
   const session = useRequireSession(["experto"]);
   const router = useRouter();
   const pathname = usePathname();
+  const { start: startRouteLoading } = useRouteLoading();
   const ex = session?.id || "andres";
   const expertName = session?.name || "Experto de campo";
   const terrName = session?.terr && session.terr !== "—" ? session.terr : "Salento";
@@ -139,6 +141,7 @@ export function useExpertoScreen() {
   const pendingPathRef = useRef<string | null>(null);
 
   const setState = useCallback((u: Record<string, unknown> | ((s: typeof st) => Record<string, unknown>)) => {
+    let navAway = false;
     setStateRaw((prev) => {
       const patch = typeof u === "function" ? u(prev) : u;
       const next = { ...prev, ...patch };
@@ -154,11 +157,16 @@ export function useExpertoScreen() {
           pid: next.pid,
           newForm: next.newForm,
         });
-        if (path !== pathname) pendingPathRef.current = path;
+        if (path !== pathname) {
+          pendingPathRef.current = path;
+          navAway = true;
+        }
       }
       return next;
     });
-  }, [pathname]);
+    // Loading en el mismo turno (flushSync) para no ver la pantalla nueva sin overlay.
+    if (navAway) startRouteLoading();
+  }, [pathname, startRouteLoading]);
 
   useEffect(() => {
     const path = pendingPathRef.current;

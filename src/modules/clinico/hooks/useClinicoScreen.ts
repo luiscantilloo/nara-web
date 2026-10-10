@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
@@ -39,6 +40,7 @@ export function useClinicoScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { start: startRouteLoading } = useRouteLoading();
   const initialFromPath = clinicoViewForPath(pathname || "/clinico");
   const [st, setStateRaw] = useState({
     view: initialFromPath.view || "home",
@@ -75,17 +77,20 @@ export function useClinicoScreen() {
   const navigateView = useCallback(
     (view, extra = {}) => {
       const next = { ...stRef.current, ...extra, view };
-      stRef.current = next;
-      setStateRaw(next);
       const path = clinicoPathForView(
         view,
         view === "file" ? next.pid : null,
       );
-      // No llamar al Router aquí: puede ejecutarse durante el render.
-      if (path !== pathname) pendingPathRef.current = path;
+      // Loading primero; luego cambia la vista (no al revés).
+      if (path !== pathname) {
+        startRouteLoading();
+        pendingPathRef.current = path;
+      }
+      stRef.current = next;
+      setStateRaw(next);
       window.scrollTo(0, 0);
     },
-    [pathname],
+    [pathname, startRouteLoading],
   );
 
   // Empuja la URL fuera del render (evita update de Router mid-render).

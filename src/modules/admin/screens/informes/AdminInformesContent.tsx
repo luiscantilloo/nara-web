@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FormModal } from "@/components/shared/form-modal/FormModal";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
+import { TableSearch } from "@/components/shared/table-search/TableSearch";
 import { ix } from "../inlineStyle";
 
 export function AdminInformesContent({ v }: { v: Record<string, any> }) {
@@ -117,11 +118,11 @@ export function AdminInformesContent({ v }: { v: Record<string, any> }) {
                 ))}
               </select>
             </label>
-            <input
-              value={v.fq}
+            <TableSearch
+              value={String(v.fq ?? "")}
               onChange={v.setFq}
-              placeholder="Buscar por nombre"
-              className="box-border h-10 w-full min-w-0 rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-sm text-nara-tinta sm:col-span-2 lg:col-span-1"
+              placeholder="Buscar por cualquier campo…"
+              className="sm:col-span-2 lg:col-span-1 sm:max-w-none"
             />
             <span className="self-center text-sm text-texto-secundario sm:col-span-2 lg:col-span-1 lg:justify-self-end lg:pb-2">
               {v.libCount}

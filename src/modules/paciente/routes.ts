@@ -1,6 +1,9 @@
 /** Tabs de la app paciente como rutas. */
 export const PACIENTE_TAB_ROUTES = {
+  /** Inicio (hub con las 6 herramientas). */
   home: "/paciente",
+  /** Estado de ánimo (herramienta mood). */
+  mood: "/paciente/animo",
   chat: "/paciente/chat",
   route: "/paciente/ruta",
   hist: "/paciente/historial",
@@ -17,6 +20,7 @@ export type PacienteTab = keyof typeof PACIENTE_TAB_ROUTES;
 
 export const PACIENTE_PATH_TO_TAB: Record<string, PacienteTab> = {
   "/paciente": "home",
+  "/paciente/animo": "mood",
   "/paciente/chat": "chat",
   "/paciente/ruta": "route",
   "/paciente/historial": "hist",

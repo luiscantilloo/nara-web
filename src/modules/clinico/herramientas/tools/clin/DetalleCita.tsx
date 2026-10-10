@@ -25,7 +25,7 @@ export function EscalaMini({ nombre, valor, activa, onElegir }: { nombre: string
 
 function Vacio({ img, titulo, texto, extra }: { img: string; titulo: string; texto: string; extra?: string }) {
   return (
-    <section className={`flex flex-col items-center justify-center gap-2 rounded-[20px] border px-6 py-8 text-center ${extra || "border-linea bg-nara-blanco"}`} aria-label="Detalle">
+    <section className={`flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] border px-6 py-8 text-center ${extra || "border-linea bg-nara-blanco"}`} aria-label="Detalle">
       <img src={naraAsset(img)} alt="" className="h-14 w-auto" />
       <h2 className="m-0 font-titulos text-[18px] font-semibold first-letter:uppercase">{titulo}</h2>
       <p className="m-0 max-w-[32ch] text-sm text-texto-secundario">{texto}</p>
@@ -40,7 +40,7 @@ export function DetalleCita({ vm }: { vm: AgendaVM }) {
     const finde = [0, 6].includes(fecha(selDia).getDay());
     const sig = fijas.find((x) => x.fecha > selDia);
     return (
-      <section className="flex flex-col items-center justify-center gap-2 rounded-[20px] border border-linea bg-nara-blanco px-6 py-8 text-center" aria-label="Detalle">
+      <section className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] border border-linea bg-nara-blanco px-6 py-8 text-center" aria-label="Detalle">
         <img src={naraAsset("marca/logo/nara-isotipo.svg")} alt="" className="h-14 w-auto" />
         <h2 className="m-0 font-titulos text-[18px] font-semibold first-letter:uppercase">{larga(selDia)}</h2>
         <p className="m-0 max-w-[32ch] text-sm text-texto-secundario">
@@ -78,11 +78,16 @@ export function DetalleCita({ vm }: { vm: AgendaVM }) {
   );
 
   return (
-    <section className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Detalle de la cita">
+    <section className="flex h-full min-h-0 flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Detalle de la cita">
       <div className="flex items-center gap-2 text-[12px]">
+        <img
+          src={naraAsset("marca/personajes/nara-curiosidad.svg")}
+          alt=""
+          className="h-7 w-auto shrink-0"
+        />
         <span className={`rounded-full px-2 py-0.5 font-semibold ${c.hecha ? "bg-exito-suave" : porCerrar(c) ? "border border-dashed border-texto-secundario" : c === prox ? "bg-nara-amarillo" : "bg-superficie-2"}`}>{estado}</span>
         <span className="clin-tnum text-texto-secundario">
-          Cita {n} de {fijas.length} en su agenda
+          Cita {n} de {fijas.length}
         </span>
         <span className="ml-auto flex gap-1">
           {flecha(ant, "izq", "Cita anterior en la agenda")}
@@ -146,7 +151,7 @@ export function DetalleCita({ vm }: { vm: AgendaVM }) {
       </div>
       <p className="m-0 text-[12px] leading-4 text-texto-secundario">{pista}</p>
       {c.hecha ? (
-        <div className="flex h-10 items-center gap-2 rounded-[12px] bg-exito-suave px-3">
+        <div className="mt-auto flex h-10 items-center gap-2 rounded-[12px] bg-exito-suave px-3">
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-estado-al-dia text-nara-blanco">
             <Ico n="check" className="h-3.5 w-3.5" />
           </span>
@@ -158,7 +163,7 @@ export function DetalleCita({ vm }: { vm: AgendaVM }) {
         </div>
       ) : (
         <button type="button" disabled={!sePuede || guardando} onClick={() => vm.cambiar(c.id, { accion: "realizada" })}
-          className={`flex h-10 w-full items-center justify-center gap-2 rounded-[12px] text-[14px] font-medium ${sePuede ? "cursor-pointer bg-nara-tinta text-nara-blanco hover:bg-nara-tinta/90" : "cursor-not-allowed border-[1.5px] border-linea bg-nara-blanco text-nara-tinta/45"}`}>
+          className={`mt-auto flex h-10 w-full items-center justify-center gap-2 rounded-[12px] text-[14px] font-medium ${sePuede ? "cursor-pointer bg-nara-tinta text-nara-blanco hover:bg-nara-tinta/90" : "cursor-not-allowed border-[1.5px] border-linea bg-nara-blanco text-nara-tinta/45"}`}>
           <Ico n="check" className="h-4 w-4" />
           Marcar cita como realizada
         </button>

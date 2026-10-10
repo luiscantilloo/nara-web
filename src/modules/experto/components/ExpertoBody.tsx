@@ -1,9 +1,14 @@
 "use client";
 // @ts-nocheck
 
+import { useMemo, useState } from "react";
 import { FormModal } from "@/components/shared/form-modal/FormModal";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PhoneInput } from "@/components/shared/phone-input/PhoneInput";
+import {
+  TableSearch,
+  filterRowsBySearch,
+} from "@/components/shared/table-search/TableSearch";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 
 export function ExpertoTopbar({ v }: { v: Record<string, any> }) {
@@ -58,6 +63,11 @@ export function ExpertoTopbar({ v }: { v: Record<string, any> }) {
 
 export function ExpertoBody({ v }: { v: Record<string, any> }) {
   const er = v.er || {};
+  const [worklistQ, setWorklistQ] = useState("");
+  const worklistRows = useMemo(
+    () => filterRowsBySearch(v.worklist || [], worklistQ),
+    [v.worklist, worklistQ],
+  );
 
   return (
     <>
@@ -294,6 +304,12 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                       </div>
                     ))}
                   </div>
+                  <TableSearch
+                    value={worklistQ}
+                    onChange={setWorklistQ}
+                    placeholder="Buscar visita, persona, lugar, perfil…"
+                    className="sm:max-w-md"
+                  />
                   <div
                     style={{
                       background: "#fff",
@@ -304,7 +320,7 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                   >
                     <div className="nara-scroll-x">
                       <div style={{ minWidth: 940 }}>
-                    {(v.worklist || []).map((w: Record<string, any>, i: number) => (
+                    {worklistRows.map((w: Record<string, any>, i: number) => (
                       <div
                         key={w.id ?? i}
                         style={{
@@ -394,6 +410,22 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                         </div>
                       </div>
                     ))}
+                    {!worklistRows.length ? (
+                      <p
+                        style={{
+                          margin: 0,
+                          padding: "28px 20px",
+                          textAlign: "center",
+                          fontSize: 15,
+                          color: "#5E5750",
+                          borderTop: "1px solid #E6E1D9",
+                        }}
+                      >
+                        {worklistQ.trim()
+                          ? "Ninguna visita coincide con la búsqueda."
+                          : "No hay visitas en la lista de hoy."}
+                      </p>
+                    ) : null}
                       </div>
                     </div>
                   </div>

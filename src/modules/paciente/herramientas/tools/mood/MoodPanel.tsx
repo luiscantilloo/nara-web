@@ -1,16 +1,105 @@
+"use client";
+
 /**
- * Estado de ánimo (app paciente).
- * Desarrollar solo en `tools/mood/`.
- * Por ahora el check-in sigue en Inicio; este panel es el hueco dedicado.
+ * Estado de ánimo (app paciente) — UI.
+ * Tras enviar, no pide otro hasta el próximo periodo (mañana/tarde, semana o mes).
  */
+import {
+  MOOD_LABELS,
+  MOOD_TINTS,
+  clearMoodHistoryFor,
+  moodWindowStatusFor,
+  saveMoodCheckin,
+} from "@/lib/nara-services/mood.js";
+import { useNaraStore } from "@/providers/nara-provider";
+import { useEffect, useState } from "react";
+
+const RESET_FLAG = "nara.mood.devReset.v2";
+
 export function MoodPanel({ patientId }: { patientId: string }) {
-  void patientId;
+  const store = useNaraStore();
+  const [ready, setReady] = useState(false);
+
+  // Una sola vez: vaciar historial para poder re-probar el flujo.
+  useEffect(() => {
+    try {
+      if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem(RESET_FLAG)) {
+        clearMoodHistoryFor(store, patientId);
+        sessionStorage.setItem(RESET_FLAG, "1");
+      }
+    } catch {
+      clearMoodHistoryFor(store, patientId);
+    }
+    setReady(true);
+  }, [store, patientId]);
+
+  const status = moodWindowStatusFor(store, patientId);
+  const freqInfo = status.freqInfo;
+  const showPicker = ready && status.needs;
+
+  const onPick = (i: number) => {
+    if (!status.needs) return;
+    saveMoodCheckin(store, patientId, i, {});
+    void import("@/lib/store/hydrateProgram").then((m) => {
+      if (typeof m.pauseLiveHydrate === "function") m.pauseLiveHydrate(8_000);
+    });
+  };
+
   return (
-    <div className="flex flex-1 flex-col gap-3 px-4 py-6 font-texto text-nara-tinta">
-      <h2 className="m-0 font-titulos text-xl font-semibold">Estado de ánimo</h2>
-      <p className="m-0 text-[15px] text-texto-secundario">
-        Esqueleto: aquí se mostrará el historial / check-in de ánimo del paciente.
-      </p>
+    <div className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4 font-texto text-nara-tinta">
+      <div className="flex flex-col gap-0.5">
+        <span className="font-titulos text-[17px] font-semibold">
+          ¿Cómo se siente hoy?
+        </span>
+        <span className="text-[13px] text-texto-secundario">
+          {showPicker
+            ? `Toque un número · 1 muy mal · 5 muy bien · ${freqInfo.label}`
+            : status.nextHint || `Frecuencia: ${freqInfo.label}`}
+        </span>
+      </div>
+
+      {showPicker ? (
+        <div className="grid grid-cols-5 gap-1.5">
+          {MOOD_LABELS.map((label, i) => {
+            const tint = MOOD_TINTS[i];
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onPick(i)}
+                aria-label={`${i + 1}: ${label}`}
+                className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-0.5 py-2.5 transition-transform active:scale-95"
+                style={{
+                  borderColor: tint.bd,
+                  background: tint.bg,
+                  color: "#161413",
+                }}
+              >
+                <span className="text-xl font-semibold leading-none">{i + 1}</span>
+                <span className="text-[11px] leading-tight">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : status.last ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-linea bg-superficie-2 px-3 py-2.5">
+            <span className="font-titulos text-[15px] font-semibold">
+              Registrado: {status.last.label}
+            </span>
+            <span className="text-[13px] text-texto-secundario">
+              ({status.last.value}/5) · {status.last.when}
+            </span>
+          </div>
+          <span className="text-center text-[12px] text-texto-secundario">
+            {status.nextHint}
+          </span>
+        </div>
+      ) : (
+        <span className="text-[13px] text-texto-secundario">
+          {ready ? "Listo para su primer registro." : "Cargando…"}
+        </span>
+      )}
     </div>
   );
 }

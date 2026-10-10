@@ -1,12 +1,17 @@
 import { ToolCardShell } from "../../ToolCardShell";
+import { logoForHerramienta } from "../../toolLogos";
 import type { HerramientaCardProps } from "../../types";
 
-/** Revisita del experto — trabajar solo en `tools/revisit/`. */
+/** Revisita del experto — deshabilitada por ahora. */
 export function RevisitToolCard({ item, patientId }: HerramientaCardProps) {
   void patientId;
   return (
-    <ToolCardShell>
-      <span className="text-[15px] font-medium text-nara-tinta">{item.name}</span>
+    <ToolCardShell
+      logoSrc={logoForHerramienta("revisit")}
+      title={item.name}
+      disabled
+    >
+      <span>Próximamente</span>
     </ToolCardShell>
   );
 }

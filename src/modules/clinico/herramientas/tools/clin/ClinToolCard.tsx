@@ -1,11 +1,11 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { ToolCardShell } from "../../ToolCardShell";
+import { logoForHerramienta } from "../../toolLogos";
 import type { HerramientaCardProps } from "../../types";
 import { listarAgenda } from "./acciones";
 import { AgendaModal } from "./AgendaModal";
 import { hora12, larga } from "./fechas";
-import { Ico } from "./iconos";
 import type { Cita } from "./tipos";
 
 /** Psicólogo clínico — trabajar solo en `tools/clin/`. Botón que abre la agenda de citas. */
@@ -27,13 +27,18 @@ export function ClinToolCard({ item, patientId }: HerramientaCardProps) {
 
   return (
     <>
-      <ToolCardShell onClick={() => setAbierta(true)}>
-        <Ico n="calendario" className="h-7 w-7 text-nara-tinta" />
-        <span className="text-[15px] font-medium text-nara-tinta">{item.name}</span>
-        <span className="text-[13px] text-texto-secundario first-letter:uppercase">
-          {prox === undefined ? "Cargando…" : prox ? `Próxima cita: ${larga(prox.fecha)}, ${hora12(prox.hora)}` : "Sin cita agendada"}
+      <ToolCardShell
+        onClick={() => setAbierta(true)}
+        logoSrc={logoForHerramienta("clin")}
+        title={item.name}
+      >
+        <span className="first-letter:uppercase">
+          {prox === undefined
+            ? "Cargando…"
+            : prox
+              ? `${larga(prox.fecha)} · ${hora12(prox.hora)}`
+              : "Sin cita"}
         </span>
-        <span className="mt-1 text-[13px] font-medium underline underline-offset-4">Abrir agenda de citas</span>
       </ToolCardShell>
       {abierta ? (
         <AgendaModal

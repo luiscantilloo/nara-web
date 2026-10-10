@@ -5,6 +5,7 @@ import { FormModal } from "@/components/shared/form-modal/FormModal";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
 import { PhoneInput } from "@/components/shared/phone-input/PhoneInput";
+import { TableSearch } from "@/components/shared/table-search/TableSearch";
 import { ix } from "../inlineStyle";
 
 function UsuariosPager({ v }: { v: Record<string, any> }) {
@@ -80,11 +81,10 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
             </button>
           ))}
         </div>
-        <input
-          value={v.q}
+        <TableSearch
+          value={String(v.q ?? "")}
           onChange={v.setQ}
-          placeholder="Buscar por nombre u organización"
-          className="box-border h-10 w-full min-w-0 rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-sm text-nara-tinta sm:max-w-sm"
+          placeholder="Buscar por cualquier campo…"
         />
       </div>
 

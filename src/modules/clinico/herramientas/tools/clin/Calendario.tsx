@@ -101,11 +101,18 @@ export function Calendario({ vm }: { vm: AgendaVM }) {
   );
 
   return (
-    <section className="flex flex-col rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Calendario">
+    <section className="flex h-full min-h-0 flex-col rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Calendario">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="m-0 font-titulos text-[18px] font-semibold first-letter:uppercase">
-          {MESES[m - 1]} {y}
-        </h2>
+        <div className="flex min-w-0 items-center gap-2">
+          <img
+            src={naraAsset("marca/personajes/nara-calma.svg")}
+            alt=""
+            className="h-8 w-auto shrink-0"
+          />
+          <h2 className="m-0 font-titulos text-[18px] font-semibold first-letter:uppercase">
+            {MESES[m - 1]} {y}
+          </h2>
+        </div>
         <div className="flex gap-0.5">
           <button type="button" onClick={() => moverMes(-1)} className="grid h-8 w-8 cursor-pointer place-items-center rounded-full hover:bg-nara-crema pointer-coarse:h-11 pointer-coarse:w-11" aria-label="Mes anterior">
             <Ico n="izq" className="h-4 w-4" />
@@ -162,7 +169,7 @@ export function Calendario({ vm }: { vm: AgendaVM }) {
           Festivo
         </span>
       </div>
-      <div className="mt-auto flex gap-2 pt-4">
+      <div className="mt-auto flex gap-2 pt-3">
         <button type="button" onClick={vm.organizar} disabled={!!pensando || conBorrador} aria-busy={pensando ? true : undefined}
           className={`flex h-10 flex-1 cursor-pointer items-center justify-center gap-2 rounded-[12px] bg-nara-amarillo text-[14px] font-medium text-nara-tinta hover:brightness-[.97] disabled:cursor-wait ${conBorrador ? "disabled:cursor-default disabled:opacity-60" : ""}`}>
           {pensando ? (
@@ -174,7 +181,7 @@ export function Calendario({ vm }: { vm: AgendaVM }) {
             </>
           ) : (
             <>
-              <img src={naraAsset("marca/logo/nara-isotipo.svg")} alt="" className="h-5 w-auto" />
+              <img src={naraAsset("marca/personajes/teo-curiosidad.svg")} alt="" className="h-6 w-auto" />
               {conBorrador ? "Revise la propuesta" : vm.citas.length ? "Reorganizar con IA" : "Organizar con IA"}
             </>
           )}

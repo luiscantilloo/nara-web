@@ -6,7 +6,10 @@ import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingS
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import {
   ClinPanel,
+  IaPanel,
+  MoodPanel,
   PacienteHerramientasNav,
+  PacienteHomeTools,
   RevisitPanel,
   TechPanel,
 } from "@/modules/paciente/herramientas";
@@ -242,9 +245,18 @@ function DianaApp({ vm }: { vm: Vm }) {
           borderBottom: "1px solid #E6E1D9",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 7, color: "#161413" }}>
-          <img src={naraAsset("marca/logo/nara-logo.svg")} alt="NARA" style={{ height: 34, width: "auto", display: "block" }} />
-        </div>
+        <button
+          type="button"
+          onClick={() => (vm.goHome as (() => void) | undefined)?.()}
+          aria-label="Ir al inicio"
+          className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-nara-tinta"
+        >
+          <img
+            src={naraAsset("marca/logo/nara-logo.svg")}
+            alt="NARA"
+            style={{ height: 34, width: "auto", display: "block" }}
+          />
+        </button>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {!vm.helpOpen && !vm.crisisAlertSent && !vm.inactiveOpen ? (
             <button
@@ -284,310 +296,40 @@ function DianaApp({ vm }: { vm: Vm }) {
 
       <div ref={vm.bodyRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", fontSize: 17 }}>
         {vm.tabHome ? (
-          <div style={{ animation: "naraTab .22s ease-out", padding: "6px 18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <img src={naraAsset("marca/logo/nara-isotipo.svg")} alt="" style={{ flex: "none", width: 48, height: 48, display: "block" }} />
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span style={{ fontFamily: "Fredoka, Figtree, system-ui, sans-serif", fontWeight: 600, fontSize: 28, lineHeight: 1.15 }}>
+          <div className="flex flex-col gap-3.5 px-[18px] pb-[22px] pt-1.5 font-texto [animation:naraTab_.22s_ease-out]">
+            <div className="flex items-center gap-3">
+              <img
+                src={naraAsset("marca/logo/nara-isotipo.svg")}
+                alt=""
+                className="h-12 w-12 shrink-0"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-titulos text-[28px] font-semibold leading-tight text-nara-tinta">
                   {vm.greet}, {vm.firstName || "Paciente"}
                 </span>
-                <span style={{ color: "#5E5750" }}>Martes 29 de septiembre</span>
+                <span className="text-texto-secundario">Inicio</span>
               </div>
             </div>
-            {!vm.hasAnyModule ? (
-              <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 18, display: "flex", flexDirection: "column", gap: 8 }}>
-                <span style={{ fontWeight: 600 }}>Sin módulos activos</span>
-                <span style={{ color: "#5E5750", lineHeight: 1.45 }}>
-                  Su ruta aún no tiene servicios en la app. Cuando el equipo active alguno, aparecerá aquí.
-                </span>
-              </div>
-            ) : null}
-            {vm.mods?.mood ? (
-            <div className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-titulos text-[17px] font-semibold text-nara-tinta">
-                    ¿Cómo se siente hoy?
-                  </span>
-                  <span className="font-texto text-[13px] text-texto-secundario">
-                    {vm.moodDone
-                      ? "TEO le acompaña en este check-in"
-                      : "Toque un número para empezar"}
-                  </span>
-                </div>
-                <img
-                  src={vm.moodDone ? vm.moodFace : naraAsset("marca/logo/teo-isotipo.svg")}
-                  alt=""
-                  className={`h-10 w-10 shrink-0 ${vm.moodDone ? "" : "opacity-80"}`}
-                  style={vm.moodDone ? { animation: "naraMoodIn .35s ease-out" } : undefined}
-                />
-              </div>
-              {!vm.moodDone || vm.moodStep === "why" ? (
-              <div className="grid grid-cols-5 gap-1.5">
-                {vm.moods.map((m) => (
-                  <button
-                    key={m.n}
-                    type="button"
-                    onClick={m.pick}
-                    aria-pressed={m.on}
-                    disabled={vm.moodDone && vm.moodStep !== "why"}
-                    className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-2.5 font-texto transition-transform active:scale-95 disabled:opacity-70"
-                    style={{
-                      ...btnFont(),
-                      border: `1.5px solid ${m.bd}`,
-                      background: m.bg,
-                      color: m.fg,
-                      transform: `scale(${m.scale})`,
-                      animation: m.on ? "naraMoodPop .4s ease-out" : undefined,
-                      boxShadow: m.on ? "0 2px 0 rgba(22,20,19,.08)" : "none",
-                    }}
-                  >
-                    <span className="text-xl font-semibold leading-none">{m.n}</span>
-                    <span className="text-[11px] leading-tight">{m.label}</span>
-                  </button>
-                ))}
-              </div>
-              ) : vm.moodDone ? (
-                <div className="flex items-center gap-2 rounded-xl border border-linea bg-superficie-2 px-3 py-2">
-                  <span className="font-titulos text-[15px] font-semibold text-nara-tinta">
-                    Hoy: {vm.moods.find((m) => m.on)?.label}
-                  </span>
-                  {vm.moodLow ? (
-                    <span className="rounded-full bg-crisis-suave px-2 py-0.5 font-texto text-[12px] text-crisis-texto">
-                      Con cuidado
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {vm.moodDone ? (
-                <div
-                  className="flex flex-col gap-3 rounded-2xl bg-superficie-2 px-3 py-3"
-                  style={{ animation: "naraMoodIn .35s ease-out" }}
-                >
-                  <div className="flex max-h-56 flex-col gap-2.5 overflow-y-auto">
-                    {vm.moodThread.map((b, i) =>
-                      b.me ? (
-                        <div key={i} className="flex justify-end">
-                          <span className="max-w-[90%] rounded-2xl rounded-br-md bg-nara-amarillo px-3 py-2 font-texto text-[14px] leading-snug text-nara-tinta">
-                            {b.text}
-                          </span>
-                        </div>
-                      ) : (
-                        <div key={i} className="flex items-start gap-2">
-                          <img src={vm.moodFace} alt="" className="mt-0.5 h-7 w-7 shrink-0" />
-                          <span className="max-w-[90%] rounded-2xl rounded-bl-md border border-linea bg-nara-blanco px-3 py-2 font-texto text-[14px] leading-snug text-nara-tinta">
-                            {b.text}
-                          </span>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                  {vm.moodBreathing ? (
-                    <div className="rounded-2xl border border-linea bg-nara-blanco py-3">
-                      <BreathExercise onDone={vm.onMoodBreathDone} />
-                    </div>
-                  ) : null}
-                  {vm.moodActions?.length ? (
-                    <div className="flex flex-col gap-2">
-                      {vm.moodActions.map((a) => (
-                        <button
-                          key={a.label}
-                          type="button"
-                          onClick={a.go}
-                          className={
-                            a.danger
-                              ? "rounded-full bg-crisis px-4 py-2.5 text-center font-texto text-[15px] font-semibold text-nara-blanco"
-                              : a.primary
-                                ? "rounded-full bg-nara-amarillo px-4 py-2.5 text-center font-texto text-[15px] font-semibold text-nara-tinta"
-                                : "rounded-full border border-linea bg-nara-blanco px-4 py-2.5 text-center font-texto text-[15px] text-nara-tinta"
-                          }
-                          style={btnFont()}
-                        >
-                          {a.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={vm.moodChange}
-                    className="pt-0.5 text-center font-texto text-[13px] text-texto-secundario underline-offset-2 hover:underline"
-                    style={btnFont()}
-                  >
-                    Empezar de nuevo
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            ) : null}
-            {vm.callCard ? (
-            <div style={{ background: "#FFC0E0", borderRadius: 20, padding: 16, display: "flex", gap: 14, alignItems: "center" }}>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ color: "#161413", fontSize: 15, fontWeight: 600 }}>{vm.callCard.title}</span>
-                <span style={{ fontWeight: 500 }}>{vm.callCard.when}</span>
-                <span>{vm.callCard.clin} · {vm.callCard.phone}</span>
-                <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.callCard.body}</span>
-              </div>
-              <img src={naraAsset("marca/personajes/nara-energia.svg")} alt="" style={{ flex: "none", width: 48, height: "auto", display: "block" }} />
-            </div>
-            ) : null}
-            {vm.waCard ? (
-            <div style={{ background: "#D8FBE3", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontWeight: 600, color: "#161413" }}>{vm.waCard.title}</span>
-              <span style={{ lineHeight: 1.45 }}>{vm.waCard.body}</span>
-              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.waCard.tip}</span>
-            </div>
-            ) : null}
-            {vm.mods?.videos ? (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={vm.openVideosLib}
-              onKeyDown={(e) => e.key === "Enter" && vm.openVideosLib()}
-              style={{
-                transition: "transform .12s",
-                background: "#FFE189",
-                borderRadius: 20,
-                padding: 16,
-                display: "flex",
-                gap: 14,
-                alignItems: "center",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Videos psicoeducativos</span>
-                <span>Biblioteca de videos · sueño, miedo, calma</span>
-                <span style={{ fontWeight: 600, textDecoration: "underline" }}>Abrir biblioteca →</span>
-              </div>
-              <img src={naraAsset("marca/personajes/nara-curiosidad.svg")} alt="" style={{ flex: "none", width: 48, height: "auto", display: "block" }} />
-            </div>
-            ) : null}
-            {vm.revisitCard ? (
-            <div style={{ background: "#F0ECE6", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>{vm.revisitCard.title}</span>
-              <span style={{ fontWeight: 500 }}>{vm.revisitCard.expert} · {vm.revisitCard.freq}</span>
-              <span style={{ lineHeight: 1.45 }}>{vm.revisitCard.body}</span>
-              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.revisitCard.tip}</span>
-            </div>
-            ) : null}
-            {vm.groupCard ? (
-            <div style={{ background: "#E8F0E4", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>{vm.groupCard.title}</span>
-              <span style={{ fontWeight: 500 }}>{vm.groupCard.freq} · {vm.groupCard.channel}</span>
-              <span style={{ lineHeight: 1.45 }}>{vm.groupCard.body}</span>
-              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.groupCard.tip}</span>
-            </div>
-            ) : null}
-            {vm.socialCard ? (
-            <div style={{ background: "#FFF4CC", border: "1px solid #DCD6CD", borderRadius: 20, padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>{vm.socialCard.title}</span>
-              <span style={{ fontWeight: 500 }}>{vm.socialCard.status}</span>
-              <span style={{ lineHeight: 1.45 }}>{vm.socialCard.body}</span>
-              <span style={{ fontSize: 14, color: "#5E5750" }}>{vm.socialCard.tip}</span>
-            </div>
-            ) : null}
-            {vm.showCourse && vm.dc ? (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={vm.openCursos}
-                style={{
-                  transition: "transform .12s",
-                  background: "#A9D4FF",
-                  borderRadius: 20,
-                  padding: 16,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <img src={vm.dc.cover} alt="" style={{ flex: "none", width: 48, height: 62, objectFit: "cover", borderRadius: 8, boxShadow: "0 2px 6px rgba(22,20,19,.25)", display: "block" }} />
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>Cursos y cuentos</span>
-                    <span style={{ fontWeight: 500, lineHeight: 1.3 }}>
-                      {vm.dc.title} · semana {vm.dc.week} de {vm.dc.weeks}
-                    </span>
-                  </div>
-                </div>
-                <div style={{ height: 10, borderRadius: 5, background: "rgba(255,255,255,.7)" }}>
-                  <div style={{ width: vm.dc.pctW, height: "100%", borderRadius: 5, background: "#161413" }} />
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 14 }}>{vm.dc.doneLabel}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const mod = vm.dc?.mods[(vm.dc.week || 1) - 1];
-                      if (mod?.slug) vm.openReader(mod.slug);
-                    }}
-                    style={{
-                      ...btnFont(),
-                      fontSize: 16,
-                      fontWeight: 600,
-                      minHeight: 48,
-                      padding: "0 18px",
-                      borderRadius: 14,
-                      border: "none",
-                      background: "#FDCD22",
-                      color: "#161413",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Seguir
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {vm.mods?.cursos && !vm.dc ? (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={vm.openCursos}
-              style={{
-                background: "#A9D4FF",
-                borderRadius: 20,
-                padding: 16,
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                cursor: "pointer",
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>Cursos y cuentos</span>
-              <span>Tiene acceso a la biblioteca de cuentos de su ruta.</span>
-              <span style={{ fontWeight: 600, textDecoration: "underline" }}>Abrir cuentos →</span>
-            </div>
-            ) : null}
-            {vm.showTech ? (
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={vm.startTechnique}
-              style={{
-                transition: "transform .12s",
-                background: "#A9D4FF",
-                color: "#161413",
-                borderRadius: 20,
-                padding: 16,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-                cursor: "pointer",
-              }}
-            >
-              <img src={naraAsset("marca/personajes/nara-calma.svg")} alt="" style={{ flex: "none", width: 44, height: "auto", display: "block" }} />
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Técnica de hoy</span>
-                <span style={{ fontWeight: 500 }}>Respiración 4-6 · 2 min</span>
-              </div>
-              <span style={{ fontSize: 15, fontWeight: 500, background: "#fff", color: "#161413", borderRadius: 20, padding: "10px 14px" }}>Empezar</span>
-            </div>
-            ) : null}
+            <PacienteHomeTools
+              items={
+                (vm.herramientaNav as
+                  | {
+                      id: "mood" | "clin" | "ia" | "tech" | "revisit" | "cursos";
+                      name: string;
+                      navLabel: string;
+                      on: boolean;
+                      go: () => void;
+                      disabled?: boolean;
+                    }[]
+                  | undefined) || []
+              }
+            />
+          </div>
+        ) : null}
+
+        {vm.tabMood && vm.mods?.mood ? (
+          <div className="px-[18px] pb-[22px] pt-1.5 [animation:naraTab_.22s_ease-out]">
+            <MoodPanel patientId={String(vm.patientId || "")} />
           </div>
         ) : null}
 
@@ -617,6 +359,7 @@ function DianaApp({ vm }: { vm: Vm }) {
                   navLabel: string;
                   on: boolean;
                   go: () => void;
+                  disabled?: boolean;
                 }[]
               | undefined) || []
           }
@@ -636,94 +379,7 @@ function DianaApp({ vm }: { vm: Vm }) {
 }
 
 function DianaChat({ vm }: { vm: Vm }) {
-  return (
-    <div style={{ animation: "naraTab .22s ease-out", display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <div style={{ margin: "0 14px", background: "#fff", border: "1px solid #DCD6CD", borderRadius: 12, padding: "10px 12px", fontSize: 14, lineHeight: 1.4, color: "#161413" }}>
-        TEO es un acompañante con inteligencia artificial. No reemplaza a su psicóloga. Si está en peligro, use el botón de ayuda.
-      </div>
-      <div style={{ flex: 1, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-        {vm.chatMsgs.map((m, i) => (
-          <div key={i}>
-            {m.ai ? (
-              <div style={{ alignSelf: "flex-start", maxWidth: "90%", display: "flex", gap: 8, alignItems: "flex-start" }}>
-                <img src={m.avatar} alt="" style={{ flex: "none", width: 36, height: 36, display: "block", marginTop: 18 }} />
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 12, color: "#5E5750", display: "flex", gap: 6, alignItems: "center" }}>
-                    TEO <span style={{ fontSize: 11, fontWeight: 500, border: "1px solid #5E5750", borderRadius: 4, padding: "0 4px" }}>IA</span>
-                  </span>
-                  <div style={{ background: "#fff", border: "1px solid #DCD6CD", borderRadius: "4px 18px 18px 18px", padding: "11px 14px", lineHeight: 1.45 }}>{m.text}</div>
-                </div>
-              </div>
-            ) : null}
-            {m.me ? (
-              <div style={{ alignSelf: "flex-end", maxWidth: "82%", background: "#161413", color: "#fff", borderRadius: "18px 4px 18px 18px", padding: "11px 14px", lineHeight: 1.45, marginLeft: "auto" }}>{m.text}</div>
-            ) : null}
-            {m.crisis ? (
-              <div style={{ alignSelf: "stretch", background: "#FDE7E4", border: "1.5px solid #B42318", borderRadius: 16, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 500, color: "#8A1C14" }}>
-                  <img src={naraAsset("marca/personajes/teo-calma.svg")} alt="" style={{ width: 36, height: 36, display: "block" }} />
-                  TEO · IA · mensaje de cuidado
-                </span>
-                <span style={{ lineHeight: 1.45 }}>{m.text}</span>
-                {vm.dianaLines.map((cl) => (
-                  <a key={cl.label} href={cl.tel} style={{ minHeight: 52, padding: "4px 14px", boxSizing: "border-box", borderRadius: 26, border: "2px solid #B42318", background: cl.bg, color: cl.fg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 16, textAlign: "center", textDecoration: "none" }}>
-                    <span>{cl.label}</span>
-                    <span style={{ fontSize: 12, fontWeight: 400 }}>{cl.sub}</span>
-                  </a>
-                ))}
-              </div>
-            ) : null}
-            {m.breath ? (
-              <div style={{ alignSelf: "stretch", background: "#fff", border: "1px solid #DCD6CD", borderRadius: 20, padding: 18, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <BreathExercise onDone={vm.onBreathDone} />
-              </div>
-            ) : null}
-          </div>
-        ))}
-        {vm.typing ? (
-          <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#5E5750" }}>
-            <img src={naraAsset("marca/personajes/teo-duda.svg")} alt="" style={{ width: 32, height: 32, display: "block" }} />
-            TEO está escribiendo…
-          </span>
-        ) : null}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>
-          {vm.quick.map((q) => (
-            <button key={q.label} type="button" onClick={q.go} style={{ ...btnFont(), fontSize: 16, minHeight: 48, padding: "0 16px", borderRadius: 22, border: "1.5px solid #161413", background: "#fff", color: "#161413", cursor: "pointer" }}>
-              {q.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {vm.paused ? (
-        <div style={{ position: "sticky", bottom: 0, background: "#fff", borderTop: "1px solid #DCD6CD", padding: 14, textAlign: "center", fontWeight: 500, fontSize: 16 }}>
-          Conversación en pausa · el equipo la llamará
-        </div>
-      ) : null}
-      {vm.notPaused ? (
-        <div style={{ position: "sticky", bottom: 0, background: "#F0ECE6", borderTop: "1px solid #DCD6CD", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
-            {vm.askChips.map((q) => (
-              <button key={q.label} type="button" onClick={q.go} style={{ flex: "none", ...btnFont(), fontSize: 15, minHeight: 48, padding: "0 14px", borderRadius: 22, border: "1px solid #DCD6CD", background: "#fff", color: "#161413", cursor: "pointer" }}>
-                {q.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={vm.input}
-              onChange={(e) => vm.setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && vm.sendDiana()}
-              placeholder="Escríbale a TEO"
-              style={{ flex: 1, height: 48, borderRadius: 24, border: "1.5px solid #DCD6CD", padding: "0 16px", fontSize: 17, background: "#fff", fontFamily: "Figtree, system-ui, sans-serif" }}
-            />
-            <button type="button" onClick={() => vm.sendDiana()} style={{ ...btnFont(), fontSize: 16, fontWeight: 500, height: 48, padding: "0 16px", borderRadius: 24, border: "none", background: "#FDCD22", color: "#161413", cursor: "pointer" }}>
-              Enviar
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <IaPanel vm={vm} />;
 }
 
 function DianaResumen({ vm }: { vm: Vm }) {

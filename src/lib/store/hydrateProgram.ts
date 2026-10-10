@@ -385,17 +385,52 @@ async function hydratePatientSelf(store: Store) {
         (a) =>
           a.sev === "crisis" &&
           a.status !== "closed" &&
+          a.status !== "awaiting_patient" &&
           (a.pid === id || a.pid === accountId || String(a.pid) === id),
       );
+      const patientConfirmed = (
+        (store.get() as {
+          closedToday?: Array<{
+            sev?: string;
+            pid?: string;
+            patientConfirmedAt?: number | null;
+          }>;
+        }).closedToday || []
+      ).some(
+        (c) =>
+          c.sev === "crisis" &&
+          !!c.patientConfirmedAt &&
+          (c.pid === id || c.pid === accountId),
+      );
+      let sessionWell = false;
+      try {
+        if (typeof window !== "undefined") {
+          const now = Date.now();
+          for (const key of [id, accountId].filter(Boolean)) {
+            const raw = window.sessionStorage.getItem(
+              "nara:well-confirmed:" + key,
+            );
+            const until = Number(raw || 0);
+            if (Number.isFinite(until) && now < until) {
+              sessionWell = true;
+              break;
+            }
+          }
+        }
+      } catch {
+        /* private mode */
+      }
       const remoteCleared =
         data.patient.crisisLock === false &&
         /^activo$/i.test(String(data.patient.status || ""));
       // Tras «estoy bien» local: no dejar que un /me obsoleto vuelva a Crisis.
       const localJustCleared =
-        Date.now() < suppressLiveUntil &&
-        prev?.crisisLock === false &&
-        /^activo$/i.test(String(prev?.status || ""));
-      if (localJustCleared && !remoteCleared) {
+        (Date.now() < suppressLiveUntil || sessionWell || patientConfirmed) &&
+        (prev?.crisisLock === false || sessionWell || patientConfirmed) &&
+        (/^activo$/i.test(String(prev?.status || "")) ||
+          sessionWell ||
+          patientConfirmed);
+      if ((localJustCleared || sessionWell || patientConfirmed) && !remoteCleared) {
         merged.status = "Activo";
         merged.signal = "Activo";
         merged.crisisLock = false;
@@ -407,7 +442,7 @@ async function hydratePatientSelf(store: Store) {
           openCrisis ||
           merged.crisisLock === true ||
           (prev?.crisisLock === true && data.patient.crisisLock !== false);
-        if (stillLocked) {
+        if (stillLocked && !sessionWell && !patientConfirmed) {
           merged.status = "Crisis";
           merged.signal = "Crisis";
           merged.crisisLock = true;
