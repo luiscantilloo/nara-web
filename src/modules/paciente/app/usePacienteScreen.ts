@@ -2536,8 +2536,22 @@ export function usePacienteScreen() {
     ),
   }));
 
+  // P-01 (TRL 2026-10-10): en el primer ingreso a la app la persona acepta el consentimiento de uso de la
+  // app antes de que se registre nada desde ella. Queda en consents[pid].appAt (fecha) y appVersion.
+  const needsAppConsent = ready && isDiana && !cons.appAt;
+  const acceptAppConsent = () => {
+    const id = pidRef.current;
+    store.set((s: { consents?: Record<string, Record<string, unknown>> }) => {
+      s.consents = s.consents || {};
+      s.consents[id] = { ...(s.consents[id] || {}), appAt: Date.now(), appVersion: "app-v1" };
+    });
+    void flushPersistWhenReady(store);
+  };
+
   return {
     ready,
+    needsAppConsent,
+    acceptAppConsent,
     isDiana,
     isRosalba: !isDiana,
     framed,

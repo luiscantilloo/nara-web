@@ -1073,9 +1073,20 @@ export function useClinicoScreen() {
       .filter(Boolean);
     // Mismo criterio que la columna Crisis / estado en Mis pacientes.
     const pending = patientsAll.filter((p) => p.inCrisis).length;
-    const patients = patientsAll.filter(
-      (p) => st.stateFilter === "all" || p.stateId === st.stateFilter,
-    );
+    // C-01: ordenados por riesgo. Primero las crisis, luego de mayor a menor riesgo según el perfil
+    // (P13–P15 Severo … P01–P03 Mínimo) y al final quienes aún no tienen perfil.
+    const riesgoDe = (p: { profile?: string; inCrisis?: boolean }) => {
+      const n = parseInt(String(p.profile || "").replace(/^P/, ""), 10);
+      return Number.isFinite(n) && n >= 1 && n <= 15 ? Math.floor((n - 1) / 3) : -1;
+    };
+    const patients = patientsAll
+      .filter((p) => st.stateFilter === "all" || p.stateId === st.stateFilter)
+      .sort(
+        (a, b) =>
+          Number(!!b.inCrisis) - Number(!!a.inCrisis) ||
+          riesgoDe(b) - riesgoDe(a) ||
+          String(a.name || "").localeCompare(String(b.name || ""), "es"),
+      );
 
     const fallbackId = ids.find((id) => A.PATIENTS[id]);
     const P = A.PATIENTS[st.pid] || (fallbackId ? A.PATIENTS[fallbackId] : null) || A.emptyPatient(st.pid || "—", "Sin paciente", 0);
@@ -1113,12 +1124,19 @@ export function useClinicoScreen() {
       lbl: h < 4.5 ? "bajo" : i === 13 ? "anoche" : "",
       lc: h < 4.5 ? "#9A4D14" : C.texto2,
     }));
-    const notes = (S.notes[P.id] || []).map((n) => ({
-      d: "Hoy",
-      t: "Nota de sesión · Dra. Lucía Marín",
-      x: n,
-    }));
-    const adj = (S.pathAdjust[P.id] || []).map((n) => ({ d: "Hoy", t: "Cambio de ruta", x: n }));
+    // C-04: cada nota y ajuste guarda quién y cuándo (las antiguas, solo texto, se muestran sin autor).
+    const fechaHora = (at: unknown) =>
+      at
+        ? new Date(Number(at)).toLocaleString("es-CO", {
+            day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Bogota",
+          })
+        : "Sin fecha";
+    const traza = (n: unknown, tipo: string) =>
+      typeof n === "string"
+        ? { d: "Sin fecha", t: tipo, x: n }
+        : { d: fechaHora((n as { at?: number }).at), t: `${tipo} · ${(n as { byName?: string }).byName || "Sin autor"}`, x: String((n as { text?: string }).text || "") };
+    const notes = (S.notes[P.id] || []).map((n: unknown) => traza(n, "Nota clínica"));
+    const adj = (S.pathAdjust[P.id] || []).map((n: unknown) => traza(n, "Cambio de ruta"));
     const refT = ref
       ? [{ d: ref.date, t: "Remisión · " + (INSTS.find((i) => i.id === ref.inst) || {}).label, x: ref.reason + " · " + ref.status }].concat(
           ref.contra ? [{ d: "Hoy", t: "Contrarreferencia · Hospital local de Salento", x: ref.contra }] : [],
@@ -2399,8 +2417,12 @@ export function useClinicoScreen() {
       setNote: (e) => setState({ note: e.target.value }),
       addNote: () => {
         if (!st.note.trim()) return;
+        const yo = A.session() || {};
         A.set((s) => {
-          (s.notes[P.id] = s.notes[P.id] || []).push(st.note.trim());
+          s.notes = s.notes || {};
+          (s.notes[P.id] = s.notes[P.id] || []).push({
+            pid: P.id, text: st.note.trim(), by: yo.id || "", byName: yo.name || "Clínico", at: Date.now(),
+          });
         });
         setState({ note: "", msg: "Nota agregada a la línea de tiempo." });
       },
@@ -2408,27 +2430,24 @@ export function useClinicoScreen() {
         (label) => ({
           label,
           go: () => {
+            const yo = A.session() || {};
+            const persona = (S.people || []).find((x: { id?: string }) => x.id === P.id) as { expertId?: string; expert?: string } | undefined;
+            const ex = persona?.expertId || persona?.expert || "";
             A.set((s) => {
-              (s.pathAdjust[P.id] = s.pathAdjust[P.id] || []).push(
-                label + ". Notificado a la paciente y al experto.",
-              );
-              const ex = /Armenia/.test(P.place) ? "mj" : "andres";
-              if (label === "Agregar revisita del experto") {
+              s.pathAdjust = s.pathAdjust || {};
+              (s.pathAdjust[P.id] = s.pathAdjust[P.id] || []).push({
+                pid: P.id, text: label + ". Notificado a la paciente y al experto.", by: yo.id || "", byName: yo.name || "Clínico", at: Date.now(),
+              });
+              if (label === "Agregar revisita del experto" && ex) {
                 (s.revisits[ex] = s.revisits[ex] || []).push({
+                  pid: P.id,
                   name: P.name,
-                  place: P.place.split(",")[0],
+                  place: String(P.place || "").split(",")[0],
                   when: "Esta semana",
-                  why: "Pedida por la Dra. Lucía Marín",
+                  why: "Pedida por " + (yo.name || "el clínico"),
                 });
                 A.pushNotif(s, ex, "Nueva revisita asignada: " + P.name, "/experto");
               }
-              if (P.id === "diana")
-                s.dianaInbox.push({
-                  id: "d" + Date.now(),
-                  text: "Su psicóloga hizo un cambio en su ruta. Tóquelo para verlo.",
-                  tab: "route",
-                  seen: false,
-                });
             });
             setState({
               msg: "Ruta ajustada: " + label.toLowerCase() + ". Se notificó a la paciente y al experto.",

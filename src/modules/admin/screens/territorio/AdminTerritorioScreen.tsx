@@ -158,7 +158,7 @@ function AdminTerritorioInner() {
                 onClick={() => v.togglePause()}
                 className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-nara-tinta bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta"
               >
-                {v.paused ? "Reanudar territorio" : "Pausar territorio"}
+                {v.paused ? "Reactivar territorio" : "Desactivar territorio"}
               </button>
               {/* Temporal: ocultos «Asignar 100 manillas», «Asignar expertos» y «Ver personas». */}
             </div>

@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ChangeEventHandler, type ReactNode } from "react";
 import Link from "next/link";
 import { IoClose } from "react-icons/io5";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
@@ -1895,6 +1895,45 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
               }
               patientId={String(f.id || "")}
             />
+
+            {/* C-04: nota clínica y ajuste de ruta; quedan en la línea de tiempo con quién y cuándo. */}
+            <div
+              className="flex w-full flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco px-5 py-[18px]"
+              data-testid="clinico-nota-ruta"
+            >
+              <label className="flex flex-col gap-1.5 font-texto text-base font-medium text-nara-tinta">
+                Nota clínica
+                <textarea
+                  value={(v.noteText as string) || ""}
+                  onChange={v.setNote as ChangeEventHandler<HTMLTextAreaElement>}
+                  rows={3}
+                  placeholder="Escriba la nota de la sesión"
+                  className="w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco p-3 font-texto text-[15px] font-normal text-nara-tinta outline-none"
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => (v.addNote as () => void)?.()}
+                  className="h-11 cursor-pointer rounded-[12px] border-none bg-nara-amarillo px-4 font-texto text-[15px] font-medium text-nara-tinta"
+                >
+                  Guardar nota
+                </button>
+              </div>
+              <span className="font-texto text-base font-medium text-nara-tinta">Ajustar la ruta</span>
+              <div className="flex flex-wrap gap-2">
+                {((v.adjust as { label: string; go: () => void }[] | undefined) || []).map((a) => (
+                  <button
+                    key={a.label}
+                    type="button"
+                    onClick={a.go}
+                    className="h-11 cursor-pointer rounded-[12px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] font-medium text-nara-tinta"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="flex w-full flex-col gap-1 rounded-[20px] border border-linea bg-nara-blanco px-5 py-[18px]">
               <span className="mb-1.5 font-texto text-base font-medium text-nara-tinta">

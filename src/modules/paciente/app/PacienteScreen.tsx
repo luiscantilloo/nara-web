@@ -32,6 +32,10 @@ export function PacienteScreen() {
     return <NaraLoadingScreen />;
   }
 
+  if (vm.needsAppConsent) {
+    return <ConsentimientoApp onAccept={vm.acceptAppConsent} />;
+  }
+
   return (
     <>
       <style>{globalCss}</style>
@@ -935,5 +939,47 @@ function RosalbaWA({ vm }: { vm: Vm }) {
         ) : null}
       </div>
     </>
+  );
+}
+
+/**
+ * P-01 (TRL 2026-10-10): consentimiento del primer ingreso a la app. El consentimiento de la evaluación
+ * lo firmó con el experto en la visita; aquí acepta el uso de la app antes de que se registre nada desde ella.
+ */
+function ConsentimientoApp({ onAccept }: { onAccept: () => void }) {
+  const puntos = [
+    "La app guarda lo que usted registre: su estado de ánimo, sus conversaciones con TEO y sus pedidos de ayuda.",
+    "Su psicólogo clínico y el experto de su territorio pueden ver esa información para acompañarle.",
+    "TEO es un asistente con inteligencia artificial: no reemplaza a su psicólogo ni da diagnósticos.",
+    "Si usted reporta una crisis, el equipo clínico le contactará.",
+    "Puede retirar su consentimiento cuando quiera: dígaselo a su experto de campo o a su psicólogo.",
+  ];
+  return (
+    <main
+      data-testid="paciente-consentimiento"
+      className="flex min-h-screen items-center justify-center bg-nara-crema px-4 py-8"
+    >
+      <section className="flex w-full max-w-[520px] flex-col gap-4 rounded-[20px] border border-linea bg-nara-blanco p-6">
+        <h1 className="font-titulos text-2xl font-semibold text-nara-tinta">Antes de empezar</h1>
+        <p className="font-texto text-base text-nara-tinta">
+          Lea estos puntos. Si está de acuerdo, toque «Acepto y continúo».
+        </p>
+        <ul className="flex list-disc flex-col gap-2 pl-5 font-texto text-[15px] text-nara-tinta">
+          {puntos.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={onAccept}
+          className="h-12 cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-5 font-texto text-base font-medium text-nara-tinta"
+        >
+          Acepto y continúo
+        </button>
+        <p className="font-texto text-sm text-texto-secundario">
+          Si no está de acuerdo, cierre la app y hable con su experto de campo.
+        </p>
+      </section>
+    </main>
   );
 }

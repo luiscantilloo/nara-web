@@ -71,6 +71,41 @@ function emptyPersonForm(partial: Record<string, string> = {}) {
   };
 }
 
+/**
+ * Reporte TRL 2026-10-10 (F-02): consentimiento, evaluación y resultado son páginas distintas y cada una
+ * monta el hook de nuevo. El borrador de la visita (respuestas, consentimiento, firma) se conserva en
+ * sessionStorage por persona mientras dura la visita; se borra al guardarla o al volver a la lista.
+ */
+const VISITA_KEY = (pid: string) => `nara-visita-${pid}`;
+const VISITA_CAMPOS = ["consent", "signed", "ruego", "witness", "mode", "sec", "items", "crisis", "override", "reason", "startTime", "courseSel", "chat", "step"] as const;
+function leerBorradorVisita(pid: string | null): Record<string, unknown> | null {
+  if (!pid || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(VISITA_KEY(pid));
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+function guardarBorradorVisita(pid: string | null, st: Record<string, unknown>) {
+  if (!pid || typeof window === "undefined") return;
+  try {
+    const out: Record<string, unknown> = {};
+    for (const k of VISITA_CAMPOS) out[k] = st[k];
+    window.sessionStorage.setItem(VISITA_KEY(pid), JSON.stringify(out));
+  } catch {
+    /* sin sessionStorage: la visita sigue en memoria */
+  }
+}
+function borrarBorradorVisita(pid: string | null) {
+  if (!pid || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(VISITA_KEY(pid));
+  } catch {
+    /* nada que borrar */
+  }
+}
+
 export function useExpertoScreen() {
   const store = useNaraStore();
   const live = useNaraLive();
@@ -105,7 +140,8 @@ export function useExpertoScreen() {
     });
   }, [session?.id, store]);
 
-  const [st, setStateRaw] = useState({
+  const [st, setStateRaw] = useState(() => {
+    const inicial = {
     screen: "list",
     pid: null as string | null,
     consent: {} as Record<string, boolean>,
@@ -136,7 +172,21 @@ export function useExpertoScreen() {
     gTab: {} as Record<string, string>,
     courseSel: undefined as string | undefined,
     er: null as { slug: string; page: number } | null,
+    };
+    // Al montar una página de la visita, recuperar su borrador (F-02).
+    const ruta = expertoScreenForPath(pathname || "/experto");
+    const borrador = ruta.pid && ruta.screen ? leerBorradorVisita(ruta.pid) : null;
+    return borrador
+      ? { ...inicial, ...borrador, screen: ruta.screen as string, pid: ruta.pid as string }
+      : inicial;
   });
+
+  // Guardar el borrador mientras se está en consentimiento, evaluación o resultado.
+  useEffect(() => {
+    if (st.pid && ["consent", "eval", "result"].includes(st.screen)) {
+      guardarBorradorVisita(st.pid, st as unknown as Record<string, unknown>);
+    }
+  }, [st]);
 
   const pendingPathRef = useRef<string | null>(null);
 
@@ -145,6 +195,8 @@ export function useExpertoScreen() {
     setStateRaw((prev) => {
       const patch = typeof u === "function" ? u(prev) : u;
       const next = { ...prev, ...patch };
+      // Fin de la visita (guardada o cancelada): el borrador ya no hace falta.
+      if (next.screen === "list" && prev.pid) borrarBorradorVisita(prev.pid);
       const screenChanged =
         patch.screen !== undefined ||
         patch.newForm !== undefined ||
@@ -530,13 +582,24 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           },
         );
       });
-      if (s.consents[personId]) {
-        s.consents[personId] = {
-          contacto: !!cons.o0,
-          remision: !!cons.o2,
-          investigacion: false,
-        };
-      }
+      // Reporte TRL 2026-10-10 (P-01): el consentimiento firmado en la visita siempre queda registrado
+      // (antes solo se guardaba si la persona ya tenía uno), con quién lo tomó y cuándo.
+      s.consents = s.consents || {};
+      s.consents[personId] = {
+        ...(s.consents[personId] || {}),
+        participar: !!cons.r0,
+        datos: !!cons.r1,
+        contactoRiesgo: !!cons.r2,
+        contacto: !!cons.o0,
+        manilla: !!cons.o1,
+        remision: !!cons.o2,
+        investigacion: !!(s.consents[personId] || {}).investigacion,
+        firmado: !!st.signed,
+        aRuego: !!st.ruego,
+        visitaAt: Date.now(),
+        visitaPor: ex,
+        visitaPorNombre: expName,
+      };
       s.visits[personId] = {
         code: res.code,
         phq: res.phqT,

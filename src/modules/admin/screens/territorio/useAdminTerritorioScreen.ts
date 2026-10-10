@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useNaraStore } from "@/providers/nara-provider";
+import { apiFetch } from "@/lib/api/client";
 
 export function useAdminTerritorioScreen() {
   const store = useNaraStore();
@@ -33,7 +34,9 @@ export function useAdminTerritorioScreen() {
     const exps = store.experts(S).filter((e: { terr?: string; active?: boolean }) => e.terr === name && e.active !== false);
     const people = store.people(S).filter((p: { terr?: string }) => p.terr === name);
     const map = store.placeMap(S, name);
-    const paused = !!ov.paused;
+    const doc = (S.territories || []).find((x: { name?: string }) => x.name === name) as { active?: boolean } | undefined;
+    // A-01: el territorio está desactivado si así lo guardó la API (o, en datos viejos, la pausa local).
+    const paused = doc?.active === false || !!ov.paused;
     // Captación viva = personas del territorio (no el campo estático t.cap del documento).
     const cap = people.length;
     const goal = t.goal || 0;
@@ -233,18 +236,34 @@ export function useAdminTerritorioScreen() {
       setCrisisLine: (e: ChangeEvent<HTMLInputElement>) => setCrisisLine(e.target.value),
       msg,
       clearMsg: () => setMsg(""),
-      togglePause: () => {
+      togglePause: async () => {
+        // A-01 (TRL 2026-10-10): desactivar o reactivar se guarda en la API (`active`), así deja de verse
+        // para expertos y clínicos; antes solo cambiaba el estado local.
+        const activo = paused;
+        const res = await apiFetch("/api/territories", { method: "POST", body: JSON.stringify({ name, active: activo }) }).catch(() => null);
+        if (!res || !res.ok) {
+          setMsg("No se pudo guardar el cambio. Intente de nuevo.");
+          return;
+        }
         store.set((s) => {
+          const x = (s.territories || []).find((y: { name: string }) => y.name === name);
+          if (x) x.active = activo;
           s.terrOv = s.terrOv || {};
-          s.terrOv[name] = Object.assign({}, s.terrOv[name], { paused: !paused });
-          store.logActivity(s, (store.session()?.id || "admin"), (paused ? "Reanudó" : "Pausó") + " el territorio " + name);
+          s.terrOv[name] = Object.assign({}, s.terrOv[name], { paused: !activo });
+          store.logActivity(s, (store.session()?.id || "admin"), (activo ? "Reactivó" : "Desactivó") + " el territorio " + name);
         });
-        setMsg(paused ? "Territorio reanudado." : "Territorio en pausa.");
+        setMsg(activo ? "Territorio reactivado." : "Territorio desactivado. Ya no aparece para expertos ni clínicos.");
       },
-      saveCrisis: () => {
+      saveCrisis: async () => {
+        const linea = crisisLine.trim();
+        const res = await apiFetch("/api/territories", { method: "POST", body: JSON.stringify({ name, crisisLine: linea }) }).catch(() => null);
+        if (!res || !res.ok) {
+          setMsg("No se pudo guardar la línea de crisis. Intente de nuevo.");
+          return;
+        }
         store.set((s) => {
           s.terrOv = s.terrOv || {};
-          s.terrOv[name] = Object.assign({}, s.terrOv[name], { crisisLine: crisisLine.trim() });
+          s.terrOv[name] = Object.assign({}, s.terrOv[name], { crisisLine: linea });
           store.logActivity(s, (store.session()?.id || "admin"), "Actualizó la línea de crisis de " + name);
         });
         setMsg("Línea de crisis guardada.");
