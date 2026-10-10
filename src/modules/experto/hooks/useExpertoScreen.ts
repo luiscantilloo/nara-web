@@ -7,11 +7,27 @@ import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingPr
 import { needsClosingEval } from "@/lib/clinical/patientStates";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import {
+  isBrowserOnline,
+  pendingOfflineCount,
+  postOrQueue,
+  startOfflineQueueSync,
+} from "@/lib/offline/sync-queue";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import {
   expertoPathForScreen,
   expertoScreenForPath,
 } from "@/modules/experto/routes";
+
+function newResourceId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const OFFLINE_KEEP_MSG =
+  "No hay conexión. Sus datos siguen aquí; se enviarán solos al volver la red.";
 
 const blank = (n: number) =>
   Array.from({ length: n }, () => ({ v: null as number | null, st: "none" as const }));
@@ -209,14 +225,32 @@ export function useExpertoScreen() {
         });
         if (path !== pathname) {
           pendingPathRef.current = path;
-          navAway = true;
+          // Overlay solo al entrar/salir de una visita — no al abrir «Nueva persona»
+          // (evita el parpadeo ~0,4 s al empezar a escribir).
+          const visitish = (p: string) =>
+            /\/visita\//.test(p) ||
+            p.includes("/consentimiento") ||
+            p.includes("/evaluacion") ||
+            p.includes("/resultado");
+          navAway = visitish(path) || visitish(pathname || "");
         }
       }
       return next;
     });
-    // Loading en el mismo turno (flushSync) para no ver la pantalla nueva sin overlay.
     if (navAway) startRouteLoading();
   }, [pathname, startRouteLoading]);
+
+  // Estado real de red + vaciado de cola IndexedDB.
+  const [browserOnline, setBrowserOnline] = useState(true);
+  const [offlinePending, setOfflinePending] = useState(0);
+  useEffect(() => {
+    const sync = () => {
+      setBrowserOnline(isBrowserOnline());
+      void pendingOfflineCount().then(setOfflinePending);
+    };
+    sync();
+    return startOfflineQueueSync(sync);
+  }, []);
 
   // H-008 (reporte TRL 2026-10-10, SPEC-006): la evidencia de la visita usa la posición real del navegador.
   useEffect(() => {
@@ -236,7 +270,16 @@ export function useExpertoScreen() {
     const path = pendingPathRef.current;
     if (!path) return;
     pendingPathRef.current = null;
-    if (path !== pathname) router.push(path);
+    if (path === pathname) return;
+    // Sin red, router.push a otra URL puede acabar en chrome-error://.
+    if (!isBrowserOnline() && /\/visita\//.test(path)) {
+      setStateRaw((p) => ({
+        ...p,
+        toast: OFFLINE_KEEP_MSG,
+      }));
+      return;
+    }
+    router.push(path);
   }, [st.screen, st.pid, st.newForm, pathname, router]);
 
   // URL → estado (deep link / back-forward).
@@ -286,6 +329,43 @@ export function useExpertoScreen() {
   const visitStartRef = useRef(Date.now());
   const shortRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Consentimiento de persona inexistente → /experto con aviso (no persona vacía firmable).
+  useEffect(() => {
+    if (st.screen !== "consent" || !st.pid) return;
+    const S = store.get() as {
+      people?: { id?: string; code?: string }[];
+      worklists?: Record<string, { id?: string; code?: string }[]>;
+    };
+    const people = store.people ? store.people(S) : S.people || [];
+    const inPeople = people.some(
+      (p: { id?: string; code?: string }) =>
+        p.id === st.pid || p.code === st.pid,
+    );
+    let inWl = false;
+    for (const list of Object.values(S.worklists || {})) {
+      if ((list || []).some((w) => w.id === st.pid || w.code === st.pid)) {
+        inWl = true;
+        break;
+      }
+    }
+    if (inPeople || inWl) return;
+    setStateRaw((prev) => ({
+      ...prev,
+      screen: "list",
+      pid: null,
+      newForm: false,
+      editPid: null,
+      toast:
+        "No se encontró a esa persona. Vuelva a captarla desde la lista.",
+    }));
+    pendingPathRef.current = "/experto";
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(
+      () => setStateRaw((p) => ({ ...p, toast: "" })),
+      4200,
+    );
+  }, [st.screen, st.pid, store]);
   /** Último nf escrito: evita validar con un cierre de React obsoleto al pulsar «Empezar visita». */
   const nfRef = useRef(st.nf);
   const editPidRef = useRef(st.editPid);
@@ -849,97 +929,98 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       ...(closingEval ? { finalEvalAt: evalAt } : {}),
     };
     pauseLiveHydrate(5_000);
-    void Promise.all([
-      fetch('/api/people', {
-        credentials: 'same-origin',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(peopleBody),
-      }),
-      fetch('/api/worklists', {
-        credentials: 'same-origin',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    const patientBody = !crisis
+      ? {
           id: personId,
-          expertId: ex,
-          time: 'Ahora',
+          code: personCode,
           name: personName,
           age: personAge,
-          place: personPlace,
-          rural: personRural,
-          status: wlStatus,
-          profile: crisis ? null : res.code,
-          code: personCode,
+          place: personPlace + ', ' + terr,
+          terr,
+          profile: res.code,
           phone: personPhone,
-          at: evalAt,
-          validatedAt: evalAt,
-        }),
-      }),
-      !crisis
-        ? fetch('/api/patients', {
-            credentials: 'same-origin',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: personId,
-              code: personCode,
-              name: personName,
-              age: personAge,
-              place: personPlace + ', ' + terr,
-              terr,
-              profile: res.code,
-              phone: personPhone,
-              expert: expName,
-              clin: personClin,
-              signal: nextStatus,
-              status: nextStatus,
-              pendingEval: !closingEval,
-              previousProfile: prevProfile,
-              evalPhq: res.phqT,
-              evalDig: res.digT,
-              evalBy: expName,
-              evalAt,
-              ...(closingEval ? { finalEvalAt: evalAt } : {}),
-              // Vacío hasta aprobación clínica (evita activar la app del paciente antes).
-              ...(!crisis && !closingEval
-                ? { modulesEnabled: [], modulesVisible: [] }
-                : {}),
-              timeline: [
-                {
-                  d: 'Hoy',
-                  t: closingEval
-                    ? 'Evaluación de cierre · ' + expName
-                    : 'Visita de campo · ' + expName,
-                  x: closingEval
-                    ? 'Evaluación de cierre. PHQ-9 ' +
-                      res.phqT +
-                      '. Perfil ' +
-                      res.code +
-                      ' · Terminado negro.'
-                    : 'Evaluación inicial. PHQ-9 ' +
-                      res.phqT +
-                      '. Perfil ' +
-                      res.code +
-                      ' · pendiente de aprobación clínica.',
-                },
-              ],
-              ctx: {
-                dano: (st.items.ctx[0] && st.items.ctx[0].v) || 0,
-                perdida: (st.items.ctx[1] && st.items.ctx[1].v) || 0,
-              },
-            }),
-          })
-        : Promise.resolve(),
-      flagPayload
-        ? fetch('/api/flags', {
-            credentials: 'same-origin',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(flagPayload),
-          })
-        : Promise.resolve(),
-    ]).catch(() => {});
+          expert: expName,
+          clin: personClin,
+          signal: nextStatus,
+          status: nextStatus,
+          pendingEval: !closingEval,
+          previousProfile: prevProfile,
+          evalPhq: res.phqT,
+          evalDig: res.digT,
+          evalBy: expName,
+          evalAt,
+          ...(closingEval ? { finalEvalAt: evalAt } : {}),
+          ...(!crisis && !closingEval
+            ? { modulesEnabled: [], modulesVisible: [] }
+            : {}),
+          timeline: [
+            {
+              d: 'Hoy',
+              t: closingEval
+                ? 'Evaluación de cierre · ' + expName
+                : 'Visita de campo · ' + expName,
+              x: closingEval
+                ? 'Evaluación de cierre. PHQ-9 ' +
+                  res.phqT +
+                  '. Perfil ' +
+                  res.code +
+                  ' · Terminado negro.'
+                : 'Evaluación inicial. PHQ-9 ' +
+                  res.phqT +
+                  '. Perfil ' +
+                  res.code +
+                  ' · pendiente de aprobación clínica.',
+            },
+          ],
+          ctx: {
+            dano: (st.items.ctx[0] && st.items.ctx[0].v) || 0,
+            perdida: (st.items.ctx[1] && st.items.ctx[1].v) || 0,
+          },
+        }
+      : null;
+    const wlBody = {
+      id: personId,
+      expertId: ex,
+      time: 'Ahora',
+      name: personName,
+      age: personAge,
+      place: personPlace,
+      rural: personRural,
+      status: wlStatus,
+      profile: crisis ? null : res.code,
+      code: personCode,
+      phone: personPhone,
+      at: evalAt,
+      validatedAt: evalAt,
+    };
+    void (async () => {
+      const results = await Promise.all([
+        postOrQueue('people', peopleBody as Record<string, unknown>),
+        postOrQueue('worklists', wlBody),
+        patientBody
+          ? postOrQueue('patients', patientBody as Record<string, unknown>)
+          : Promise.resolve('ok' as const),
+        flagPayload
+          ? postOrQueue('flags', flagPayload as Record<string, unknown>)
+          : Promise.resolve('ok' as const),
+      ]);
+      const queued = results.some((r) => r === 'queued');
+      const failed = results.some((r) => r === 'error');
+      if (queued || failed) {
+        store.set((s: any) => {
+          s.pendingSync = s.pendingSync || {};
+          s.pendingSync[ex] = (s.pendingSync[ex] || 0) + 1;
+        });
+        void pendingOfflineCount().then(setOfflinePending);
+      }
+      if (failed && !queued) {
+        flash(
+          'No se pudo guardar la visita en el servidor. Revise la señal e intente de nuevo; los datos locales se conservan.',
+        );
+      } else if (queued) {
+        flash(OFFLINE_KEEP_MSG);
+      }
+    })();
 
     // H-004 (SPEC-002 FR-004): la visita se da por guardada solo cuando el servidor confirma el
     // consentimiento firmado. Antes dependía del guardado automático y se perdía si la app se cerraba.
@@ -996,8 +1077,8 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       if (!b || b <= 0) return a > 0 ? '100%' : '0%';
       return Math.min(100, Math.round((a / b) * 100)) + '%';
     };
-    const offline = false;
-    const pend = S.pendingSync[ex] || 0;
+    const offline = !browserOnline || offlinePending > 0 || (S.pendingSync[ex] || 0) > 0;
+    const pend = Math.max(S.pendingSync[ex] || 0, offlinePending);
     const STATUS: Record<string, [string, string, string]> = {
       validada: ['Validada', '#E3F1E8', C.tinta],
       por_aprobar: ['Por aprobar', '#F7E2D2', '#7A3A10'],
@@ -1450,7 +1531,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       scrollRef: scrollRef, chatRef: chatRef, sigRef: sigInit,
       goList: () => setState({ screen: 'list', newForm: false, editPid: null }),
       goNew: () => {
-        const id = 'n' + Date.now();
+        const id = newResourceId();
         const pre = (A.TCODE && A.TCODE[terrName]) || terrName.slice(0, 3).toUpperCase();
         const code = pre + '-' + String(1000 + ((A.people(A.get()).length) + 1));
         setState({
@@ -1540,6 +1621,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       })(),
       dupShow: dup && !st.dupOk, dupConfirm: () => setState({ dupOk: true, newMsg: 'Marcado como otra persona. Queda registro de la verificación.' }), newMsg: st.newMsg, clearNewMsg: () => setState({ newMsg: '' }),
       newSave: () => {
+        void (async () => {
         const draft = { ...(nfRef.current || st.nf) } as Record<string, string>;
         const editPid = editPidRef.current || st.editPid;
         // Completar desde ficha en store si el form llegó incompleto (cierre obsoleto / import).
@@ -1667,23 +1749,33 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
             if (pe) Object.assign(pe, { ...personPayload, expertId: ex });
             visitRow = { ...w };
           });
-          void fetch('/api/people', {
-            credentials: 'same-origin',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: pid, code: draft.code || undefined, ...personPayload }),
-          }).catch(() => {});
+          const peopleRes = await postOrQueue('people', {
+            id: pid,
+            code: draft.code || undefined,
+            ...personPayload,
+          });
+          if (peopleRes !== 'ok') {
+            A.set((s: any) => {
+              s.pendingSync = s.pendingSync || {};
+              s.pendingSync[ex] = (s.pendingSync[ex] || 0) + 1;
+            });
+            void pendingOfflineCount().then(setOfflinePending);
+            setState({ newMsg: OFFLINE_KEEP_MSG });
+            return;
+          }
           startVisit(visitRow || { id: pid, name, age, place, rural, phone, status: 'programada' });
           return;
         }
 
-        const id = draft.id || ('n' + Date.now());
+        const id = String(draft.id || '').trim() || newResourceId();
         const pre = (A.TCODE && A.TCODE[terr]) || terr.slice(0, 3).toUpperCase();
         const code = draft.code || (pre + '-' + String(1000 + ((A.people(A.get()).length) + 1)));
         const w = { id, time: 'Ahora', name, age, place, rural, status: 'sin_evaluacion', code, terr, profile: null, phone };
         A.set((s: any) => {
           s.worklists[ex] = s.worklists[ex] || [];
-          s.worklists[ex].push({ ...w, status: 'programada' });
+          if (!s.worklists[ex].find((x: any) => x.id === id)) {
+            s.worklists[ex].push({ ...w, status: 'programada' });
+          }
           s.people = s.people || [];
           if (!s.people.find((x: any) => x.id === id)) {
             s.people.push({
@@ -1694,25 +1786,58 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
             });
           }
         });
-        void fetch('/api/people', {
-          credentials: 'same-origin',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id, code, ...personPayload,
-            status: 'Sin evaluación', profile: null,
-          }),
-        }).catch(() => {});
-        void fetch('/api/worklists', {
-          credentials: 'same-origin',
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id, expertId: ex, time: 'Ahora', name, age, place, rural,
-            status: 'programada', code, phone,
-          }),
-        }).catch(() => {});
+        const peopleBody = {
+          id,
+          code,
+          ...personPayload,
+          status: 'Sin evaluación',
+          profile: null,
+        };
+        const wlBody = {
+          id,
+          expertId: ex,
+          time: 'Ahora',
+          name,
+          age,
+          place,
+          rural,
+          status: 'programada',
+          code,
+          phone,
+        };
+        // Detectar falta de red / fallo de fetch ANTES de navegar al consentimiento.
+        if (!isBrowserOnline()) {
+          await postOrQueue('people', peopleBody);
+          await postOrQueue('worklists', wlBody);
+          A.set((s: any) => {
+            s.pendingSync = s.pendingSync || {};
+            s.pendingSync[ex] = (s.pendingSync[ex] || 0) + 1;
+          });
+          void pendingOfflineCount().then(setOfflinePending);
+          setState({ newMsg: OFFLINE_KEEP_MSG, nf: { ...draft, id, code } });
+          return;
+        }
+        const [peopleRes, wlRes] = await Promise.all([
+          postOrQueue('people', peopleBody),
+          postOrQueue('worklists', wlBody),
+        ]);
+        if (peopleRes !== 'ok' || wlRes !== 'ok') {
+          A.set((s: any) => {
+            s.pendingSync = s.pendingSync || {};
+            s.pendingSync[ex] = (s.pendingSync[ex] || 0) + 1;
+          });
+          void pendingOfflineCount().then(setOfflinePending);
+          setState({
+            newMsg:
+              peopleRes === 'error' || wlRes === 'error'
+                ? 'No se pudo guardar. Sus datos siguen en el formulario; revise la señal e intente de nuevo.'
+                : OFFLINE_KEEP_MSG,
+            nf: { ...draft, id, code },
+          });
+          return;
+        }
         startVisit({ ...w, status: 'programada' });
+        })();
       },
       personName: p.name, personMeta: p.age + ' años · ' + p.place + ' · ' + (p.rural ? 'Rural' : 'Urbano'), steps,
       consentItems, sigTitle: st.ruego ? 'Firma del testigo' : 'Firma de la persona', sigHint: st.signed ? 'Firma registrada.' : 'Firme con el dedo dentro del recuadro.',
@@ -1782,7 +1907,8 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
   const v = useMemo(() => {
     if (!session) return null;
     return { ...rv(), ...erVals(), sigRef: sigInit, scrollRef, chatRef };
-  }, [session, st, store, ex, sigInit, live]);
+    // browserOnline / offlinePending: chip «Sin señal» y pendientes reales.
+  }, [session, st, store, ex, sigInit, live, browserOnline, offlinePending]);
 
   return { v, session, ex };
 }
