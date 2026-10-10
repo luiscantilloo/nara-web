@@ -42,6 +42,9 @@ const OBS_PASSWORDS = {
   investigacion: requireEnv("SEED_OBS_INVESTIGACION_PASSWORD"),
 };
 
+const EXPERT_DEMO_PASSWORD = requireEnv("SEED_DEMO_EXPERT_PASSWORD");
+const CLINICO_DEMO_PASSWORD = requireEnv("SEED_DEMO_CLINICO_PASSWORD");
+
 /** @type {Array<{ title: string; accent: string; rows: Array<[string, string]> }>} */
 const SECTIONS = [
   {
@@ -59,7 +62,7 @@ const SECTIONS = [
     accent: "2F6F4E",
     rows: [
       ["Correo", "camila.restrepo@nara.com"],
-      ["Contraseña", "ExpertoCamila2026"],
+      ["Contraseña", EXPERT_DEMO_PASSWORD],
       ["Nombre", "Camila Restrepo Mejía"],
       ["Rol", "Experto de campo"],
       ["Territorio", "Salento"],
@@ -70,7 +73,7 @@ const SECTIONS = [
     accent: "3D6B8A",
     rows: [
       ["Correo", "lucia.marin@nara.com"],
-      ["Contraseña", "ClinicoNara2026"],
+      ["Contraseña", CLINICO_DEMO_PASSWORD],
       ["Nombre", "Dra. Lucía Marín"],
       ["Rol", "Clínico"],
       ["Territorio", "Quindío"],
