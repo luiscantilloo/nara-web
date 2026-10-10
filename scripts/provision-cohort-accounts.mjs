@@ -14,7 +14,7 @@ import { resolve, dirname, join } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { mkdirSync, writeFileSync } from "fs";
-import XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../.env.local") });
@@ -296,10 +296,14 @@ async function main() {
   const csvPath = resolve(outDir, "credenciales-cohorte.csv");
   const mdPath = resolve(outDir, "credenciales-cohorte.md");
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(credRows), "Pacientes");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(expertCredRows), "Expertos");
-  XLSX.writeFile(wb, xlsxPath);
+  const wb = new ExcelJS.Workbook();
+  const addSheet = (name, rows) => {
+    const ws = wb.addWorksheet(name);
+    rows.forEach((r) => ws.addRow(r));
+  };
+  addSheet("Pacientes", credRows);
+  addSheet("Expertos", expertCredRows);
+  await wb.xlsx.writeFile(xlsxPath);
 
   const csv = "\ufeff" + credRows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
   writeFileSync(csvPath, csv, "utf8");
