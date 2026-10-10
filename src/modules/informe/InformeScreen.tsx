@@ -175,7 +175,7 @@ export function InformeScreen() {
                 <dt className="text-[10px] font-medium uppercase tracking-wide text-texto-secundario">
                   {m.label}
                 </dt>
-                <dd className="truncate text-[13px] font-medium text-nara-tinta">
+                <dd className="truncate text-[13px] font-medium text-nara-tinta" data-real-date>
                   {m.value}
                 </dd>
               </div>

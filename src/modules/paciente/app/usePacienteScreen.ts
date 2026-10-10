@@ -430,6 +430,8 @@ export function usePacienteScreen() {
   const [help, setHelp] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
   const [consentMsg, setConsentMsg] = useState("");
+  /** Evita que el poll vuelva a mostrar «Antes de empezar» tras aceptar en esta sesión. */
+  const [appConsentAccepted, setAppConsentAccepted] = useState(false);
   const [wa, setWa] = useState<WaRaw[]>([]);
   const [waQuick, setWaQuick] = useState<string[]>([]);
   const [waStage, setWaStage] = useState("none");
@@ -460,6 +462,8 @@ export function usePacienteScreen() {
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appInitedRef = useRef(false);
   const pidRef = useRef(who);
+  /** Cuenta con la que se resolvió `who` (H-001). */
+  const cuentaRef = useRef("");
   /** Evita spam de «estoy bien» y reabrir la pantalla roja por sync obsoleto. */
   const confirmWellBusyRef = useRef(false);
   const wellConfirmedRef = useRef<{ pid: string; until: number } | null>(null);
@@ -502,7 +506,30 @@ export function usePacienteScreen() {
     store.PATIENTS[pid] ||
     store.emptyPatient(pid, sessionNow?.name || "Paciente", 0);
   const firstName = String(DP.name || "Paciente").split(/\s+/)[0] || "Paciente";
-  const cons = (S.consents && S.consents[pid]) || {};
+  // El consentimiento se guarda con patientId de sesión (la API solo acepta esa clave).
+  const consKey = String(
+    (sessionNow as { patientId?: string } | null)?.patientId ||
+      DP.id ||
+      pid,
+  );
+  const consentAliasKeys = Array.from(
+    new Set(
+      [
+        consKey,
+        pid,
+        sessionNow?.id,
+        (sessionNow as { patientId?: string } | null)?.patientId,
+        DP.id,
+        DP.accountId,
+      ]
+        .filter(Boolean)
+        .map(String),
+    ),
+  );
+  const cons =
+    consentAliasKeys
+      .map((k) => (S.consents && S.consents[k]) || null)
+      .find((c) => c && typeof c === "object") || {};
 
   const recP = useCallback(() => {
     const st = store.get();
@@ -571,19 +598,40 @@ export function usePacienteScreen() {
     [store],
   );
 
+  // H-001 (SPEC-001): el servidor escala la crisis (alerta, crisisLog y estado Crisis con el patientId de la
+  // sesión). La pantalla promete la llamada solo cuando el servidor lo confirma; si no, muestra las líneas de
+  // emergencia, reintenta y deja la alerta local como respaldo.
   const crisisDiana = useCallback(
-    (term: string, said: string) => {
+    async (term: string, said: string, delServidor?: { escalada?: boolean; text?: string }) => {
       const id = pidRef.current;
       const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
       const fname = String(P.name || "Paciente").split(/\s+/)[0];
       setTyping(false);
       setPaused(true);
       setQuick([]);
-      setMsgs((m) => m.concat([{ t: "crisis", text: AlientoAI.crisisText(fname) }]));
+      let r = delServidor;
+      for (let i = 0; !r?.escalada && i < 3; i++) {
+        if (i) await new Promise((ok) => setTimeout(ok, 4000));
+        try {
+          const res = await fetch("/api/teo/chat", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ message: said || term, patientName: P.name || "" }),
+          });
+          const data = (await res.json()) as { crisis?: boolean; escalada?: boolean; text?: string };
+          if (res.ok && data.crisis) r = data;
+        } catch {
+          /* sin conexión: se reintenta */
+        }
+      }
+      const lineas = `${fname}, gracias por contármelo. Lo que siente es importante. Si está en peligro ahora, llame al 123. Si necesita hablar con alguien, marque la Línea 192, opción 4.`;
+      setMsgs((m) => m.concat([{ t: "crisis", text: r?.escalada ? r.text || AlientoAI.crisisText(fname) : lineas }]));
       store.set((s) => {
         s.diana = s.diana || { crisis: false };
         if (id === "diana") s.diana.crisis = true;
       });
+      if (r?.escalada) return;
       store.addAlert({
         id: "a-" + id,
         sev: "crisis",
@@ -741,8 +789,13 @@ export function usePacienteScreen() {
     } | null;
     const isPaciente =
       !!su && (su.roleId === "paciente" || /Paciente/i.test(su.role || ""));
-    if (!su || !isPaciente) {
+    if (!su) {
       router.replace("/ingreso");
+      return;
+    }
+    if (!isPaciente) {
+      // H-010 (T-05): con sesión de otro rol vuelve a su panel sin cerrar la sesión.
+      router.replace(su.href ? `${su.href}?acceso=denegado` : "/ingreso");
       return;
     }
 
@@ -808,6 +861,7 @@ export function usePacienteScreen() {
       }
       setWho(patientId);
       pidRef.current = patientId;
+      cuentaRef.current = String(su!.id || "");
       if (!appInitedRef.current) {
         appInitedRef.current = true;
         if (patientId === "rosalba" || su!.id === "rosalba") initWA();
@@ -860,8 +914,14 @@ export function usePacienteScreen() {
         inboxNRef.current = inbox.length;
         if (waReadyRef.current) setWa((w) => w.concat(add));
       }
+      // H-001: `who` es el id de la ficha (patientId), no el de la cuenta. Solo se cambia si entró otra cuenta.
       const su = store.session();
-      setWho((w) => (su && su.id !== w ? su.id : w));
+      if (su?.id && cuentaRef.current && su.id !== cuentaRef.current) {
+        cuentaRef.current = String(su.id);
+        const otro = String(su.patientId || su.id);
+        pidRef.current = otro;
+        setWho(otro);
+      }
     });
   }, [store]);
 
@@ -1129,34 +1189,12 @@ export function usePacienteScreen() {
         { who: "teo", text: ack.whyPrompt },
       ]);
       setMoodChoices(ack.whys);
-      store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
-        s.patients = s.patients || {};
-        const prev = s.patients[id] || store.emptyPatient(id, fname, 0);
-        const timeline = Array.isArray(prev.timeline) ? prev.timeline.slice() : [];
-        timeline.push({
-          type: "mood",
-          label,
-          value: i + 1,
-          at: Date.now(),
-          d: "Hoy",
-        });
-        const prevStatus = String(prev.status || "");
-        // Aprobado → Activo con el primer contacto / check-in (seguimiento continuo).
-        const nextStatus = /^aprobad/i.test(prevStatus) ? "Activo" : prevStatus || prev.status;
-        s.patients[id] = {
-          ...prev,
-          lastCheckin: new Date().toISOString(),
-          lastMood: i + 1,
-          lastMoodLabel: label,
-          timeline,
-          ...(nextStatus ? { status: nextStatus, signal: nextStatus === "Activo" ? "Activo" : prev.signal } : {}),
-        };
-        if (nextStatus === "Activo") {
-          const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
-          if (pe) pe.status = "Activo";
+      // Persistencia unificada en mood.js (evita duplicar timeline + aiLog).
+      void import("@/lib/nara-services/mood.js").then((m) => {
+        if (typeof m.saveMoodCheckin === "function") {
+          m.saveMoodCheckin(store, id, i, {});
         }
       });
-      store.logAi(id, "Check-in de ánimo", `${label} (${i + 1}/5)`);
     },
     [firstName, paused, store],
   );
@@ -1376,7 +1414,8 @@ export function usePacienteScreen() {
           age: P.age || "",
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean };
+      const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean; crisis?: boolean; escalada?: boolean };
+      if (res.ok && data.crisis) return crisisDiana("clasificador IA", text, data);
       if (res.ok && data.ok && data.text && data.text.trim()) {
         reply = data.text.trim();
       }
@@ -2063,10 +2102,13 @@ export function usePacienteScreen() {
         : patientEnabled != null
           ? patientEnabled.slice()
           : DEFAULT_PATIENT_MODULES.filter((id) => !PATH_LOCKED.has(id));
-  // modulesVisible solo puede ocultar (lista vacía); no recorta la ruta activa.
+  // modulesVisible [] = legado «Por aprobar» (experto); no debe tapar la ruta en Activo.
+  // Si hay lista con ids → puede ocultar; si falta o está vacía → se muestra lo de enabledList.
   const rawVisible = (DP as { modulesVisible?: string[] }).modulesVisible;
   const effectiveVisible =
-    Array.isArray(rawVisible) && rawVisible.length === 0 ? [] : enabledList;
+    Array.isArray(rawVisible) && rawVisible.length > 0
+      ? rawVisible.map(String).filter((id) => !PATH_LOCKED.has(id))
+      : enabledList;
   const on = (id: string) =>
     !PATH_LOCKED.has(id) &&
     enabledList.includes(id) &&
@@ -2531,8 +2573,39 @@ export function usePacienteScreen() {
     ),
   }));
 
+  // P-01 (TRL 2026-10-10): en el primer ingreso a la app la persona acepta el consentimiento de uso de la
+  // app antes de que se registre nada desde ella. Queda en consents[patientId].appAt y appVersion.
+  const hasAppConsent =
+    appConsentAccepted ||
+    consentAliasKeys.some((k) => {
+      const c = S.consents && S.consents[k];
+      return !!(c && (c as { appAt?: unknown }).appAt);
+    });
+  const needsAppConsent = ready && isDiana && !hasAppConsent;
+  const acceptAppConsent = () => {
+    setAppConsentAccepted(true);
+    const at = Date.now();
+    const canonical = consKey;
+    store.set((s: { consents?: Record<string, Record<string, unknown>> }) => {
+      s.consents = s.consents || {};
+      const entry = {
+        ...(s.consents[canonical] || {}),
+        appAt: at,
+        appVersion: "app-v1",
+      };
+      // Escribir en patientId (API) y aliases locales para no perder el check al leer.
+      consentAliasKeys.forEach((k) => {
+        s.consents![k] = { ...(s.consents![k] || {}), ...entry };
+      });
+    });
+    pauseLiveHydrate(3_000);
+    void flushPersistWhenReady(store);
+  };
+
   return {
     ready,
+    needsAppConsent,
+    acceptAppConsent,
     isDiana,
     isRosalba: !isDiana,
     framed,

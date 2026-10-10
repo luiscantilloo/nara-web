@@ -149,7 +149,10 @@ async function hydratePeopleFlagsWorklists(store: Store) {
       apiFetch("/api/flags"),
       apiFetch("/api/worklists"),
       apiFetch("/api/patients"),
-      apiFetch("/api/assets"),
+      // H-013: /api/assets es solo del admin; los demás roles no lo piden (antes daba 403 en consola).
+      (store.session() as { roleId?: string | null } | null)?.roleId === "admin"
+        ? apiFetch("/api/assets")
+        : Promise.resolve(new Response(JSON.stringify({ ok: true, assets: [] }), { status: 200 })),
     ]);
     const peopleData = (await peopleRes.json()) as { ok?: boolean; people?: Record<string, unknown>[] };
     const flagsData = (await flagsRes.json()) as { ok?: boolean; flags?: Record<string, unknown>[] };
@@ -480,10 +483,96 @@ let lastHydratedSessionId: string | null = null;
 /** Evita que un poll pise un write local recién enviado a la API. */
 let suppressLiveUntil = 0;
 
-/** Pausar el sync forzado unos segundos tras mutaciones locales. */
-export function pauseLiveHydrate(ms = 4_000) {
-  suppressLiveUntil = Date.now() + ms;
+/** Pausar el sync forzado tras mutaciones locales (tope 3s para no “congelar” la UI). */
+export function pauseLiveHydrate(ms = 3_000) {
+  const capped = Math.min(Math.max(0, Number(ms) || 0), 3_000);
+  suppressLiveUntil = Date.now() + (capped || 3_000);
   lastStaffLiveSig = "";
+}
+
+const PATH_LOCKED_HEAL = new Set(["tech", "revisit", "cursos"]);
+
+/**
+ * Activo + modules vacíos (legado experto «Por aprobar») → copiar ids de la ruta.
+ * Así la app del paciente no queda en blanco aunque Mongo aún tenga [].
+ */
+function healActivoModulesFromPath(store: Store) {
+  const S = store.get() as {
+    patients?: Record<string, Record<string, unknown>>;
+    pathOverrides?: Record<string, { s?: Record<string, string> }>;
+  };
+  const patients = S.patients || {};
+  const patches: Array<{ key: string; mods: string[] }> = [];
+  Object.keys(patients).forEach((key) => {
+    const p = patients[key];
+    if (!p) return;
+    if (!/^activo$/i.test(String(p.status || p.signal || ""))) return;
+    const en = p.modulesEnabled;
+    const vis = p.modulesVisible;
+    const enEmpty = !Array.isArray(en) || en.length === 0;
+    const visEmpty = !Array.isArray(vis) || vis.length === 0;
+    if (!enEmpty && !visEmpty) return;
+    const profile = String(p.profile || "");
+    if (!/^P\d+$/i.test(profile)) return;
+    try {
+      const { r, d } = store.parseCode(profile);
+      if (r < 0 || d < 0) return;
+      const ctx =
+        typeof store.ctxFor === "function"
+          ? store.ctxFor(String(p.id || key))
+          : p.ctx;
+      const mods = (
+        typeof store.appModuleIdsFromPath === "function"
+          ? (store.appModuleIdsFromPath(r, d, null, ctx) as string[])
+          : ((store.pathList(r, d, null, ctx) || []) as { id: string }[]).map(
+              (x) => x.id,
+            )
+      ).filter((id) => id && !PATH_LOCKED_HEAL.has(id));
+      if (!mods.length) return;
+      patches.push({ key, mods });
+    } catch {
+      /* ignore */
+    }
+  });
+  if (!patches.length) return;
+  store.set((s: { patients?: Record<string, Record<string, unknown>> }) => {
+    s.patients = s.patients || {};
+    patches.forEach(({ key, mods }) => {
+      const p = s.patients![key];
+      if (!p) return;
+      if (!Array.isArray(p.modulesEnabled) || p.modulesEnabled.length === 0) {
+        p.modulesEnabled = mods.slice();
+      }
+      if (!Array.isArray(p.modulesVisible) || p.modulesVisible.length === 0) {
+        p.modulesVisible = (
+          Array.isArray(p.modulesEnabled) && p.modulesEnabled.length
+            ? p.modulesEnabled
+            : mods
+        ).slice();
+      }
+    });
+  });
+  // Persistir en API en segundo plano (un paciente canónico).
+  const seen = new Set<string>();
+  patches.forEach(({ key, mods }) => {
+    const p = store.get().patients?.[key] as
+      | { id?: string; code?: string; accountId?: string }
+      | undefined;
+    const id = String(p?.id || key);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    void apiFetch("/api/patients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        code: p?.code,
+        accountId: p?.accountId,
+        modulesEnabled: mods,
+        modulesVisible: mods,
+      }),
+    }).catch(() => {});
+  });
 }
 
 /** Carga territorios, expertos, personas, etc. según el rol de la sesión activa. */
@@ -513,6 +602,7 @@ export async function hydrateProgramData(
       if (roleId === "paciente") {
         await hydratePatientSelf(store);
         await hydrateAppState(store);
+        healActivoModulesFromPath(store);
         lastHydratedSessionId = session.id!;
         return;
       }
@@ -529,23 +619,8 @@ export async function hydrateProgramData(
 
       if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
         programJobs.push(hydratePeopleFlagsWorklists(store));
-      } else if (roleId === "observador") {
-        programJobs.push(
-          apiFetch("/api/people")
-            .then(async (peopleRes) => {
-              const peopleData = (await peopleRes.json()) as {
-                ok?: boolean;
-                people?: Record<string, unknown>[];
-              };
-              if (peopleRes.ok && peopleData.ok && Array.isArray(peopleData.people)) {
-                store.set((s: { people: Record<string, unknown>[] }) => {
-                  s.people = peopleData.people!;
-                });
-              }
-            })
-            .catch(() => {}),
-        );
       }
+      // H-004: el observador no carga personas en el store; su tablero pide el resumen agregado.
 
       await Promise.all(programJobs);
       if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {

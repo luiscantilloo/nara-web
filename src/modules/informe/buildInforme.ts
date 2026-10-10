@@ -64,6 +64,15 @@ export type InformeModel = {
   answer?: { q: string; when: string };
 };
 
+const SIN_REGISTRO = "Sin registro";
+
+/** Inicio del período del informe en milisegundos (w = 7 días, m = 30 días, all = todo). */
+function periodStart(per: string, now = Date.now()): number {
+  if (per === "m") return now - 30 * 24 * 60 * 60 * 1000;
+  if (per === "all") return 0;
+  return now - 7 * 24 * 60 * 60 * 1000;
+}
+
 function pct(n: number, d: number): number {
   if (!d) return 0;
   return Math.round((n / d) * 100);
@@ -334,46 +343,67 @@ export function buildInforme(
     });
   }
 
+  // H-005 (TRL 2026-10-10): sin cifras fijas. Todo sale del estado del programa; lo que no se registra
+  // en la plataforma se muestra como «Sin registro», nunca con un número inventado.
+  const desde = periodStart(per);
+
   if (secs.includes("servicios")) {
-    const rows: [string, number][] = [
-      ["Sesiones PM+", 1148],
-      ["Personas en PM+", 712],
-      ["Encuentros de grupos de apoyo", 94],
-      ["Asistentes a grupos", 1036],
-      ["Vinculaciones a ayudas sociales", 388],
+    const people = (S.people || []).filter(
+      (p: any) => !p.archived && (!terr || p.terr === terr),
+    );
+    const activas = people.filter((p: any) => p.status === "Activo" || p.status === "Crisis").length;
+    const conPerfil = people.filter((p: any) => /^P\d+$/.test(String(p.profile || ""))).length;
+    const rows: [string, string][] = [
+      ["Personas registradas", people.length.toLocaleString("es-CO")],
+      ["Personas activas", activas.toLocaleString("es-CO")],
+      ["Con perfil asignado (psicólogo clínico, TEO y estado de ánimo)", conPerfil.toLocaleString("es-CO")],
+      ["Sesiones PM+", SIN_REGISTRO],
+      ["Grupos de apoyo", SIN_REGISTRO],
+      ["Vinculaciones a ayudas sociales", SIN_REGISTRO],
     ];
     sections.push({
       key: "servicios",
       title: SEC_LABELS.servicios,
       blurb: SEC_BLURB.servicios,
-      columns: ["Servicio", "En el período"],
-      rows: rows.map(([label, n]) => ({
-        cells: [label, n.toLocaleString("es-CO")],
+      columns: ["Servicio", "Valor"],
+      rows: rows.map(([label, v]) => ({
+        cells: [label, v],
+        tone: v === SIN_REGISTRO ? "muted" : undefined,
       })),
       kpis: [
-        { label: "Sesiones PM+", value: "1.148" },
-        { label: "Personas", value: "712" },
-        { label: "Grupos", value: "94" },
-        { label: "Ayudas", value: "388" },
+        { label: "Registradas", value: people.length.toLocaleString("es-CO") },
+        { label: "Activas", value: activas.toLocaleString("es-CO") },
+        { label: "Con perfil", value: conPerfil.toLocaleString("es-CO") },
       ],
     });
   }
 
   if (secs.includes("crisis")) {
-    const closed = (S.closedToday || []).filter((c: any) => c.sev === "crisis").length;
-    const n = 27 + closed;
+    const log: any[] = (S.crisisLog || []).filter((c: any) => Number(c.at || 0) >= desde);
+    const creadas = log.filter((c: any) => c.type === "created");
+    const tomadas = new Map<string, number>();
+    for (const c of S.crisisLog || []) {
+      if ((c.type === "taken" || c.type === "closed") && c.alertId) {
+        const prev = tomadas.get(c.alertId);
+        if (prev === undefined || c.at < prev) tomadas.set(c.alertId, Number(c.at));
+      }
+    }
+    const conRespuesta = creadas.filter((c: any) => tomadas.has(c.alertId));
+    const en30 = conRespuesta.filter((c: any) => (tomadas.get(c.alertId) as number) - Number(c.at) <= 30 * 60 * 1000).length;
+    const pct30 = conRespuesta.length ? pct(en30, conRespuesta.length) + " %" : SIN_REGISTRO;
     sections.push({
       key: "crisis",
       title: SEC_LABELS.crisis,
       blurb: SEC_BLURB.crisis,
       columns: ["Indicador", "Valor"],
       rows: [
-        { cells: ["Crisis del período", String(n)], tone: "muted" },
-        { cells: ["Atendidas en menos de 30 min", "100 %"], tone: "ok" },
+        { cells: ["Crisis del período", String(creadas.length)], tone: "muted" },
+        { cells: ["Con respuesta registrada", String(conRespuesta.length)] },
+        { cells: ["Atendidas en menos de 30 min", pct30], tone: conRespuesta.length ? "ok" : "muted" },
       ],
       kpis: [
-        { label: "Crisis", value: String(n) },
-        { label: "≤ 30 min", value: "100 %" },
+        { label: "Crisis", value: String(creadas.length) },
+        { label: "≤ 30 min", value: pct30 },
       ],
     });
   }

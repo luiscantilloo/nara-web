@@ -34,7 +34,7 @@ const SECTIONS = [
     accent: "1B4D3E",
     rows: [
       ["Correo", "admin@nara.com"],
-      ["Contraseña", "AdminNara2026"],
+      ["Contraseña", "(la de SEED_ADMIN_PASSWORD; no se escribe aquí)"],
       ["Nombre", "Administrador NARA"],
       ["Rol", "Administrador"],
     ],

@@ -30,9 +30,12 @@ export async function listarAgenda(): Promise<Respuesta<Agenda>> {
     const user = await sesionCon("clinico");
     const { db, pacientes, sinClin, hoy } = await contextoClinico(user);
     const citas = await citasDe(db, pacientes.map((p) => p.id));
+    const solicitudes = (
+      await db.collection("clin_solicitudes").find({ patientId: { $in: pacientes.map((p) => p.id) }, estado: "solicitada" }).sort({ at: 1 }).toArray()
+    ).map((d) => ({ id: String(d.id), patientId: String(d.patientId), code: String(d.code || ""), franja: String(d.franja), at: Number(d.at) }));
     return {
       ok: true,
-      data: { clinico: user.name, hoy, terr: user.terr, pacientes, sinClin, citas, modelo: MODELOS()[0], iaReal: !!process.env.OPENAI_API_KEY },
+      data: { clinico: user.name, hoy, terr: user.terr, pacientes, sinClin, citas, solicitudes, modelo: MODELOS()[0], iaReal: !!process.env.OPENAI_API_KEY },
     };
   } catch (e) {
     return falla(e);
@@ -188,6 +191,8 @@ export async function aceptarPropuesta(porPid: Record<string, CitaPropuesta[]>):
       });
       await db.collection(COLECCION).deleteMany({ patientId: pid, hecha: { $ne: true }, fecha: { $gte: hoy } });
       if (nuevas.length) await db.collection(COLECCION).insertMany(nuevas);
+      // SPEC-07: al programar citas, la solicitud abierta del paciente queda atendida.
+      if (nuevas.length) await db.collection("clin_solicitudes").updateMany({ patientId: pid, estado: "solicitada" }, { $set: { estado: "programada", updatedAt: ahora } });
       guardadas += nuevas.length;
     }
     return { ok: true, data: { guardadas } };

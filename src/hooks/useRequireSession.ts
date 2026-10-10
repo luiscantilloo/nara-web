@@ -44,7 +44,9 @@ export function useRequireSession(allowedIds: string[]) {
   useEffect(() => {
     const u = store.session();
     if (!isAllowed(u, allowedIds)) {
-      router.replace("/ingreso");
+      // H-015: con sesión de otro rol, a su propio panel con aviso; sin sesión, al ingreso.
+      const href = (u as { href?: string } | null)?.href;
+      router.replace(u && href ? `${href}?acceso=denegado` : "/ingreso");
       return;
     }
     setOk(true);

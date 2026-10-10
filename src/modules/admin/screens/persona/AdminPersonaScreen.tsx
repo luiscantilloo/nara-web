@@ -170,10 +170,10 @@ function AdminPersonaInner() {
                 <div className="flex flex-col gap-1">
                   <h2 className="font-titulos text-lg font-semibold">Servicios de su ruta</h2>
                   <p className="text-sm text-texto-secundario">
-                    Solo consulta. Son los mismos servicios activos de{" "}
+                    Solo consulta: la misma configuración de{" "}
                     <strong className="font-medium text-nara-tinta">Rutas · Servicios por perfil</strong>
-                    {v.hasProfile ? ` para ${v.profile}` : ""}. Los cambios se hacen allá y pasan por
-                    aprobación clínica; aquí solo se ven los que están activos.
+                    {v.hasProfile ? ` para ${v.profile}` : ""}. Los cambios se hacen allá (y pasan por
+                    aprobación clínica); aquí solo se previsualiza.
                   </p>
                 </div>
                 {!v.hasProfile ? (
@@ -216,6 +216,53 @@ function AdminPersonaInner() {
                 )}
               </section>
             </div>
+
+            {/* H-014 (reporte TRL 2026-10-10): archivar desde la interfaz, con motivo y registro. */}
+            <section className="flex flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-5" aria-labelledby="archivar-titulo">
+              <h2 id="archivar-titulo" className="font-titulos text-lg font-semibold">Archivar persona</h2>
+              <p className="text-sm text-texto-secundario">
+                La ficha deja de aparecer en las listas y los conteos. No se borra: queda registrado quién la archivó, cuándo y por qué.
+              </p>
+              {!v.archivo?.abierto ? (
+                <button
+                  type="button"
+                  onClick={() => v.abrirArchivo?.()}
+                  className="h-11 cursor-pointer self-start rounded-[14px] border-[1.5px] border-[#9C2F25] bg-nara-blanco px-5 font-texto text-[15px] font-medium text-[#9C2F25]"
+                >
+                  Archivar
+                </button>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1.5 text-sm font-medium">
+                    Motivo
+                    <textarea
+                      value={v.archivo.motivo}
+                      onChange={(e) => v.motivoArchivo?.(e.target.value)}
+                      rows={2}
+                      placeholder="Por ejemplo: la persona pidió retirar sus datos del programa"
+                      className="rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-3.5 py-2.5 font-texto text-base text-nara-tinta"
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2.5">
+                    <button
+                      type="button"
+                      disabled={v.archivo.enviando}
+                      onClick={() => void v.confirmarArchivo?.()}
+                      className="h-11 cursor-pointer rounded-[14px] border-none bg-[#9C2F25] px-5 font-texto text-[15px] font-medium text-white disabled:cursor-wait disabled:opacity-70"
+                    >
+                      {v.archivo.enviando ? "Archivando…" : "Confirmar archivo"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => v.cancelarArchivo?.()}
+                      className="h-11 cursor-pointer rounded-[14px] border-[1.5px] border-linea bg-nara-blanco px-5 font-texto text-[15px] font-medium text-nara-tinta"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
           </>
         )}
       </div>

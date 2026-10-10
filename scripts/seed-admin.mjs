@@ -59,10 +59,16 @@ const ROLES = [
   },
 ];
 
+// SPEC-05 FR-05.1 (S-4): sin clave por defecto en el código.
+if (!process.env.SEED_ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD.length < 12) {
+  console.error("Falta SEED_ADMIN_PASSWORD (12 caracteres o más). No se crea la cuenta admin.");
+  process.exit(1);
+}
+
 const ADMIN = {
   id: "admin",
   email: process.env.SEED_ADMIN_EMAIL || "admin@nara.com",
-  password: process.env.SEED_ADMIN_PASSWORD || "AdminNara2026",
+  password: process.env.SEED_ADMIN_PASSWORD,
   name: "Administrador NARA",
   roleId: "admin",
   role: "Administrador",

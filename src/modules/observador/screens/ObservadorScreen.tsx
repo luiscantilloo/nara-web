@@ -12,6 +12,7 @@ import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import { useNaraStore } from "@/providers/nara-provider";
+import { ObservadorTablero } from "./ObservadorTablero";
 
 function ObservadorInner() {
   const store = useNaraStore();
@@ -134,7 +135,8 @@ function ObservadorInner() {
               </button>
             </div>
           ) : (
-            <div className="nara-home-main">
+            <div className="nara-home-main flex flex-col gap-5">
+              <ObservadorTablero />
               <AgentPanel
                 role="obs"
                 mode="home"

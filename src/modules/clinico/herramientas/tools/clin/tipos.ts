@@ -37,6 +37,8 @@ export type Agenda = {
   pacientes: PacienteAgenda[];
   sinClin: { id: string; name: string; profile: string }[];
   citas: Cita[];
+  /** SPEC-07: citas que pidieron los pacientes y aún no se programan. */
+  solicitudes: { id: string; patientId: string; code: string; franja: string; at: number }[];
   modelo: string;
   iaReal: boolean;
 };

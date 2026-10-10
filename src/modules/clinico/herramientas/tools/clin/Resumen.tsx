@@ -52,6 +52,18 @@ export function Resumen({ vm }: { vm: AgendaVM }) {
           <span className="text-[12px] text-texto-secundario">todos sus pacientes</span>
         </div>
       </div>
+      {(vm.agenda?.solicitudes || []).length ? (
+        <div role="status" className="rounded-[12px] bg-nara-crema px-3 py-2">
+          <span className="text-[12px] text-texto-secundario">Citas que pidieron sus pacientes</span>
+          <ul className="m-0 mt-1 flex list-none flex-col gap-0.5 p-0 text-[14px]">
+            {(vm.agenda?.solicitudes || []).map((s) => (
+              <li key={s.id}>
+                {vm.P(s.patientId)?.name || s.code} · prefiere la {s.franja}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div>
         <span className="text-[12px] text-texto-secundario">Citas realizadas</span>
         <p className="m-0 mt-0.5 flex items-baseline gap-1.5">

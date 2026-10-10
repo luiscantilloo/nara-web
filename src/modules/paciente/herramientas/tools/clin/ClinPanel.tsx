@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { naraAsset } from "@/modules/paciente/app/naraAsset";
 import { hora12, larga } from "@/modules/clinico/herramientas/tools/clin/fechas";
-import { calificarCita, misCitas, type MisCitas } from "./acciones";
+import { calificarCita, misCitas, solicitarCita, type MisCitas } from "./acciones";
 
 /** Psicólogo clínico — solo `tools/clin/`. Próxima cita y calificación de la última realizada. */
 export function ClinPanel({ patientId }: { patientId: string }) {
@@ -65,6 +65,33 @@ export function ClinPanel({ patientId }: { patientId: string }) {
                 <p className="m-0 mt-0.5 font-titulos text-[20px] font-semibold leading-tight">Todavía no tiene cita</p>
                 <p className="m-0 mt-0.5 text-sm text-nara-tinta/75">Su psicóloga le avisará la fecha.</p>
               </>
+            )}
+            {/* SPEC-07 (caso P-05): pedir una cita */}
+            {datos.solicitud ? (
+              <p className="m-0 mt-2 text-sm font-medium" role="status">
+                Solicitud enviada ({datos.solicitud.franja}). Su psicóloga le responderá pronto.
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(["mañana", "tarde"] as const).map((fr) => (
+                  <button
+                    key={fr}
+                    type="button"
+                    disabled={guardando}
+                    onClick={async () => {
+                      setGuardando(true);
+                      const r = await solicitarCita(fr);
+                      setGuardando(false);
+                      if (!r.ok) return setError(r.error);
+                      setError("");
+                      setDatos((d) => (d ? { ...d, solicitud: r.data } : d));
+                    }}
+                    className="h-10 cursor-pointer rounded-full border-[1.5px] border-nara-tinta bg-nara-blanco px-4 font-texto text-sm font-medium text-nara-tinta disabled:opacity-60"
+                  >
+                    Pedir una cita en la {fr}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>

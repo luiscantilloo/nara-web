@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { filterRowsBySearch } from "@/components/shared/table-search/TableSearch";
 import { adminPathForView } from "@/modules/admin/routes";
+import { buildInforme } from "@/modules/informe/buildInforme";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 
 const SECS: [string, string][] = [
@@ -300,25 +301,16 @@ export function useAdminInformesScreen() {
         A.SAMPLE.improveByDig.forEach((r: any) => rows.push(r));
         rows.push([]);
       }
-      if (nf.secs.includes("servicios")) {
-        rows.push(["Servicios comunitarios"]);
-        rows.push(["Servicio", "Este mes"]);
-        [
-          ["Sesiones PM+", 1148],
-          ["Personas en PM+", 712],
-          ["Encuentros de grupos de apoyo", 94],
-          ["Asistentes a grupos", 1036],
-          ["Vinculaciones a ayudas sociales", 388],
-        ].forEach((r) => rows.push(r));
+      // H-005: servicios y crisis salen de la misma fuente que el informe en pantalla (sin cifras fijas).
+      const calc = buildInforme(A, { per: nf.per, terr: nf.terr, secs: "servicios,crisis" });
+      for (const key of ["servicios", "crisis"]) {
+        if (!nf.secs.includes(key)) continue;
+        const sec = calc.sections.find((x) => x.key === key);
+        if (!sec) continue;
+        rows.push([sec.title]);
+        rows.push(sec.columns);
+        sec.rows.forEach((r) => rows.push(r.cells));
         rows.push([]);
-      }
-      if (nf.secs.includes("crisis")) {
-        rows.push(["Crisis atendidas"]);
-        rows.push([
-          "Crisis del mes",
-          27 + S.closedToday.filter((c: any) => c.sev === "crisis").length,
-        ]);
-        rows.push(["Atendidas en menos de 30 min", "100 %"]);
       }
       const csv =
         "\ufeff" +

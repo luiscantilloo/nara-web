@@ -16,6 +16,16 @@ import { VisitsMap } from "@/components/shared/visits-map/VisitsMap";
 import { PathServicesList } from "@/modules/admin/rutas/servicios";
 import { ix } from "./inlineStyle";
 
+/** H-009: fecha real de hoy en Colombia, p. ej. «viernes 9 oct». */
+function hoyLargo(): string {
+  return new Date().toLocaleDateString("es-CO", {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    timeZone: "America/Bogota",
+  }).replace(/\.$/, "").replace(",", "");
+}
+
 export function AdminMainContent({ v }: { v: Record<string, any> }) {
   const [expertsQ, setExpertsQ] = useState("");
   const [pfQ, setPfQ] = useState("");
@@ -102,7 +112,7 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                     />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minWidth: 0 }}>
-                    <Link href="/informe?t=admin-weekly&back=/inicio" style={{ background: '#FDCD22', color: '#161413', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontSize: '13px', opacity: '.9' }}>Generado el lunes 28 sep</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '22px' }}>Operaciones de la semana</span><span style={{ fontSize: '14px', lineHeight: '1.45' }}>Captación frente al ritmo, territorios en riesgo, control de calidad, manillas y tres acciones.</span><span style={{ fontWeight: '500', marginTop: '6px' }}>Abrir one-pager →</span></Link>
+                    <Link href="/informe?t=admin-weekly&back=/inicio" style={{ background: '#FDCD22', color: '#161413', borderRadius: '14px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontSize: '13px', opacity: '.9' }} data-real-date>Generado el {hoyLargo()}</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '22px' }}>Operaciones de la semana</span><span style={{ fontSize: '14px', lineHeight: '1.45' }}>Captación frente al ritmo, territorios en riesgo, control de calidad, manillas y tres acciones.</span><span style={{ fontWeight: '500', marginTop: '6px' }}>Abrir one-pager →</span></Link>
                     {v.homeLinks?.map((l) => (<button key={l.id || l.label} onClick={() => l.go()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', textAlign: 'left', background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '3px', cursor: 'pointer', color: '#161413', whiteSpace: 'normal' }}><span style={{ fontWeight: '500' }}>{l.label}</span><span style={{ fontSize: '13px', color: '#5E5750' }}>{l.sub}</span></button>))}
                   </div>
                 </>

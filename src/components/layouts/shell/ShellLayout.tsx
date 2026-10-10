@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Shell de roles: viewport bloqueado.
@@ -12,6 +12,12 @@ export function ShellLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // H-015 (T-05): aviso cuando la guarda de rol devolvió al panel propio.
+  const [denegado, setDenegado] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("acceso") === "denegado") setDenegado(true);
+  }, []);
+
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -30,6 +36,14 @@ export function ShellLayout({
       data-shell-root
       className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-nara-crema"
     >
+      {denegado ? (
+        <div role="alert" className="flex items-center justify-between gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-950">
+          <span>Acceso denegado: esa pantalla es de otro rol. Su sesión sigue abierta.</span>
+          <button type="button" className="font-medium underline" onClick={() => setDenegado(false)}>
+            Cerrar
+          </button>
+        </div>
+      ) : null}
       {children}
     </div>
   );

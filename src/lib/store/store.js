@@ -185,27 +185,16 @@ const KEY = 'nara-memory-v1';
   function basePath(r, d) {
     const s = {};
     const on = (id, freq) => { s[id] = freq; };
-    // Los 6 servicios, siempre.
-    on('mood', 'Diario');
-    on('ia', r <= 1 ? 'Acceso libre' : 'Entre sesiones');
-    on('tech', d === 0 ? 'Material impreso' : 'En audio');
-    on('cursos', cursosMod(r, d));
-    on(
-      'clin',
-      r <= 1 ? 'Mensual' : r === 2 ? 'Mensual' : r === 3 ? 'Quincenal' : 'Semanal',
-    );
-    on(
-      'revisit',
-      r <= 1
-        ? d === 0
-          ? 'Cada 2 semanas'
-          : 'Mensual'
-        : r === 2
-          ? d === 0
-            ? 'Cada 2 semanas'
-            : 'Mensual'
-          : 'Cada 2 semanas',
-    );
+    // Matriz v2 (2026-10-08) limitada a los 3 servicios que funcionan hoy (decisión de Dani, 2026-10-09):
+    // estado de ánimo, psicólogo clínico y TEO. Técnicas, revisita y cursos quedan apagados.
+    // · Ánimo en la app solo con capacidad Alta.
+    if (d === 2) on('mood', 'Diario');
+    // · Psicólogo desde Moderado (Mensual, Quincenal, Semanal). P01 y P04 (riesgo bajo y capacidad Baja)
+    //   quedarían sin ningún servicio: llevan psicólogo mensual (provisional, pendiente de aprobación clínica).
+    if (r >= 2) on('clin', r === 2 ? 'Mensual' : r === 3 ? 'Quincenal' : 'Semanal');
+    else if (d === 0) on('clin', 'Mensual');
+    // · TEO con capacidad Media o Alta, nunca en Severo.
+    if (d >= 1 && r <= 3) on('ia', r <= 1 ? 'Acceso libre' : 'Entre sesiones');
     // inactiveMinutes: umbral del perfil para estado Inactivo (default: 1 día).
     if (r <= 1) return { s, months: 3, inactiveMinutes: 1440 };
     if (r === 2) return { s, months: 6, inactiveMinutes: 1440 };
@@ -496,7 +485,7 @@ const KEY = 'nara-memory-v1';
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new Event('nara-change'));
   }
-  function set(fn) { const s = get(); fn(s); ensure(s); cache = s; save(); schedulePersist({ get }); }
+  function set(fn) { const s = get(); fn(s); ensure(s); cache = s; save(); schedulePersist({ get, session }); }
   function reset() {
     cache = seed();
     ensure(cache);
@@ -862,6 +851,9 @@ const KEY = 'nara-memory-v1';
   // Sesión y modo desarrollador (solo memoria; se pierden al recargar hasta MongoDB)
   const USERS = [];
   let sessionId = null;
+  // H-001 (TRL 2026-10-10): la cuenta de la sesión viene de /api/auth/me y se guarda aparte,
+  // porque la API puede filtrar /api/accounts (el clínico no recibe su propia cuenta).
+  let sessionAccount = null;
   let devFlag = false;
   const ROLE_HREF = {
     Administrador: '/inicio', Administradora: '/inicio',
@@ -919,16 +911,19 @@ const KEY = 'nara-memory-v1';
   function session() {
     if (typeof window === 'undefined' || !sessionId) return null;
     const a = (get().accounts || []).find(x => x.id === sessionId);
-    return accountAsUser(a);
+    if (a) return accountAsUser(a);
+    return sessionAccount && sessionAccount.id === sessionId ? accountAsUser(sessionAccount) : null;
   }
-  function login(id) {
+  function login(id, account) {
     if (typeof window === 'undefined') return;
     sessionId = id;
+    sessionAccount = account && account.id === id ? { ...account } : null;
     window.dispatchEvent(new Event('nara-change'));
   }
   function logout() {
     if (typeof window === 'undefined') return;
     sessionId = null;
+    sessionAccount = null;
     fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .catch(() => {})
       .finally(() => { location.href = '/ingreso'; });
@@ -955,7 +950,8 @@ const KEY = 'nara-memory-v1';
       ids.some((id) => aliases[id] && aliases[id] === roleId) ||
       ((ids.includes('paula') || ids.includes('admin')) && isAdminRole(role));
     if (!ok) {
-      if (typeof window !== 'undefined') location.replace('/ingreso');
+      // H-015 (T-05): con sesión válida pero otro rol, vuelve a su propio panel sin cerrar la sesión.
+      if (typeof window !== 'undefined') location.replace((u.href || '/ingreso') + (u.href ? '?acceso=denegado' : ''));
       return null;
     }
     return u;

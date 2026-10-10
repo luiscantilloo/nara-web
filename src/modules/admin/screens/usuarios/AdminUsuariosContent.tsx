@@ -228,6 +228,15 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
             >
               {v.saveLabel}
             </button>
+            {v.canReset ? (
+              <button
+                type="button"
+                onClick={() => v.resetPassword()}
+                className="h-11 cursor-pointer rounded-[10px] border-[1.5px] border-linea bg-nara-blanco px-4 font-texto text-[15px] text-nara-tinta"
+              >
+                Restablecer clave
+              </button>
+            ) : null}
             {v.isEdit ? (
               <button
                 type="button"
@@ -248,6 +257,11 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
         )}
       >
         <div className="flex flex-col gap-3.5">
+          {v.tempMsg ? (
+            <div role="status" className="rounded-[10px] border border-linea bg-nara-crema px-3.5 py-3 font-texto text-[15px] font-medium text-nara-tinta">
+              {String(v.tempMsg)}
+            </div>
+          ) : null}
           <label className="flex flex-col gap-1.5 text-sm font-medium text-nara-tinta">
             Rol
             <select
