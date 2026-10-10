@@ -1,8 +1,8 @@
-import { PacienteScreen } from "@/modules/paciente/app/PacienteScreen";
 import { pageTitle } from "@/lib/page-title";
 
 export const metadata = pageTitle("Resumen");
 
+/** La pantalla vive en el layout; aquí solo ancla la ruta. */
 export default function Page() {
-  return <PacienteScreen />;
+  return null;
 }

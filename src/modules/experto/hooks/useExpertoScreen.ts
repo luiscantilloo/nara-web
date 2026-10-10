@@ -227,12 +227,14 @@ export function useExpertoScreen() {
     if (path !== pathname) router.push(path);
   }, [st.screen, st.pid, st.newForm, pathname, router]);
 
-  // URL → estado (deep link / back-forward)
+  // URL → estado (deep link / back-forward).
+  // No recrear el formulario: el layout mantiene el estado; aquí solo alineamos la vista.
   useEffect(() => {
     const parsed = expertoScreenForPath(pathname || "/experto");
     setStateRaw((prev) => {
       if (parsed.newForm) {
         if (prev.newForm && prev.screen === "list") return prev;
+        // Conservar nf / editPid si ya se cargaron al pulsar Evaluar.
         return { ...prev, screen: "list", newForm: true };
       }
       if (parsed.pid && parsed.screen) {
@@ -248,7 +250,7 @@ export function useExpertoScreen() {
           screen: parsed.screen,
           pid: parsed.pid,
           newForm: false,
-          editPid: null,
+          // No tocar items/consent: vienen del setState de la visita.
         };
       }
       if (prev.screen === "list" && !prev.newForm && !prev.pid) return prev;
@@ -1145,14 +1147,12 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       }[s] ?? 50);
     wlRows.sort((a, b) => rank(a.status) - rank(b.status) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
     const worklist = wlRows.map((w) => {
-      const crisisDone = (S.closedToday || []).some((x: any) => (x.pid === w.id || x.id === 'a-' + w.id) && x.sev === 'crisis');
+      // Crisis ya cerrada/resuelta: no mostrar «Crisis atendida»; vuelve el estado normal.
       const [tag, tagBg, tagFg] = w.reassignedTo
         ? ['Reasignada a ' + w.reassignedTo, C.niebla, C.texto2]
-        : crisisDone
-          ? ['Crisis atendida', '#E3F1E8', '#161413']
-          : (STATUS[w.status] || ['Pendiente', C.niebla, C.texto2]);
-      // Crisis: solo ver (sin botón). Por aprobar / validada: también sin acción.
-      const act = w.reassignedTo || crisisDone || w.status === 'crisis'
+        : (STATUS[w.status] || ['Pendiente', C.niebla, C.texto2]);
+      // Crisis abierta: solo ver (sin botón). Por aprobar / validada: también sin acción.
+      const act = w.reassignedTo || w.status === 'crisis'
         ? ''
         : w.status === 'sin_evaluacion' || w.status === 'rechazada' || w.status === 'cierre'
           ? w.status === 'rechazada'

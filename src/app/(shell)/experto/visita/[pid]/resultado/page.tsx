@@ -1,8 +1,8 @@
-import { ExpertoScreen } from "@/modules/experto/screens/ExpertoScreen";
 import { pageTitle } from "@/lib/page-title";
 
 export const metadata = pageTitle("Resultado");
 
+/** La pantalla vive en el layout; aquí solo ancla la ruta. */
 export default function Page() {
-  return <ExpertoScreen />;
+  return null;
 }
