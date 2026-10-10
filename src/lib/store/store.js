@@ -73,6 +73,7 @@ const KEY = 'nara-memory-v1';
     note: sv.note || '',
   }));
   const SERVICE_IDS = new Set(SERVICES.map((x) => x.id));
+  const PATH_LOCKED_IDS = ['tech', 'revisit', 'cursos'];
   const prunePathS = (s) => {
     const out = {};
     Object.keys(s || {}).forEach((k) => {
@@ -80,6 +81,21 @@ const KEY = 'nara-memory-v1';
     });
     return out;
   };
+  /**
+   * Catálogo completo: cada servicio con freq o '' (apagado explícito).
+   * Evita que claves ausentes se rellenen desde defaultPath y reaparezcan ON.
+   */
+  function normalizePathS(s) {
+    const out = {};
+    SERVICES.forEach((sv) => {
+      const v = s && s[sv.id];
+      out[sv.id] = v != null && String(v).trim() ? String(v).trim() : '';
+    });
+    PATH_LOCKED_IDS.forEach((k) => {
+      if (SERVICE_IDS.has(k)) out[k] = '';
+    });
+    return out;
+  }
   const CLIN_CH = ['En persona', 'Por teléfono', 'Videollamada o teléfono'];
 
   // ---------- v7 · Recursos de tratamiento: cuentos, videos, técnicas y cursos ----------
@@ -208,19 +224,21 @@ const KEY = 'nara-memory-v1';
     const storeOv = cache && cache.pathOverrides && cache.pathOverrides[code(r, d)];
     const explicit = asPathDraft(override) || asPathDraft(storeOv);
     const full = defaultPath(r, d);
-    // Por defecto los 6 activos (full). El override gana:
-    // - freq string → activo
-    // - '' / null → apagado explícito (no se rellena)
-    // - clave ausente en override viejo → se toma del default (activo)
-    const merged = { ...(full.s || {}) };
+    // Con override aprobado/enviado: fuente de verdad completa.
+    // Clave ausente o '' = apagado (NO se rellena desde defaultPath).
+    // Sin override: los 6 del perfil por defecto.
+    let merged;
     if (explicit && explicit.s && typeof explicit.s === 'object') {
-      Object.keys(explicit.s).forEach((k) => {
-        if (!SERVICE_IDS.has(k)) return;
-        const v = explicit.s[k];
-        if (v === '' || v == null) delete merged[k];
-        else merged[k] = v;
+      const norm = normalizePathS(explicit.s);
+      merged = {};
+      Object.keys(norm).forEach((k) => {
+        if (norm[k]) merged[k] = norm[k];
       });
+    } else {
+      merged = { ...(full.s || {}) };
     }
+    // tech / revisit / cursos: aún no se ofrecen en la app del paciente.
+    PATH_LOCKED_IDS.forEach((k) => { delete merged[k]; });
     const p = {
       s: prunePathS(merged),
       months:
@@ -1163,7 +1181,7 @@ const KEY = 'nara-memory-v1';
   const AlientoStore = {
     OFFSET, shiftText, fmtDay, today0, needsSocial, crisisLines, ctxFor, teamPerf, OBS_MODULES, OBS_DEFAULT_MODULES, OBS_TEMPLATES, ensure, TERRS, EXPERT_LIST, CLINICIANS, ROSTER, TCODE, person, people, terrInfo, experts, assetList, logActivity, logAccess,
     KEY, C, RISK, DIG, PHQ, PHQ_OPTS, Q9_EXACT, DIGQ, CTX, SERVICES, CLIN_CH, HEAT, PATIENTS, emptyPatient,
-    riskIdx, digIdx, code, parseCode, defaultPath, pathList, appModuleIdsFromPath, cursosFreq, cursosMod,
+    riskIdx, digIdx, code, parseCode, defaultPath, normalizePathS, pathList, appModuleIdsFromPath, cursosFreq, cursosMod,
     get, set, reset, subscribe, ensureExpertBuckets, teamGoals, quotas, openFlags, expertAlertCount, expertTeamStatus, minsAgo, agoText, countdown, addAlert, pushCrisisLog,
     CRISIS_TERMS, crisisCheck, logAgent, logAi, SAMPLE,
     USERS, session, login, logout, requireSession, devMode, setDevMode, param, notify, pushNotif, PEOPLE, CASE_IDS, territoryDist, placeMap, small, REC, recPerson, courseProgress

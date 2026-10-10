@@ -60,26 +60,47 @@ export function useAdminScreen() {
   }, [store, router, searchParams, pathname, viewFromPath]);
 
   const api = useMemo((): AdminModelApi => {
+    const normS = (s: Record<string, string> | undefined) =>
+      typeof store.normalizePathS === "function"
+        ? (store.normalizePathS(s || {}) as Record<string, string>)
+        : { ...(s || {}) };
+
     const draftFn = (code: string) => {
       const { r, d } = store.parseCode(code);
       const full = store.defaultPath(r, d);
-      // No rellenar servicios faltantes: apagado en la ruta = ausente en `s`.
+      const S0 = store.get();
+      const ov = S0.pathOverrides && S0.pathOverrides[code];
+
+      // Edición en curso.
       if (state.drafts[code]) {
         const dr = state.drafts[code];
         return {
-          ...dr,
-          s: { ...(dr.s || {}) },
+          s: normS(dr.s),
+          months: dr.months,
           inactiveMinutes:
             dr.inactiveMinutes != null ? dr.inactiveMinutes : 1440,
         };
       }
-      const S0 = store.get();
-      const p =
-        (S0.pathOverrides && S0.pathOverrides[code]) || full;
+
+      // Override aprobado (o hidratado): interruptores apagados se quedan en ''.
+      if (ov && ov.s && typeof ov.s === "object") {
+        return {
+          s: normS(ov.s),
+          months: ov.months != null ? ov.months : full.months,
+          inactiveMinutes:
+            ov.inactiveMinutes != null
+              ? ov.inactiveMinutes
+              : full.inactiveMinutes != null
+                ? full.inactiveMinutes
+                : 1440,
+        };
+      }
+
       return {
-        s: { ...(p.s || {}) },
-        months: p.months,
-        inactiveMinutes: p.inactiveMinutes != null ? p.inactiveMinutes : 1440,
+        s: normS(full.s || {}),
+        months: full.months,
+        inactiveMinutes:
+          full.inactiveMinutes != null ? full.inactiveMinutes : 1440,
       };
     };
     return {
@@ -89,6 +110,7 @@ export function useAdminScreen() {
       setDraft: (code, fn) => {
         const d = JSON.parse(JSON.stringify(draftFn(code)));
         fn(d);
+        d.s = normS(d.s || {});
         setState({ drafts: { ...state.drafts, [code]: d } });
       },
       router,

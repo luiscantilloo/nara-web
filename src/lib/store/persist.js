@@ -86,20 +86,33 @@ export async function hydrateAppState(store) {
             if (!row || typeof row !== "object") return;
             const id = String(row.id || `${row.code || ""}-${row.scope || "all"}`);
             if (!id || id === "-") return;
+            const norm = { ...row, id };
             const prev = map.get(id);
             if (!prev) {
-              map.set(id, { ...row, id });
+              map.set(id, norm);
               return;
             }
             const rank = (a) => {
               const st = String(a.status || "pending").toLowerCase();
               if (st === "approved" || st === "rejected") return 3;
+              if (st === "superseded") return 2;
               return 1;
             };
-            const aAt = Math.max(Number(row.at || 0), Number(row.resolvedAt || 0));
+            const aAt = Math.max(Number(norm.at || 0), Number(norm.resolvedAt || 0));
             const bAt = Math.max(Number(prev.at || 0), Number(prev.resolvedAt || 0));
-            if (rank(row) > rank(prev) || (rank(row) === rank(prev) && aAt >= bAt)) {
-              map.set(id, { ...prev, ...row, id });
+            const aSt = String(norm.status || "pending").toLowerCase();
+            const bSt = String(prev.status || "pending").toLowerCase();
+            // Pending nuevo (reenvío) no lo pisa un approved/rejected viejo del mismo id.
+            if (
+              aSt === "pending" &&
+              (bSt === "approved" || bSt === "rejected" || bSt === "superseded") &&
+              Number(norm.at || 0) > bAt
+            ) {
+              map.set(id, norm);
+              return;
+            }
+            if (rank(norm) > rank(prev) || (rank(norm) === rank(prev) && aAt >= bAt)) {
+              map.set(id, { ...prev, ...norm });
             }
           };
           (Array.isArray(s.pathRequests) ? s.pathRequests : []).forEach(put);
