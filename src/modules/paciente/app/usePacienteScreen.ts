@@ -460,6 +460,8 @@ export function usePacienteScreen() {
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appInitedRef = useRef(false);
   const pidRef = useRef(who);
+  /** Cuenta con la que se resolvió `who` (H-001). */
+  const cuentaRef = useRef("");
   /** Evita spam de «estoy bien» y reabrir la pantalla roja por sync obsoleto. */
   const confirmWellBusyRef = useRef(false);
   const wellConfirmedRef = useRef<{ pid: string; until: number } | null>(null);
@@ -573,19 +575,40 @@ export function usePacienteScreen() {
     [store],
   );
 
+  // H-001 (SPEC-001): el servidor escala la crisis (alerta, crisisLog y estado Crisis con el patientId de la
+  // sesión). La pantalla promete la llamada solo cuando el servidor lo confirma; si no, muestra las líneas de
+  // emergencia, reintenta y deja la alerta local como respaldo.
   const crisisDiana = useCallback(
-    (term: string, said: string) => {
+    async (term: string, said: string, delServidor?: { escalada?: boolean; text?: string }) => {
       const id = pidRef.current;
       const P = store.PATIENTS[id] || store.emptyPatient(id, "Paciente", 0);
       const fname = String(P.name || "Paciente").split(/\s+/)[0];
       setTyping(false);
       setPaused(true);
       setQuick([]);
-      setMsgs((m) => m.concat([{ t: "crisis", text: AlientoAI.crisisText(fname) }]));
+      let r = delServidor;
+      for (let i = 0; !r?.escalada && i < 3; i++) {
+        if (i) await new Promise((ok) => setTimeout(ok, 4000));
+        try {
+          const res = await fetch("/api/teo/chat", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { Accept: "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ message: said || term, patientName: P.name || "" }),
+          });
+          const data = (await res.json()) as { crisis?: boolean; escalada?: boolean; text?: string };
+          if (res.ok && data.crisis) r = data;
+        } catch {
+          /* sin conexión: se reintenta */
+        }
+      }
+      const lineas = `${fname}, gracias por contármelo. Lo que siente es importante. Si está en peligro ahora, llame al 123. Si necesita hablar con alguien, marque la Línea 192, opción 4.`;
+      setMsgs((m) => m.concat([{ t: "crisis", text: r?.escalada ? r.text || AlientoAI.crisisText(fname) : lineas }]));
       store.set((s) => {
         s.diana = s.diana || { crisis: false };
         if (id === "diana") s.diana.crisis = true;
       });
+      if (r?.escalada) return;
       store.addAlert({
         id: "a-" + id,
         sev: "crisis",
@@ -815,6 +838,7 @@ export function usePacienteScreen() {
       }
       setWho(patientId);
       pidRef.current = patientId;
+      cuentaRef.current = String(su!.id || "");
       if (!appInitedRef.current) {
         appInitedRef.current = true;
         if (patientId === "rosalba" || su!.id === "rosalba") initWA();
@@ -867,8 +891,14 @@ export function usePacienteScreen() {
         inboxNRef.current = inbox.length;
         if (waReadyRef.current) setWa((w) => w.concat(add));
       }
+      // H-001: `who` es el id de la ficha (patientId), no el de la cuenta. Solo se cambia si entró otra cuenta.
       const su = store.session();
-      setWho((w) => (su && su.id !== w ? su.id : w));
+      if (su?.id && cuentaRef.current && su.id !== cuentaRef.current) {
+        cuentaRef.current = String(su.id);
+        const otro = String(su.patientId || su.id);
+        pidRef.current = otro;
+        setWho(otro);
+      }
     });
   }, [store]);
 
@@ -1383,7 +1413,8 @@ export function usePacienteScreen() {
           age: P.age || "",
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean };
+      const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean; crisis?: boolean; escalada?: boolean };
+      if (res.ok && data.crisis) return crisisDiana("clasificador IA", text, data);
       if (res.ok && data.ok && data.text && data.text.trim()) {
         reply = data.text.trim();
       }
