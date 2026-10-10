@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useNaraStore } from "@/providers/nara-provider";
-import { ToolCardShell } from "../../ToolCardShell";
 import type { HerramientaCardProps } from "../../types";
 
 const STORAGE_PREFIX = "nara.teo.conversations.";
@@ -62,6 +61,12 @@ function estadoLabel(estado: Conversation["estadoMental"]) {
   return "Bueno";
 }
 
+function estadoClass(estado: Conversation["estadoMental"]) {
+  if (estado === "crisis") return "bg-nara-rosa text-nara-tinta";
+  if (estado === "malo") return "bg-nara-duda text-nara-tinta";
+  return "bg-nara-calma text-nara-tinta";
+}
+
 /** Acompañante con IA (TEO) — historial de la ficha, solo este paciente. */
 export function IaToolCard({ item, patientId }: HerramientaCardProps) {
   const store = useNaraStore();
@@ -90,38 +95,40 @@ export function IaToolCard({ item, patientId }: HerramientaCardProps) {
   }, [patientName]);
 
   return (
-    <div className="flex flex-col gap-2 sm:col-span-2">
-      <ToolCardShell>
-        <span className="text-[15px] font-medium text-nara-tinta">{item.name}</span>
-        <span className="text-xs text-texto-secundario">
+    <section className="flex flex-col overflow-hidden rounded-2xl border border-linea bg-nara-blanco font-texto text-nara-tinta sm:col-span-2">
+      <header className="flex items-center justify-between gap-3 border-b border-linea px-4 py-3">
+        <span className="text-[15px] font-medium">{item.name}</span>
+        <span className="shrink-0 text-xs text-texto-secundario">
           {patientName ? `${rows.length} de ${patientName}` : "Sin nombre en la ficha"}
         </span>
-      </ToolCardShell>
-      <div className="overflow-hidden rounded-2xl border border-linea bg-nara-blanco font-texto text-sm text-nara-tinta">
-        <div className="grid grid-cols-[minmax(8rem,1.1fr)_minmax(0,2fr)_5.5rem] gap-2 border-b border-linea px-3 py-2 text-xs font-medium text-texto-secundario">
-          <span>Fecha</span>
-          <span>Resumen</span>
-          <span>Estado</span>
-        </div>
+      </header>
+      <div className="hidden border-b border-linea bg-nara-crema px-4 py-2 text-xs font-medium text-texto-secundario sm:grid sm:grid-cols-[11rem_minmax(0,1fr)_5.5rem] sm:gap-3">
+        <span>Fecha</span>
+        <span>Resumen</span>
+        <span>Estado</span>
+      </div>
+      <div className="max-h-72 overflow-y-auto">
         {rows.length === 0 ? (
-          <p className="m-0 px-3 py-3 text-texto-secundario">
+          <p className="m-0 px-4 py-4 text-sm text-texto-secundario">
             {patientName
               ? `No hay conversaciones de ${patientName}.`
               : "Esta ficha no tiene nombre de paciente."}
           </p>
         ) : (
           rows.map((row) => (
-            <div
+            <article
               key={row.id}
-              className="grid grid-cols-[minmax(8rem,1.1fr)_minmax(0,2fr)_5.5rem] gap-2 border-b border-linea px-3 py-2 last:border-b-0"
+              className="flex flex-col gap-1.5 border-b border-linea px-4 py-3 last:border-b-0 sm:grid sm:grid-cols-[11rem_minmax(0,1fr)_5.5rem] sm:items-start sm:gap-3"
             >
-              <span className="text-xs text-texto-secundario">{row.fecha}</span>
-              <p className="m-0 leading-snug">{row.resumen}</p>
-              <span className="text-xs font-medium">{estadoLabel(row.estadoMental)}</span>
-            </div>
+              <time className="text-xs leading-snug text-texto-secundario">{row.fecha}</time>
+              <p className="m-0 text-sm leading-snug">{row.resumen}</p>
+              <span className={`w-fit rounded-full px-2 py-0.5 text-xs font-medium ${estadoClass(row.estadoMental)}`}>
+                {estadoLabel(row.estadoMental)}
+              </span>
+            </article>
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }
