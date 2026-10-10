@@ -402,7 +402,30 @@ export function useClinicoScreen() {
       const phone = String(P?.phone || pe?.phone || a.phone || "").trim();
       return { name, age, place, profile, phone, pid };
     };
-    const alerts = S.alerts
+    // H-002 (SPEC-002 FR-005): la cola y el contador «en crisis» salen de la misma fuente. Una ficha en
+    // Crisis sin alerta abierta (p. ej. la alerta se perdió) aparece en «Por tomar» para que alguien la tome.
+    const pidsConAlerta = new Set(
+      S.alerts
+        .filter((a) => a.sev === "crisis" && a.status !== "closed")
+        .flatMap((a) => [String(a.pid || ""), resolveFicha(a.pid).pid]),
+    );
+    const sinAlerta = Object.values(patientsMap)
+      .filter((P: any) => P?.id && !P.archived && (P.crisisLock === true || /crisis/i.test(String(P.status || P.signal || ""))))
+      .filter((P: any) => !pidsConAlerta.has(String(P.id)))
+      .map((P: any) => ({
+        id: "a-" + P.id,
+        sev: "crisis",
+        status: "new",
+        pid: String(P.id),
+        name: P.name || "",
+        at: Number(new Date(P.updatedAt || 0)) || Date.now(),
+        what: "La ficha está en Crisis sin alerta registrada. Revise el caso y tómelo.",
+        term: "Estado Crisis",
+        source: "Ficha del paciente",
+        sintetica: true,
+      }));
+    const alertasCola = S.alerts.concat(sinAlerta);
+    const alerts = alertasCola
       .slice()
       .sort((a, b) => order[a.sev] - order[b.sev] || b.at - a.at)
       .map((a) => {
@@ -444,7 +467,13 @@ export function useClinicoScreen() {
               (A.session() && A.session().name) || "Clínico de turno";
             const snap = enrichFromFicha(a);
             A.set((s) => {
-              const x = s.alerts.find((y) => y.id === a.id);
+              let x = s.alerts.find((y) => y.id === a.id);
+              if (!x && a.sintetica) {
+                // FR-005: la alerta de respaldo de una ficha en Crisis pasa a ser una alerta real al tomarla.
+                const { sintetica: _s, ...real } = a;
+                x = real;
+                s.alerts.unshift(x);
+              }
               if (!x) return;
               x.status = "mine";
               x.takenAt = Date.now();
@@ -2209,7 +2238,7 @@ export function useClinicoScreen() {
           file: "Ficha de " + P.name,
         }[st.view] || "Inicio"),
       goAlerts: () => {
-        const toTakeN = S.alerts.filter(
+        const toTakeN = alertasCola.filter(
           (a) => a.sev === "crisis" && a.status === "new",
         ).length;
         const mineN = S.alerts.filter(

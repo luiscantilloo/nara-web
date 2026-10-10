@@ -401,7 +401,7 @@ const SCRIPT = [
     // la alerta no se borra: la cierra el clínico.
     if (sec === 'phq' && i === 8 && Number(v) > 0 && st.pid) {
       const p = person();
-      store.addAlert({
+      const alerta = {
         id: 'a-' + st.pid,
         sev: 'crisis',
         pid: st.pid,
@@ -414,14 +414,36 @@ const SCRIPT = [
         source: 'Experto de campo · cuestionario',
         createdByRole: 'experto',
         phone: (p as { phone?: string }).phone || '',
-      });
+      };
       setState({ crisis: true });
-      void fetch('/api/patients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ id: st.pid, name: p.name || st.pid, status: 'Crisis', signal: 'Crisis', crisisLock: true }),
-      }).catch(() => {});
+      // H-002 (SPEC-002 FR-002): el servidor guarda la alerta al momento (POST /api/alerts), aunque la persona
+      // todavía no sea paciente y aunque la visita no se guarde. Antes se escribía en app-state, que la
+      // descartaba, y POST /api/patients respondía 403 al experto.
+      void (async () => {
+        for (let intento = 0; intento < 4; intento++) {
+          if (intento) await new Promise((ok) => setTimeout(ok, 3000 * intento));
+          try {
+            const res = await fetch('/api/alerts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify(alerta),
+            });
+            if (res.ok) {
+              const { alert } = (await res.json()) as { alert?: Record<string, unknown> };
+              store.set((s: { alerts: Record<string, unknown>[] }) => {
+                if (!s.alerts.some((x) => x.id === alerta.id)) s.alerts.unshift(alert || { ...alerta, at: Date.now(), status: 'new' });
+              });
+              return;
+            }
+            if (res.status === 403 || res.status === 400) break;
+          } catch {
+            /* sin señal: se reintenta */
+          }
+        }
+        // Respaldo: alerta local, que se sincroniza con app-state cuando haya conexión.
+        store.addAlert(alerta);
+      })();
     }
   }
   function applyDrafts(list: [string, number, number][]) {
@@ -906,14 +928,39 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         : Promise.resolve(),
     ]).catch(() => {});
 
-    setState({ screen: 'list', pid: null, newForm: false, editPid: null });
-    flash(
-      crisis
-        ? 'Crisis registrada.'
-        : closingEval
-          ? 'Evaluación de cierre · perfil ' + res.code + ' · Terminado negro.'
-          : 'Evaluación guardada · perfil ' + res.code + ' · por aprobar.',
-    );
+    // H-004 (SPEC-002 FR-004): la visita se da por guardada solo cuando el servidor confirma el
+    // consentimiento firmado. Antes dependía del guardado automático y se perdía si la app se cerraba.
+    const consentimiento = (store.get().consents || {})[personId];
+    void (async () => {
+      let guardado = !consentimiento;
+      for (let intento = 0; !guardado && intento < 3; intento++) {
+        if (intento) await new Promise((ok) => setTimeout(ok, 1500 * intento));
+        try {
+          const r = await fetch('/api/app-state', {
+            credentials: 'same-origin',
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slices: { consents: { [personId]: consentimiento } } }),
+          });
+          const j = (await r.json().catch(() => ({}))) as { descartados?: { apartado: string }[] };
+          guardado = r.ok && !(j.descartados || []).some((d) => d.apartado === 'consents');
+        } catch {
+          /* sin señal: se reintenta */
+        }
+      }
+      if (!guardado) {
+        flash('No se pudo guardar el consentimiento en el servidor. Revise la señal y toque «Guardar visita» otra vez.');
+        return;
+      }
+      setState({ screen: 'list', pid: null, newForm: false, editPid: null });
+      flash(
+        crisis
+          ? 'Crisis registrada.'
+          : closingEval
+            ? 'Evaluación de cierre · perfil ' + res.code + ' · Terminado negro.'
+            : 'Evaluación guardada · perfil ' + res.code + ' · por aprobar.',
+      );
+    })();
   }
   function rv() {
     const A = store;
