@@ -8,13 +8,6 @@ import { naraAsset } from "@/modules/paciente/app/naraAsset";
 import { useNaraStore } from "@/providers/nara-provider";
 
 const TEO_N8N_WEBHOOK = "https://polariatech.app.n8n.cloud/webhook/teopaciente";
-const STORAGE_PREFIX = "nara.teo.conversations.";
-const FLUJO =
-  "Se registró el flujo de respiración 4-6: inhalar 4 segundos, exhalar 6 segundos, tres ciclos.";
-const MALO =
-  /miedo|mal|triste|cansad|angust|dolor|ansie|llor|peor|no puedo|sola|solo|replica|réplica/i;
-const CRISIS =
-  /suicid|matarme|quitarme la vida|no quiero vivir|hacerme daño|hacerme dano|\bcrisis\b/i;
 
 type Turn = { role: "paciente" | "teo"; text: string; crisis?: boolean };
 
@@ -36,10 +29,10 @@ type ChatVm = {
   quick: { label: string; go: () => void }[];
   paused: boolean;
   notPaused: boolean;
-  askChips: { label: string; go: () => void }[];
   input: string;
   setInput: (value: string) => void;
   sendDiana: () => void;
+  resetTeoChat?: () => void;
 };
 
 function btnFont(): CSSProperties {
@@ -48,14 +41,6 @@ function btnFont(): CSSProperties {
 
 function newId() {
   return `tc-${Date.now().toString(36)}`;
-}
-
-function fechaDe(ms: number) {
-  return new Intl.DateTimeFormat("es-CO", {
-    dateStyle: "long",
-    timeStyle: "short",
-    timeZone: "America/Bogota",
-  }).format(new Date(ms));
 }
 
 function mentionsBreath(text: string) {
@@ -82,25 +67,6 @@ function turnsFromChat(msgs: ChatVm["chatMsgs"]): Turn[] {
     else if (m.ai || m.crisis) turns.push({ role: "teo", text, ...(m.crisis ? { crisis: true } : {}) });
   }
   return turns;
-}
-
-function buildRecord(messages: Turn[], flujo: boolean) {
-  const patient = messages.filter((m) => m.role === "paciente").map((m) => m.text);
-  const joined = messages.map((m) => m.text).join("\n");
-  let estadoMental: "bueno" | "malo" | "crisis" = "bueno";
-  if (messages.some((m) => m.crisis) || CRISIS.test(joined)) estadoMental = "crisis";
-  else if (MALO.test(patient.join(" "))) estadoMental = "malo";
-  const spoken = messages
-    .map((m) => `${m.role === "paciente" ? "Paciente" : "TEO"}: ${m.text}`)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 700);
-  let resumen = spoken || "Conversación con TEO.";
-  if (!/[.!?]$/.test(resumen)) resumen = `${resumen}.`;
-  if (flujo) resumen = `${resumen} ${FLUJO}`;
-  if (estadoMental === "crisis") resumen = `Crisis. ${resumen}`;
-  return { resumen, estadoMental };
 }
 
 /** TEO (IA) — el chat que antes vivía en DianaChat. */
@@ -136,39 +102,22 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
   }
 
   async function saveConversation(messages: Turn[], close = false) {
+    if (!messages.some((m) => m.role === "paciente")) return;
     const ctx = patientContext();
-    const flujo = messages.some((m) => m.role === "teo" && mentionsBreath(m.text));
-    const { resumen, estadoMental } = buildRecord(messages, flujo);
-    const conversation = {
-      id: conversationId,
-      patientId: ctx.id,
-      patientName: ctx.name,
-      startedAt,
-      fecha: fechaDe(startedAt),
-      messages,
-      resumen,
-      estadoMental,
-      flujoRespiracion: flujo,
-      status: close ? "cerrada" : "abierta",
-      closedAt: close ? Date.now() : null,
-    };
-    const key = STORAGE_PREFIX + (ctx.id || ctx.name);
-    const prev = (() => {
-      try {
-        const raw = JSON.parse(window.localStorage.getItem(key) || "[]") as { id?: string }[];
-        return Array.isArray(raw) ? raw.filter((row) => row.id !== conversation.id) : [];
-      } catch {
-        return [];
-      }
-    })();
-    window.localStorage.setItem(key, JSON.stringify([conversation, ...prev]));
+    const flujo = messages.some(
+      (m) => m.role === "teo" && mentionsBreath(m.text),
+    );
+    // Solo BD (colección Mongo `conversacion`). Sin localStorage.
     try {
       await fetch("/api/teo/conversations", {
         method: "POST",
         credentials: "same-origin",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          id: conversation.id,
+          id: conversationId,
           patientId: ctx.id,
           patientName: ctx.name,
           startedAt,
@@ -178,7 +127,7 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
         }),
       });
     } catch {
-      /* el historial local ya quedó */
+      /* reintento en el próximo mensaje */
     }
   }
 
@@ -291,9 +240,10 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
     if (current.some((m) => m.role === "paciente")) await saveConversation(current, true);
     setConversationId(newId());
     setStartedAt(Date.now());
-    setThread([]);
+    setThread(null);
     setLocalPaused(false);
     vm.setInput("");
+    vm.resetTeoChat?.();
   }
 
   const shown = (thread ?? vm.chatMsgs.map((m) => ({ ...m }))).map((m) => {
@@ -314,21 +264,32 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
   });
   const breathOn = (thread || []).some((m) => m.role === "teo" && mentionsBreath(m.text));
 
+  const canSend = !!vm.input.trim() && !sending && !vm.paused && !localPaused;
+
   return (
-    <div style={{ animation: "naraTab .22s ease-out", display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <div className="sticky top-0 z-20 bg-nara-crema px-3.5 py-2">
+    <div className="flex min-h-full flex-col font-texto [animation:naraTab_.22s_ease-out]">
+      <div className="sticky top-0 z-20 flex items-center justify-end bg-nara-crema/95 px-3.5 py-2 backdrop-blur-sm">
         <button
           type="button"
           onClick={() => void startNew()}
-          className="h-11 w-full cursor-pointer rounded-full border-[1.5px] border-nara-tinta bg-nara-amarillo font-texto text-sm font-medium text-nara-tinta"
+          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-full border border-linea bg-nara-blanco px-3 font-texto text-[13px] font-medium text-nara-tinta shadow-sm transition hover:border-nara-tinta/30 active:scale-[0.98]"
         >
-          Nueva conversación
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Nueva
         </button>
       </div>
-      <div style={{ margin: "0 14px", background: "#fff", border: "1px solid #DCD6CD", borderRadius: 12, padding: "10px 12px", fontSize: 14, lineHeight: 1.4, color: "#161413" }}>
-        TEO es un acompañante con inteligencia artificial. No reemplaza a su psicóloga. Si está en peligro, use el botón de ayuda.
-      </div>
-      <div style={{ flex: 1, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="flex flex-1 flex-col gap-2.5 p-3.5">
         {shown.map((m, i) => (
           <div key={i}>
             {m.ai ? (
@@ -392,24 +353,35 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
         </div>
       ) : null}
       {vm.notPaused && !localPaused ? (
-        <div style={{ position: "sticky", bottom: 0, background: "#F0ECE6", borderTop: "1px solid #DCD6CD", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
-            {vm.askChips.map((q) => (
-              <button key={q.label} type="button" onClick={q.go} style={{ flex: "none", ...btnFont(), fontSize: 15, minHeight: 48, padding: "0 14px", borderRadius: 22, border: "1px solid #DCD6CD", background: "#fff", color: "#161413", cursor: "pointer" }}>
-                {q.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
+        <div className="sticky bottom-0 border-t border-linea bg-nara-crema px-3 py-2.5">
+          <div className="flex items-center gap-1 rounded-[28px] border border-linea bg-nara-blanco pl-4 pr-1.5 shadow-[0_1px_0_rgba(22,20,19,0.04)] focus-within:border-nara-tinta/35">
             <input
               value={vm.input}
               onChange={(e) => vm.setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void send()}
               placeholder="Escríbale a TEO"
-              style={{ flex: 1, height: 48, borderRadius: 24, border: "1.5px solid #DCD6CD", padding: "0 16px", fontSize: 17, background: "#fff", fontFamily: "Figtree, system-ui, sans-serif" }}
+              className="min-w-0 flex-1 border-0 bg-transparent py-3 font-texto text-[16px] text-nara-tinta outline-none placeholder:text-texto-secundario/70"
             />
-            <button type="button" onClick={() => void send()} style={{ ...btnFont(), fontSize: 16, fontWeight: 500, height: 48, padding: "0 16px", borderRadius: 24, border: "none", background: "#FDCD22", color: "#161413", cursor: "pointer" }}>
-              Enviar
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={!canSend}
+              aria-label="Enviar"
+              className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border-0 transition ${
+                canSend
+                  ? "cursor-pointer bg-nara-amarillo text-nara-tinta active:scale-95"
+                  : "cursor-not-allowed bg-superficie-2 text-texto-secundario/50"
+              }`}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M3.4 20.4 21 12 3.4 3.6 3 10.1l12.1 1.9L3 13.9l.4 6.5z" />
+              </svg>
             </button>
           </div>
         </div>

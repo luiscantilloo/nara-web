@@ -1,12 +1,16 @@
 // @ts-nocheck
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { IoClose } from "react-icons/io5";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { RoleNav } from "@/components/shared/role-nav/RoleNav";
+import {
+  TableSearch,
+  filterRowsBySearch,
+} from "@/components/shared/table-search/TableSearch";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
 import { HerramientasSection } from "@/modules/clinico/herramientas";
 
@@ -389,8 +393,65 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
   const as = (v.as as Record<string, unknown>) || {};
   const f = (v.f as Record<string, unknown>) || {};
   const [crisisHistoryOpen, setCrisisHistoryOpen] = useState(false);
+  const [patientsQ, setPatientsQ] = useState("");
+  const [crisisHistQ, setCrisisHistQ] = useState("");
+  const [crisisQ, setCrisisQ] = useState("");
+  const [approvalsQ, setApprovalsQ] = useState("");
   const fileCrisisHistory = (f.crisisHistory as CrisisHistoryEvent[] | undefined) || [];
   const lastCrisisEvent = fileCrisisHistory[0] || null;
+
+  const patientsRows = useMemo(
+    () =>
+      filterRowsBySearch(
+        (v.patients as Record<string, unknown>[] | undefined) || [],
+        patientsQ,
+      ),
+    [v.patients, patientsQ],
+  );
+  const crisisHistoryRows = useMemo(
+    () =>
+      filterRowsBySearch(
+        (v.crisisHistory as Record<string, unknown>[] | undefined) || [],
+        crisisHistQ,
+      ),
+    [v.crisisHistory, crisisHistQ],
+  );
+  const approvalsRows = useMemo(
+    () =>
+      filterRowsBySearch(
+        (v.approvals as Record<string, unknown>[] | undefined) || [],
+        approvalsQ,
+      ),
+    [v.approvals, approvalsQ],
+  );
+  const crisisBoard = v.crisisBoard as
+    | {
+        toTake?: CrisisAlert[];
+        mine?: CrisisAlert[];
+        others?: CrisisAlert[];
+        info?: CrisisAlert[];
+      }
+    | undefined;
+  const crisisToTake = useMemo(
+    () => filterRowsBySearch(crisisBoard?.toTake || [], crisisQ),
+    [crisisBoard?.toTake, crisisQ],
+  );
+  const crisisMine = useMemo(
+    () => filterRowsBySearch(crisisBoard?.mine || [], crisisQ),
+    [crisisBoard?.mine, crisisQ],
+  );
+  const crisisOthers = useMemo(
+    () => filterRowsBySearch(crisisBoard?.others || [], crisisQ),
+    [crisisBoard?.others, crisisQ],
+  );
+  const crisisInfo = useMemo(
+    () => filterRowsBySearch(crisisBoard?.info || [], crisisQ),
+    [crisisBoard?.info, crisisQ],
+  );
+  const crisisClosed = useMemo(
+    () => filterRowsBySearch((v.closed as CrisisAlert[] | undefined) || [], crisisQ),
+    [v.closed, crisisQ],
+  );
 
   return (
     <div
@@ -715,17 +776,28 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   de la meta de 30 minutos.
                 </div>
               ) : null}
+
+              <TableSearch
+                value={crisisQ}
+                onChange={setCrisisQ}
+                placeholder="Buscar crisis por paciente, lugar, estado…"
+                className="sm:max-w-md"
+              />
             </div>
 
             {v.crisisTab === "take" || v.crisisTab === "all" ? (
               <CrisisSection
                 title="Por tomar"
                 subtitle="Crisis nuevas que aún nadie atendió"
-                count={((v.crisisBoard as { toTake: CrisisAlert[] }).toTake || []).length}
+                count={crisisToTake.length}
                 accent="danger"
-                empty="No hay crisis pendientes de toma. Bien."
+                empty={
+                  crisisQ.trim()
+                    ? "Ninguna crisis coincide con la búsqueda."
+                    : "No hay crisis pendientes de toma. Bien."
+                }
               >
-                {((v.crisisBoard as { toTake: CrisisAlert[] }).toTake || []).map((a, i) => (
+                {crisisToTake.map((a, i) => (
                   <CrisisAlertCard key={String(a.id || i)} a={a} />
                 ))}
               </CrisisSection>
@@ -735,11 +807,15 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
               <CrisisSection
                 title="En atención (usted)"
                 subtitle="Casos que tomó · elija resultado y cierre"
-                count={((v.crisisBoard as { mine: CrisisAlert[] }).mine || []).length}
+                count={crisisMine.length}
                 accent="warm"
-                empty="Aún no tiene casos en atención. Tome uno de «Por tomar»."
+                empty={
+                  crisisQ.trim()
+                    ? "Ninguna crisis coincide con la búsqueda."
+                    : "Aún no tiene casos en atención. Tome uno de «Por tomar»."
+                }
               >
-                {((v.crisisBoard as { mine: CrisisAlert[] }).mine || []).map((a, i) => (
+                {crisisMine.map((a, i) => (
                   <CrisisAlertCard key={String(a.id || i)} a={a} />
                 ))}
               </CrisisSection>
@@ -750,22 +826,30 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 <CrisisSection
                   title="En atención (colegas)"
                   subtitle="Tomados por otro clínico del turno"
-                  count={((v.crisisBoard as { others: CrisisAlert[] }).others || []).length}
+                  count={crisisOthers.length}
                   accent="neutral"
-                  empty="Ningún colega tiene un caso abierto ahora."
+                  empty={
+                    crisisQ.trim()
+                      ? "Ninguna crisis coincide con la búsqueda."
+                      : "Ningún colega tiene un caso abierto ahora."
+                  }
                 >
-                  {((v.crisisBoard as { others: CrisisAlert[] }).others || []).map((a, i) => (
+                  {crisisOthers.map((a, i) => (
                     <CrisisAlertCard key={String(a.id || i)} a={a} />
                   ))}
                 </CrisisSection>
                 <CrisisSection
                   title="Otras alertas"
                   subtitle="Revisiones e informativas"
-                  count={((v.crisisBoard as { info: CrisisAlert[] }).info || []).length}
+                  count={crisisInfo.length}
                   accent="neutral"
-                  empty="Sin alertas informativas abiertas."
+                  empty={
+                    crisisQ.trim()
+                      ? "Ninguna alerta coincide con la búsqueda."
+                      : "Sin alertas informativas abiertas."
+                  }
                 >
-                  {((v.crisisBoard as { info: CrisisAlert[] }).info || []).map((a, i) => (
+                  {crisisInfo.map((a, i) => (
                     <CrisisAlertCard key={String(a.id || i)} a={a} />
                   ))}
                 </CrisisSection>
@@ -776,11 +860,15 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
               <CrisisSection
                 title="Gestionadas hoy"
                 subtitle="Atendidas por usted · pasan a Cerrada solo cuando el paciente confirma «estoy bien»"
-                count={((v.closed as CrisisAlert[]) || []).length}
+                count={crisisClosed.length}
                 accent="ok"
-                empty="Todavía no ha gestionado alertas hoy."
+                empty={
+                  crisisQ.trim()
+                    ? "Ninguna alerta coincide con la búsqueda."
+                    : "Todavía no ha gestionado alertas hoy."
+                }
               >
-                {((v.closed as CrisisAlert[]) || []).map((c, i) => (
+                {crisisClosed.map((c, i) => (
                   <div
                     key={i}
                     className="flex flex-col gap-1.5 rounded-2xl border border-linea bg-nara-blanco px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
@@ -844,32 +932,40 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 </span>
               </div>
               <span className="text-sm text-texto-secundario">
-                {((v.crisisHistory as unknown[]) || []).length} eventos
+                {crisisHistoryRows.length}
+                {crisisHistQ.trim()
+                  ? ` de ${((v.crisisHistory as unknown[]) || []).length}`
+                  : ""}{" "}
+                eventos
               </span>
             </div>
+            <TableSearch
+              value={crisisHistQ}
+              onChange={setCrisisHistQ}
+              placeholder="Buscar por paciente, tipo, quién, lugar…"
+              className="sm:max-w-md"
+            />
             <div className="flex flex-col gap-3">
               {(
-                v.crisisHistory as
-                  | {
-                      key: string;
-                      when: string;
-                      ago: string;
-                      typeLabel: string;
-                      typeBg: string;
-                      typeFg: string;
-                      name: string;
-                      by: string;
-                      byMeta: string;
-                      source: string;
-                      what: string;
-                      detail: string;
-                      profile: string;
-                      place: string;
-                      hasFile: boolean;
-                      openFile: (() => void) | null;
-                    }[]
-                  | undefined
-              )?.map((ev) => (
+                crisisHistoryRows as {
+                  key: string;
+                  when: string;
+                  ago: string;
+                  typeLabel: string;
+                  typeBg: string;
+                  typeFg: string;
+                  name: string;
+                  by: string;
+                  byMeta: string;
+                  source: string;
+                  what: string;
+                  detail: string;
+                  profile: string;
+                  place: string;
+                  hasFile: boolean;
+                  openFile: (() => void) | null;
+                }[]
+              ).map((ev) => (
                 <div
                   key={ev.key}
                   className="flex flex-col gap-2 rounded-[18px] border border-linea bg-nara-blanco px-4 py-3.5"
@@ -922,10 +1018,11 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   </div>
                 </div>
               ))}
-              {!((v.crisisHistory as unknown[]) || []).length ? (
+              {!crisisHistoryRows.length ? (
                 <div className="rounded-[14px] border border-dashed border-linea bg-nara-blanco px-8 py-10 text-center text-texto-secundario">
-                  Aún no hay eventos de crisis. Cuando se cree, tome o cierre una alerta, aparecerá
-                  aquí.
+                  {crisisHistQ.trim()
+                    ? "Ningún evento coincide con la búsqueda."
+                    : "Aún no hay eventos de crisis. Cuando se cree, tome o cierre una alerta, aparecerá aquí."}
                 </div>
               ) : null}
             </div>
@@ -942,25 +1039,32 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 7 estados · perfiles P01–P15 · crisis visibles en rojo
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(
-                v.stateFilters as
-                  | { id: string; label: string; active: boolean; pick: () => void }[]
-                  | undefined
-              )?.map((sf) => (
-                <button
-                  key={sf.id}
-                  type="button"
-                  onClick={() => sf.pick?.()}
-                  className={
-                    sf.active
-                      ? "h-9 cursor-pointer rounded-full border-none bg-nara-tinta px-3.5 font-texto text-sm font-medium text-white"
-                      : "h-9 cursor-pointer rounded-full border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-sm font-medium text-nara-tinta"
-                  }
-                >
-                  {sf.label}
-                </button>
-              ))}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  v.stateFilters as
+                    | { id: string; label: string; active: boolean; pick: () => void }[]
+                    | undefined
+                )?.map((sf) => (
+                  <button
+                    key={sf.id}
+                    type="button"
+                    onClick={() => sf.pick?.()}
+                    className={
+                      sf.active
+                        ? "h-9 cursor-pointer rounded-full border-none bg-nara-tinta px-3.5 font-texto text-sm font-medium text-white"
+                        : "h-9 cursor-pointer rounded-full border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-sm font-medium text-nara-tinta"
+                    }
+                  >
+                    {sf.label}
+                  </button>
+                ))}
+              </div>
+              <TableSearch
+                value={patientsQ}
+                onChange={setPatientsQ}
+                placeholder="Buscar paciente, lugar, perfil, estado…"
+              />
             </div>
             <div className="overflow-hidden rounded-[20px] border border-linea bg-nara-blanco">
               <div className="nara-scroll-x">
@@ -981,7 +1085,7 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 <span className="py-3 pr-3.5">Adherencia</span>
                 <span className="py-3 pr-5">Última acción</span>
               </div>
-              {(v.patients as Record<string, unknown>[] | undefined)?.map((p, i) => (
+              {patientsRows.map((p, i) => (
                 <div
                   key={i}
                   className={
@@ -1128,6 +1232,13 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                   </span>
                 </div>
               ))}
+              {!patientsRows.length ? (
+                <p className="m-0 border-t border-linea px-5 py-8 text-center text-sm text-texto-secundario">
+                  {patientsQ.trim()
+                    ? "Ningún paciente coincide con la búsqueda."
+                    : "No hay pacientes en este filtro."}
+                </p>
+              ) : null}
               </div>
               </div>
             </div>
@@ -1158,26 +1269,33 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 className="hidden h-14 w-auto shrink-0 sm:block"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(
-                v.apprFilters as
-                  | { id: string; label: string; n: number; active: boolean; pick: () => void }[]
-                  | undefined
-              )?.map((ft) => (
-                <button
-                  key={ft.id}
-                  type="button"
-                  onClick={() => ft.pick?.()}
-                  className={
-                    ft.active
-                      ? "h-9 cursor-pointer rounded-full border-none bg-nara-tinta px-3.5 font-texto text-sm font-medium text-white"
-                      : "h-9 cursor-pointer rounded-full border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-sm font-medium text-nara-tinta"
-                  }
-                >
-                  {ft.label}
-                  {ft.n ? ` · ${ft.n}` : ""}
-                </button>
-              ))}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {(
+                  v.apprFilters as
+                    | { id: string; label: string; n: number; active: boolean; pick: () => void }[]
+                    | undefined
+                )?.map((ft) => (
+                  <button
+                    key={ft.id}
+                    type="button"
+                    onClick={() => ft.pick?.()}
+                    className={
+                      ft.active
+                        ? "h-9 cursor-pointer rounded-full border-none bg-nara-tinta px-3.5 font-texto text-sm font-medium text-white"
+                        : "h-9 cursor-pointer rounded-full border-[1.5px] border-linea bg-nara-blanco px-3.5 font-texto text-sm font-medium text-nara-tinta"
+                    }
+                  >
+                    {ft.label}
+                    {ft.n ? ` · ${ft.n}` : ""}
+                  </button>
+                ))}
+              </div>
+              <TableSearch
+                value={approvalsQ}
+                onChange={setApprovalsQ}
+                placeholder="Buscar aprobación, paciente, perfil…"
+              />
             </div>
             {v.msg ? (
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-linea bg-exito-suave px-4 py-3 font-texto text-[15px] text-nara-tinta">
@@ -1192,27 +1310,25 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
               </div>
             ) : null}
             {(
-              v.approvals as
-                | {
-                    kind?: string;
-                    code?: string;
-                    pid?: string;
-                    title: string;
-                    meta: string;
-                    months?: number;
-                    riskLabel?: string;
-                    digLabel?: string;
-                    riskColor?: string;
-                    kept?: { name: string; freq: string }[];
-                    changed?: { name: string; freq: string; from: string }[];
-                    added?: { name: string; freq: string }[];
-                    removed?: { name: string; freq: string }[];
-                    lines: string[];
-                    approve: () => void;
-                    reject: () => void;
-                  }[]
-                | undefined
-            )?.map((ap, i) => (
+              approvalsRows as {
+                kind?: string;
+                code?: string;
+                pid?: string;
+                title: string;
+                meta: string;
+                months?: number;
+                riskLabel?: string;
+                digLabel?: string;
+                riskColor?: string;
+                kept?: { name: string; freq: string }[];
+                changed?: { name: string; freq: string; from: string }[];
+                added?: { name: string; freq: string }[];
+                removed?: { name: string; freq: string }[];
+                lines: string[];
+                approve: () => void;
+                reject: () => void;
+              }[]
+            ).map((ap, i) => (
               <article
                 key={(ap.pid || ap.code || ap.title) + String(i)}
                 className="overflow-hidden rounded-[24px] border border-linea bg-nara-blanco shadow-[0_10px_30px_rgba(22,20,19,0.04)]"
@@ -1365,14 +1481,18 @@ export function ClinicoBody({ v }: { v: Record<string, unknown> }) {
                 </div>
               </article>
             ))}
-            {v.noApprovals ? (
+            {!approvalsRows.length ? (
               <div className="flex flex-col items-start gap-3 rounded-[24px] border border-linea bg-nara-blanco px-6 py-8">
                 <img src="/nara/marca/personajes/nara-calma.svg" alt="" className="h-12 w-auto" />
                 <span className="font-titulos text-lg font-semibold text-nara-tinta">
-                  No hay pendientes en este filtro
+                  {approvalsQ.trim()
+                    ? "Ninguna aprobación coincide"
+                    : "No hay pendientes en este filtro"}
                 </span>
                 <span className="text-[15px] text-texto-secundario">
-                  Aquí llegan evaluaciones de campo, cambios de ruta y reglas enviados por administración.
+                  {approvalsQ.trim()
+                    ? "Pruebe con otro término o limpie la búsqueda."
+                    : "Aquí llegan evaluaciones de campo, cambios de ruta y reglas enviados por administración."}
                 </span>
               </div>
             ) : null}

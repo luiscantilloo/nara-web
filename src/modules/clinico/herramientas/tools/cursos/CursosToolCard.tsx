@@ -1,12 +1,17 @@
 import { ToolCardShell } from "../../ToolCardShell";
+import { logoForHerramienta } from "../../toolLogos";
 import type { HerramientaCardProps } from "../../types";
 
-/** Cursos y cuentos — trabajar solo en `tools/cursos/`. */
+/** Cursos y cuentos — deshabilitada por ahora. */
 export function CursosToolCard({ item, patientId }: HerramientaCardProps) {
   void patientId;
   return (
-    <ToolCardShell>
-      <span className="text-[15px] font-medium text-nara-tinta">{item.name}</span>
+    <ToolCardShell
+      logoSrc={logoForHerramienta("cursos")}
+      title={item.name}
+      disabled
+    >
+      <span>Próximamente</span>
     </ToolCardShell>
   );
 }

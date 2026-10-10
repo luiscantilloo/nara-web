@@ -1,17 +1,49 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type React from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { FormModal } from "@/components/shared/form-modal/FormModal";
 import { PhoneInput } from "@/components/shared/phone-input/PhoneInput";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { PageHead } from "@/components/shared/page-head/PageHead";
+import {
+  TableSearch,
+  filterRowsBySearch,
+} from "@/components/shared/table-search/TableSearch";
 import { VisitsMap } from "@/components/shared/visits-map/VisitsMap";
 import { PathServicesList } from "@/modules/admin/rutas/servicios";
 import { ix } from "./inlineStyle";
 
 export function AdminMainContent({ v }: { v: Record<string, any> }) {
+  const [expertsQ, setExpertsQ] = useState("");
+  const [pfQ, setPfQ] = useState("");
+  const [brQ, setBrQ] = useState("");
+  const [tabQ, setTabQ] = useState("");
+  const [resQ, setResQ] = useState("");
+
+  const expertsRows = useMemo(
+    () => filterRowsBySearch(v.experts || [], expertsQ),
+    [v.experts, expertsQ],
+  );
+  const pfRows = useMemo(
+    () => filterRowsBySearch(v.pfRows || [], pfQ),
+    [v.pfRows, pfQ],
+  );
+  const brRows = useMemo(
+    () => filterRowsBySearch(v.brRows || [], brQ),
+    [v.brRows, brQ],
+  );
+  const tabRows = useMemo(
+    () => filterRowsBySearch(v.tabRows || [], tabQ),
+    [v.tabRows, tabQ],
+  );
+  const libRows = useMemo(
+    () => filterRowsBySearch(v.lib?.rows || [], resQ),
+    [v.lib?.rows, resQ],
+  );
+
   return (
     <>
           <NaraMsgAlert
@@ -85,11 +117,10 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               </PageHead>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 500, fontSize: 16, marginRight: 'auto' }}>{v.terrCountLabel}</span>
-                <input
-                  value={String(v.terrQ ?? '')}
-                  onChange={v.setTerrQ}
-                  placeholder="Buscar territorio, departamento, estado…"
-                  style={{ height: 40, width: '100%', maxWidth: 320, borderRadius: 9, border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: 14, boxSizing: 'border-box', background: '#fff', color: '#161413' }}
+                <TableSearch
+                  value={String(v.terrQ ?? "")}
+                  onChange={(q) => v.setTerrQ?.(q)}
+                  placeholder="Buscar por cualquier campo…"
                 />
               </div>
               <FormModal
@@ -247,14 +278,24 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                   <p className="text-[15px] text-texto-secundario">Debe completar la capacitación antes de su primera visita.</p>
                 </div>
               </FormModal>
+              <TableSearch
+                value={expertsQ}
+                onChange={setExpertsQ}
+                placeholder="Buscar experto, territorio, estado…"
+              />
               <div className="nara-split-panel">
                 <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>
                   <div className="nara-scroll-x">
                   <div style={{ minWidth: 720 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr) 100px 110px 80px minmax(0,1.2fr)', gap: '12px', padding: '12px 18px', background: '#F0ECE6', color: '#5E5750', fontSize: '14px', fontWeight: '500' }}><span>Experto</span><span>Territorio</span><span>Hoy</span><span>Semana</span><span>Alertas</span><span>Estado</span></div>
-                  {v.experts?.map((e) => (
+                  {expertsRows.map((e: any) => (
                     <div key={e.name || e.id} onClick={() => e.open()} style={ix`display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) 100px 110px 80px minmax(0,1.2fr);gap:12px;padding:12px 18px;border-top:1px solid #E6E1D9;align-items:center;background:${e.rowBg};cursor:pointer`} ><span style={{ fontWeight: '500' }}>{e.name}</span><span>{e.terr}</span><span>{e.today}</span><span>{e.week}</span><span>{e.flags}</span><span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500', lineHeight: '1.3' }}><span style={ix`flex:none;width:10px;height:10px;border-radius:50%;background:${e.sc}`}></span>{e.status}</span></div>
                   ))}
+                  {!expertsRows.length ? (
+                    <p style={{ margin: 0, padding: '20px', textAlign: 'center', color: '#5E5750', fontSize: 14 }}>
+                      {expertsQ.trim() ? 'Ningún experto coincide con la búsqueda.' : 'No hay expertos.'}
+                    </p>
+                  ) : null}
                   </div>
                   </div>
                 </div>
@@ -280,12 +321,17 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               </div>)}
               {v.teamTab2 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: '#5E5750' }}>Territorio<select value={String(v.pfTerr ?? "")} onChange={v.setPfTerr} style={{ height: '40px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '14px', background: '#fff', color: '#161413', minWidth: '180px' }}><option value="">Todos</option>{v.terrNames?.map((n: string) => (<option key={n} value={n}>{n}</option>))}</select></label><div style={{ display: 'flex', border: '1.5px solid #161413', borderRadius: '10px', overflow: 'hidden' }}>{v.pfPeriods?.map((p) => (<button key={p.label} onClick={() => p.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:37px;padding:0 14px;border:none;background:${p.bg};color:${p.fg};cursor:pointer`}>{p.label}</button>))}</div><span style={{ marginLeft: 'auto', fontSize: '14px', color: '#5E5750' }}>Toque un encabezado para ordenar · toque una fila para abrir la ficha</span></div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: '#5E5750' }}>Territorio<select value={String(v.pfTerr ?? "")} onChange={v.setPfTerr} style={{ height: '40px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 10px', fontSize: '14px', background: '#fff', color: '#161413', minWidth: '180px' }}><option value="">Todos</option>{v.terrNames?.map((n: string) => (<option key={n} value={n}>{n}</option>))}</select></label><div style={{ display: 'flex', border: '1.5px solid #161413', borderRadius: '10px', overflow: 'hidden' }}>{v.pfPeriods?.map((p) => (<button key={p.label} onClick={() => p.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:37px;padding:0 14px;border:none;background:${p.bg};color:${p.fg};cursor:pointer`}>{p.label}</button>))}</div><TableSearch value={pfQ} onChange={setPfQ} placeholder="Buscar en rendimiento…" /><span style={{ marginLeft: 'auto', fontSize: '14px', color: '#5E5750' }}>Toque un encabezado para ordenar · toque una fila para abrir la ficha</span></div>
                   <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>
                     <div className="nara-scroll-x">
                     <div style={{ minWidth: 980 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) repeat(6,minmax(0,.8fr)) minmax(0,1.2fr) minmax(0,.9fr)', gap: '10px', padding: '10px 18px', background: '#F0ECE6' }}>{v.pfCols?.map((c) => (<button key={c.label} onClick={() => c.go()} style={ix`font-family:Figtree,system-ui,sans-serif;text-align:left;border:none;background:none;padding:0;font-size:13px;font-weight:500;color:${c.fg};cursor:pointer;white-space:normal;line-height:1.3`}>{c.label}{c.arrow}</button>))}</div>
-                    {v.pfRows?.map((r) => (<div key={r.name} onClick={() => r.open()} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) repeat(6,minmax(0,.8fr)) minmax(0,1.2fr) minmax(0,.9fr)', gap: '10px', padding: '11px 18px', borderTop: '1px solid #E6E1D9', alignItems: 'center', fontSize: '14px', cursor: 'pointer' }} ><div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}><span style={{ fontWeight: '500' }}>{r.name}</span><span style={{ fontSize: '12px', color: '#5E5750' }}>{r.terr}</span></div><span>{r.vpd}</span><span style={ix`font-weight:${r.durFw};color:${r.durFg};background:${r.durBg};border-radius:6px;padding:2px 6px;justify-self:start`}>{r.dur}</span><span style={ix`color:${r.gpsFg};font-weight:${r.gpsFw}`}>{r.gps}</span><span style={ix`color:${r.verFg};font-weight:${r.verFw}`}>{r.ver}</span><span>{r.rej}</span><span style={ix`color:${r.gapFg};font-weight:${r.gapFw}`}>{r.gap}</span><span style={{ lineHeight: '1.35' }}>{r.mix}</span><span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: '500' }}><span style={ix`flex:none;width:9px;height:9px;border-radius:50%;background:${r.sc}`}></span>{r.status}</span></div>))}
+                    {pfRows.map((r: any) => (<div key={r.name} onClick={() => r.open()} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) repeat(6,minmax(0,.8fr)) minmax(0,1.2fr) minmax(0,.9fr)', gap: '10px', padding: '11px 18px', borderTop: '1px solid #E6E1D9', alignItems: 'center', fontSize: '14px', cursor: 'pointer' }} ><div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}><span style={{ fontWeight: '500' }}>{r.name}</span><span style={{ fontSize: '12px', color: '#5E5750' }}>{r.terr}</span></div><span>{r.vpd}</span><span style={ix`font-weight:${r.durFw};color:${r.durFg};background:${r.durBg};border-radius:6px;padding:2px 6px;justify-self:start`}>{r.dur}</span><span style={ix`color:${r.gpsFg};font-weight:${r.gpsFw}`}>{r.gps}</span><span style={ix`color:${r.verFg};font-weight:${r.verFw}`}>{r.ver}</span><span>{r.rej}</span><span style={ix`color:${r.gapFg};font-weight:${r.gapFw}`}>{r.gap}</span><span style={{ lineHeight: '1.35' }}>{r.mix}</span><span style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: '500' }}><span style={ix`flex:none;width:9px;height:9px;border-radius:50%;background:${r.sc}`}></span>{r.status}</span></div>))}
+                    {!pfRows.length ? (
+                      <p style={{ margin: 0, padding: '20px', textAlign: 'center', color: '#5E5750', fontSize: 14 }}>
+                        {pfQ.trim() ? 'Ninguna fila coincide con la búsqueda.' : 'Sin datos de rendimiento.'}
+                      </p>
+                    ) : null}
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) repeat(6,minmax(0,.8fr)) minmax(0,1.2fr) minmax(0,.9fr)', gap: '10px', padding: '12px 18px', borderTop: '2px solid #161413', alignItems: 'center', fontSize: '14px', background: '#F0ECE6', fontWeight: '500' }}><span>Promedio del programa</span><span>{v.pfAvg.vpd}</span><span>{v.pfAvg.dur}</span><span>{v.pfAvg.gps}</span><span>{v.pfAvg.ver}</span><span>{v.pfAvg.rej}</span><span>{v.pfAvg.gap}</span><span>{v.pfAvg.mix}</span><span></span></div>
                     </div>
                     </div>
@@ -354,11 +400,16 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
                 </button>
               <div className="nara-split-panel">
                 <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden', minWidth: 0 }}>
-                  <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}><span style={{ fontWeight: '500', fontSize: '17px' }}>Biblioteca de recursos</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Fuente: Colección de cuentos del programa · aprueba la coordinadora clínica</span></div><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{v.lib.kinds?.map((k) => (<button key={k.label} onClick={() => k.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:40px;padding:0 14px;border-radius:14px;border:1.5px solid #161413;background:#fff;color:#161413;cursor:pointer;background:${k.bg}`}>{k.label}</button>))}</div></div>
+                  <div style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}><div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}><span style={{ fontWeight: '500', fontSize: '17px' }}>Biblioteca de recursos</span><span style={{ fontSize: '13px', color: '#5E5750' }}>Fuente: Colección de cuentos del programa · aprueba la coordinadora clínica</span></div><div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>{v.lib.kinds?.map((k) => (<button key={k.label} onClick={() => k.go()} style={ix`font-family:Figtree,system-ui,sans-serif;font-size:14px;font-weight:500;height:40px;padding:0 14px;border-radius:14px;border:1.5px solid #161413;background:#fff;color:#161413;cursor:pointer;background:${k.bg}`}>{k.label}</button>))}<TableSearch value={resQ} onChange={setResQ} placeholder="Buscar recurso…" /></div></div>
                   <div className="nara-scroll-x">
                   <div style={{ minWidth: 520 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) 150px 60px 90px', gap: '10px', padding: '8px 18px', background: '#F0ECE6', color: '#5E5750', fontSize: '13px', fontWeight: '500' }}><span>Recurso</span><span>Estado</span><span>Versión</span><span>Aprobado</span></div>
-                  {v.lib.rows?.map((r) => (<div key={r.title} onClick={() => r.pick()} style={ix`display:grid;grid-template-columns:minmax(0,1.6fr) 150px 60px 90px;gap:10px;padding:9px 18px;border-top:1px solid #E6E1D9;align-items:center;cursor:pointer;background:${r.bg}`}><span style={{ display: 'flex', gap: '10px', alignItems: 'center', minWidth: '0' }}>{r.hasCover ? <img src={r.cover} alt="" style={{ flex: 'none', height: '40px', width: '31px', objectFit: 'cover', borderRadius: '4px', boxShadow: '0 1px 3px rgba(22,20,19,.25)', display: 'block' }} /> : null}<span style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '0' }}><span style={{ fontWeight: '500' }}>{r.title}</span><span style={{ fontSize: '12px', color: '#5E5750' }}>{r.meta}</span></span></span><span style={ix`font-size:13px;font-weight:600;padding:3px 10px;border-radius:999px;background:${r.sBg};color:#161413;justify-self:start`}>{r.estado}</span><span>v{r.version}</span><span style={{ fontSize: '13px' }}>{r.fecha}</span></div>))}
+                  {libRows.map((r: any) => (<div key={r.title} onClick={() => r.pick()} style={ix`display:grid;grid-template-columns:minmax(0,1.6fr) 150px 60px 90px;gap:10px;padding:9px 18px;border-top:1px solid #E6E1D9;align-items:center;cursor:pointer;background:${r.bg}`}><span style={{ display: 'flex', gap: '10px', alignItems: 'center', minWidth: '0' }}>{r.hasCover ? <img src={r.cover} alt="" style={{ flex: 'none', height: '40px', width: '31px', objectFit: 'cover', borderRadius: '4px', boxShadow: '0 1px 3px rgba(22,20,19,.25)', display: 'block' }} /> : null}<span style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '0' }}><span style={{ fontWeight: '500' }}>{r.title}</span><span style={{ fontSize: '12px', color: '#5E5750' }}>{r.meta}</span></span></span><span style={ix`font-size:13px;font-weight:600;padding:3px 10px;border-radius:999px;background:${r.sBg};color:#161413;justify-self:start`}>{r.estado}</span><span>v{r.version}</span><span style={{ fontSize: '13px' }}>{r.fecha}</span></div>))}
+                  {!libRows.length ? (
+                    <p style={{ margin: 0, padding: '16px 18px', color: '#5E5750', fontSize: 14 }}>
+                      {resQ.trim() ? 'Ningún recurso coincide con la búsqueda.' : 'No hay recursos en este filtro.'}
+                    </p>
+                  ) : null}
                   </div>
                   </div>
                 </div>
@@ -436,7 +487,7 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               <div className="nara-kpi-grid">{v.pk?.map((k) => (<div key={k.label} style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ color: '#5E5750' }}>{k.label}</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '32px', lineHeight: '1.1' }}>{k.val}</span><span style={{ fontSize: '14px', color: '#5E5750' }}>{k.sub}</span></div>))}</div>
               <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>
                 <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px', borderBottom: '1px solid #E6E1D9' }}>
-                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}><span style={{ fontWeight: '500', fontSize: '16px', marginRight: 'auto' }}>{v.rosterCount}</span><input value={String(v.q ?? "")} onChange={v.setQ} placeholder="Buscar código, nombre, territorio, vereda, experto…" style={{ height: '40px', width: '100%', maxWidth: '320px', borderRadius: '9px', border: '1.5px solid #DCD6CD', padding: '0 12px', fontSize: '14px', boxSizing: 'border-box' }} /><button onClick={() => v.exportRoster()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '40px', padding: '0 14px', borderRadius: '9px', border: '1.5px solid #161413', background: '#fff', color: '#161413', cursor: 'pointer', whiteSpace: 'nowrap' }}>Exportar (Excel)</button></div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}><span style={{ fontWeight: '500', fontSize: '16px', marginRight: 'auto' }}>{v.rosterCount}</span><TableSearch value={String(v.q ?? "")} onChange={(q) => v.setQ?.(q)} placeholder="Buscar por cualquier campo…" /><button onClick={() => v.exportRoster()} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '40px', padding: '0 14px', borderRadius: '9px', border: '1.5px solid #161413', background: '#fff', color: '#161413', cursor: 'pointer', whiteSpace: 'nowrap' }}>Exportar (Excel)</button></div>
                   <div className="nara-form-grid-3" style={{ display: 'grid' }}>{v.pFilters?.map((f) => (<label key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: '#5E5750' }}>{f.label}<select value={String(f.val ?? "")} onChange={f.set} style={ix`height:38px;border-radius:8px;border:1.5px solid ${f.bd};padding:0 8px;font-size:14px;background:#fff;color:#161413`}>{f.opts?.map((o, i) => (<option key={`${f.label}-${String(o.v ?? o.l)}-${i}`} value={String(o.v ?? "")}>{o.l}</option>))}</select></label>))}</div>
                   {v.hasPF && (<button onClick={() => v.clearPF()} style={{ alignSelf: 'flex-start', fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '13px', border: 'none', background: 'none', color: '#161413', cursor: 'pointer', padding: '0', textDecoration: 'underline' }}>Quitar filtros</button>)}
                 </div>
@@ -544,20 +595,36 @@ export function AdminMainContent({ v }: { v: Record<string, any> }) {
               </PageHead>
               <div className="nara-kpi-grid-5">{v.bk?.map((k) => (<div key={k.label} style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ color: '#5E5750' }}>{k.label}</span><span style={{ fontFamily: 'Fredoka,Figtree,system-ui,sans-serif', fontWeight: '600', fontSize: '30px', lineHeight: '1.1' }}>{k.val}</span><span style={{ fontSize: '14px', color: '#5E5750' }}>{k.sub}</span></div>))}</div>
               <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>
-                <div style={{ padding: '14px 20px', fontWeight: '500', fontSize: '16px' }}>Manillas por territorio</div>
+                <div style={{ padding: '14px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ fontWeight: '500', fontSize: '16px' }}>Manillas por territorio</span>
+                  <TableSearch value={brQ} onChange={setBrQ} placeholder="Buscar territorio o estado…" />
+                </div>
                 <div className="nara-scroll-x">
                 <div style={{ minWidth: 860 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) repeat(5,minmax(0,1fr)) minmax(0,1.2fr)', gap: '12px', padding: '10px 20px', background: '#F0ECE6', color: '#5E5750', fontSize: '14px', fontWeight: '500' }}><span>Territorio</span><span>Asignadas</span><span>Entregadas</span><span>Envían datos</span><span>Sin datos</span><span>Disponibles</span><span>Estado</span></div>
-                {v.brRows?.map((b) => (<div key={b.name} onClick={() => b.open()} style={ix`display:grid;grid-template-columns:minmax(0,1.2fr) repeat(5,minmax(0,1fr)) minmax(0,1.2fr);gap:12px;padding:12px 20px;border-top:1px solid #E6E1D9;align-items:center;cursor:pointer;background:${b.active ? '#FFF4CC' : '#fff'}`} ><span style={{ fontWeight: '500' }}>{b.name}</span><span>{b.a}</span><span>{b.d}</span><span>{b.s}</span><span>{b.n}</span><span style={{ fontWeight: '500' }}>{b.av}</span><div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>{b.low && (<span style={{ fontSize: '13px', fontWeight: '500', padding: '3px 8px', borderRadius: '5px', background: '#F9EBC8', color: '#161413' }}>Stock bajo</span>)}{b.canAssign && (<button type="button" onClick={(e) => b.assign(e)} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '36px', padding: '0 12px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer' }}>Asignar 100</button>)}</div></div>))}
+                {brRows.map((b: any) => (<div key={b.name} onClick={() => b.open()} style={ix`display:grid;grid-template-columns:minmax(0,1.2fr) repeat(5,minmax(0,1fr)) minmax(0,1.2fr);gap:12px;padding:12px 20px;border-top:1px solid #E6E1D9;align-items:center;cursor:pointer;background:${b.active ? '#FFF4CC' : '#fff'}`} ><span style={{ fontWeight: '500' }}>{b.name}</span><span>{b.a}</span><span>{b.d}</span><span>{b.s}</span><span>{b.n}</span><span style={{ fontWeight: '500' }}>{b.av}</span><div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>{b.low && (<span style={{ fontSize: '13px', fontWeight: '500', padding: '3px 8px', borderRadius: '5px', background: '#F9EBC8', color: '#161413' }}>Stock bajo</span>)}{b.canAssign && (<button type="button" onClick={(e) => b.assign(e)} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '36px', padding: '0 12px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer' }}>Asignar 100</button>)}</div></div>))}
+                {!brRows.length ? (
+                  <p style={{ margin: 0, padding: '20px', textAlign: 'center', color: '#5E5750', fontSize: 14 }}>
+                    {brQ.trim() ? 'Ninguna fila coincide con la búsqueda.' : 'No hay manillas registradas.'}
+                  </p>
+                ) : null}
                 </div>
                 </div>
               </div>
               <div style={{ background: '#fff', border: '1px solid #DCD6CD', borderRadius: '20px', overflow: 'hidden' }}>
-                <div style={{ padding: '14px 20px', fontWeight: '500', fontSize: '16px' }}>Tablets de campo · 100 en total</div>
+                <div style={{ padding: '14px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <span style={{ fontWeight: '500', fontSize: '16px' }}>Tablets de campo · 100 en total</span>
+                  <TableSearch value={tabQ} onChange={setTabQ} placeholder="Buscar territorio o sync…" />
+                </div>
                 <div className="nara-scroll-x">
                 <div style={{ minWidth: 780 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) repeat(4,minmax(0,1fr)) minmax(0,1fr)', gap: '12px', padding: '10px 20px', background: '#F0ECE6', color: '#5E5750', fontSize: '14px', fontWeight: '500' }}><span>Territorio</span><span>Tablets</span><span>Sin sincronizar +24 h</span><span>En reparación</span><span>Última sincronización</span><span></span></div>
-                {v.tabRows?.map((b) => (<div key={b.name} onClick={() => b.open()} style={ix`display:grid;grid-template-columns:minmax(0,1.2fr) repeat(4,minmax(0,1fr)) minmax(0,1fr);gap:12px;padding:12px 20px;border-top:1px solid #E6E1D9;align-items:center;cursor:${b.cur};background:${b.active ? '#FFF4CC' : '#fff'}`} ><span style={{ fontWeight: '500' }}>{b.name}</span><span>{b.n}</span><span style={ix`font-weight:${b.fw}`}>{b.ns}</span><span>{b.r}</span><span>{b.last}</span>{b.canAssign && (<button type="button" onClick={(e) => b.assign(e)} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '36px', padding: '0 12px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer' }}>{b.assignLabel}</button>)}</div>))}
+                {tabRows.map((b: any) => (<div key={b.name} onClick={() => b.open()} style={ix`display:grid;grid-template-columns:minmax(0,1.2fr) repeat(4,minmax(0,1fr)) minmax(0,1fr);gap:12px;padding:12px 20px;border-top:1px solid #E6E1D9;align-items:center;cursor:${b.cur};background:${b.active ? '#FFF4CC' : '#fff'}`} ><span style={{ fontWeight: '500' }}>{b.name}</span><span>{b.n}</span><span style={ix`font-weight:${b.fw}`}>{b.ns}</span><span>{b.r}</span><span>{b.last}</span>{b.canAssign && (<button type="button" onClick={(e) => b.assign(e)} style={{ fontFamily: 'Figtree,system-ui,sans-serif', fontSize: '14px', fontWeight: '500', height: '36px', padding: '0 12px', borderRadius: '14px', border: 'none', background: '#FDCD22', color: '#161413', cursor: 'pointer' }}>{b.assignLabel}</button>)}</div>))}
+                {!tabRows.length ? (
+                  <p style={{ margin: 0, padding: '20px', textAlign: 'center', color: '#5E5750', fontSize: 14 }}>
+                    {tabQ.trim() ? 'Ninguna fila coincide con la búsqueda.' : 'No hay tablets registradas.'}
+                  </p>
+                ) : null}
                 </div>
                 </div>
               </div>

@@ -11,3 +11,8 @@ export { NaraMsgAlert } from "./nara-alert/NaraMsgAlert";
 export { naraAlert } from "./nara-alert/naraAlert";
 export { NaraLoadingScreen } from "./nara-loading/NaraLoadingScreen";
 export { RouteLoadingProvider, useRouteLoading } from "./nara-loading/RouteLoadingProvider";
+export {
+  TableSearch,
+  filterRowsBySearch,
+  searchableText,
+} from "./table-search/TableSearch";

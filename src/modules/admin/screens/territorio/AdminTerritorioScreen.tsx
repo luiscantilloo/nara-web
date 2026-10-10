@@ -1,15 +1,24 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
+import {
+  TableSearch,
+  filterRowsBySearch,
+} from "@/components/shared/table-search/TableSearch";
 import { useAdminTerritorioScreen } from "./useAdminTerritorioScreen";
 
 function AdminTerritorioInner() {
   const { v } = useAdminTerritorioScreen();
+  const [placesQ, setPlacesQ] = useState("");
+  const placesRows = useMemo(
+    () => filterRowsBySearch(v?.places || [], placesQ),
+    [v?.places, placesQ],
+  );
 
   if (!v) {
     return <NaraLoadingScreen />;
@@ -194,9 +203,20 @@ function AdminTerritorioInner() {
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-linea bg-nara-blanco">
-          <div className="flex flex-col gap-1 px-5 py-3.5">
-            <h2 className="font-titulos text-xl font-semibold">Veredas y barrios</h2>
-            <p className="text-sm text-texto-secundario">{v.placeSummary}</p>
+          <div className="flex flex-col gap-3 px-5 py-3.5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
+              <div className="flex flex-col gap-1">
+                <h2 className="font-titulos text-xl font-semibold">Veredas y barrios</h2>
+                <p className="text-sm text-texto-secundario">{v.placeSummary}</p>
+              </div>
+              {!v.noPlaces ? (
+                <TableSearch
+                  value={placesQ}
+                  onChange={setPlacesQ}
+                  placeholder="Buscar lugar, tipo, alertas…"
+                />
+              ) : null}
+            </div>
           </div>
           {v.noPlaces ? (
             <p className="border-t border-[#E6E1D9] px-5 py-4 text-[15px] text-texto-secundario">
@@ -212,7 +232,7 @@ function AdminTerritorioInner() {
                   <span>%</span>
                   <span>Alertas</span>
                 </div>
-                {v.places.map((p) => (
+                {placesRows.map((p) => (
                   <div
                     key={p.name}
                     className="grid grid-cols-[1.4fr_90px_1fr_80px_80px] gap-3 border-t border-[#E6E1D9] px-5 py-3 text-[15px]"
@@ -226,6 +246,11 @@ function AdminTerritorioInner() {
                     <span>{p.alerts}</span>
                   </div>
                 ))}
+                {!placesRows.length ? (
+                  <p className="border-t border-[#E6E1D9] px-5 py-6 text-center text-[15px] text-texto-secundario">
+                    Ningún lugar coincide con la búsqueda.
+                  </p>
+                ) : null}
               </div>
             </div>
           )}

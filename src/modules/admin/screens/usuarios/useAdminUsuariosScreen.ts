@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import { filterRowsBySearch } from "@/components/shared/table-search/TableSearch";
 import { adminPathForView } from "@/modules/admin/routes";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { DEFAULT_PATIENT_MODULES } from "@/lib/db/patientModules";
@@ -203,12 +204,8 @@ export function useAdminUsuariosScreen() {
     const C = A.C;
     const z = st.zoom || 1;
     const all = allUsers(A, S);
-    const q = st.q.trim().toLowerCase();
-    const list = all.filter(
-      (u: any) =>
-        (!st.rf || u.role === st.rf) &&
-        (!q || (u.name + " " + u.org).toLowerCase().includes(q)),
-    );
+    const byRole = all.filter((u: any) => !st.rf || u.role === st.rf);
+    const list = filterRowsBySearch(byRole, st.q);
     const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
     const page = Math.min(Math.max(0, st.page || 0), totalPages - 1);
     const pageStart = page * PAGE_SIZE;
@@ -598,7 +595,11 @@ export function useAdminUsuariosScreen() {
           go: () => setState({ rf: val, page: 0 }),
         })),
       q: st.q,
-      setQ: (e: ChangeEvent<HTMLInputElement>) => setState({ q: e.target.value, page: 0 }),
+      setQ: (value: string | ChangeEvent<HTMLInputElement>) =>
+        setState({
+          q: typeof value === "string" ? value : value.target.value,
+          page: 0,
+        }),
       users: pageList.map((u: any) => ({
         key: u.id,
         name: u.name + (u.lead ? " · líder clínica" : ""),

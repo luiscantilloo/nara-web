@@ -1,15 +1,24 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { AdminTopbar } from "@/components/shared/admin-nav/AdminTopbar";
 import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShell";
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
+import {
+  TableSearch,
+  filterRowsBySearch,
+} from "@/components/shared/table-search/TableSearch";
 import { useAdminExpertoScreen } from "./useAdminExpertoScreen";
 
 function AdminExpertoInner() {
   const { v } = useAdminExpertoScreen();
+  const [peopleQ, setPeopleQ] = useState("");
+  const peopleRows = useMemo(
+    () => filterRowsBySearch(v?.people || [], peopleQ),
+    [v?.people, peopleQ],
+  );
 
   if (!v) {
     return <NaraLoadingScreen />;
@@ -152,9 +161,21 @@ function AdminExpertoInner() {
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-linea bg-nara-blanco">
-          <div className="flex items-baseline justify-between gap-3 px-5 py-3.5">
-            <h2 className="font-titulos text-xl font-semibold">Personas asignadas</h2>
-            <span className="text-sm text-texto-secundario">{v.people.length}</span>
+          <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-baseline gap-3">
+              <h2 className="font-titulos text-xl font-semibold">Personas asignadas</h2>
+              <span className="text-sm text-texto-secundario">
+                {peopleRows.length}
+                {peopleQ.trim() ? ` de ${v.people.length}` : ""}
+              </span>
+            </div>
+            {!v.noPeople ? (
+              <TableSearch
+                value={peopleQ}
+                onChange={setPeopleQ}
+                placeholder="Buscar código, nombre, lugar…"
+              />
+            ) : null}
           </div>
           {v.noPeople ? (
             <p className="border-t border-[#E6E1D9] px-5 py-4 text-[15px] text-texto-secundario">
@@ -170,7 +191,7 @@ function AdminExpertoInner() {
                   <span>Perfil</span>
                   <span>Estado</span>
                 </div>
-                {v.people.map((p) => (
+                {peopleRows.map((p) => (
                   <button
                     key={p.code + p.name}
                     type="button"
@@ -184,6 +205,11 @@ function AdminExpertoInner() {
                     <span>{p.status}</span>
                   </button>
                 ))}
+                {!peopleRows.length ? (
+                  <p className="border-t border-[#E6E1D9] px-5 py-6 text-center text-[15px] text-texto-secundario">
+                    Ninguna persona coincide con la búsqueda.
+                  </p>
+                ) : null}
               </div>
             </div>
           )}

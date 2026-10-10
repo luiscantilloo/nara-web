@@ -9,11 +9,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import { usePathname, useSearchParams } from "next/navigation";
 import { NaraLoadingScreen } from "./NaraLoadingScreen";
 
 type RouteLoadingApi = {
-  /** Muestra la carga (p. ej. antes de router.push). */
+  /** Muestra la carga de inmediato (antes de cambiar vista / router.push). */
   start: () => void;
 };
 
@@ -36,14 +37,19 @@ function sameDestination(href: string) {
   }
 }
 
+const MIN_VISIBLE_MS = 420;
+
 /**
- * Muestra NaraLoadingScreen al cambiar de ruta (clics en nav / links internos).
+ * Muestra NaraLoadingScreen al navegar.
+ * `start()` pinta el overlay síncrono (flushSync) para que nunca se vea
+ * la ruta nueva antes del loading.
  */
 export function RouteLoadingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAt = useRef(0);
   const pathKey = `${pathname}?${searchParams?.toString() || ""}`;
   const pathKeyRef = useRef(pathKey);
 
@@ -56,15 +62,26 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(() => {
     clearHide();
-    setLoading(true);
+    startedAt.current = Date.now();
+    // Forzar paint del overlay antes de que el click cambie la vista/URL.
+    flushSync(() => {
+      setLoading(true);
+    });
+    // Si la ruta no cambia (error / misma vista), no dejar el overlay colgado.
+    hideTimer.current = setTimeout(() => {
+      setLoading(false);
+      hideTimer.current = null;
+    }, 2500);
   }, []);
 
   const scheduleHide = useCallback(() => {
     clearHide();
+    const elapsed = Date.now() - (startedAt.current || Date.now());
+    const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
     hideTimer.current = setTimeout(() => {
       setLoading(false);
       hideTimer.current = null;
-    }, 320);
+    }, wait);
   }, []);
 
   // Clics en links internos (barra de navegación y resto de la app).
@@ -78,10 +95,18 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
       const a = el as HTMLAnchorElement;
       if (a.target && a.target !== "_self") return;
       const href = a.getAttribute("href");
-      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+      if (
+        !href ||
+        href.startsWith("#") ||
+        href.startsWith("mailto:") ||
+        href.startsWith("tel:")
+      ) {
         return;
       }
-      if (/^https?:\/\//i.test(href) && !href.startsWith(window.location.origin)) {
+      if (
+        /^https?:\/\//i.test(href) &&
+        !href.startsWith(window.location.origin)
+      ) {
         return;
       }
       if (sameDestination(href)) return;
@@ -91,14 +116,15 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("click", onClick, true);
   }, [start]);
 
-  // Cuando la ruta cambia, mantener un instante la carga y luego quitarla.
+  // Cuando la ruta cambia: si ya había loading, cumplir mínimo y ocultar;
+  // si no (push sin start), mostrar y ocultar (mejor tarde que nunca).
   useEffect(() => {
     if (pathKeyRef.current === pathKey) return;
     pathKeyRef.current = pathKey;
     if (loading) {
       scheduleHide();
     } else {
-      // Navegación programática (router.push sin <Link>).
+      startedAt.current = Date.now();
       setLoading(true);
       scheduleHide();
     }

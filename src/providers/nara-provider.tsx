@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Suspense,
   useContext,
   useEffect,
   useState,
@@ -13,6 +14,7 @@ import AlientoAI from "@/lib/ai/ai";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
 import { apiFetch } from "@/lib/api/client";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
+import { RouteLoadingProvider } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { pausePersist } from "@/lib/store/persist";
 import { hydrateProgramData } from "@/lib/store/hydrateProgram";
 import { startLiveProgramSync } from "@/lib/store/liveSync";
@@ -136,7 +138,11 @@ export function NaraProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <StoreContext.Provider value={AlientoStore}>{children}</StoreContext.Provider>
+    <StoreContext.Provider value={AlientoStore}>
+      <Suspense fallback={null}>
+        <RouteLoadingProvider>{children}</RouteLoadingProvider>
+      </Suspense>
+    </StoreContext.Provider>
   );
 }
 

@@ -8,6 +8,7 @@ import {
 import { flushPersist, flushPersistWhenReady } from "@/lib/store/persist";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
 import { apiFetch } from "@/lib/api/client";
+import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,11 +17,16 @@ import {
   pacienteTabForPath,
 } from "@/modules/paciente/routes";
 import { DEFAULT_PATIENT_MODULES } from "@/lib/db/patientModules";
-import { activePacienteHerramientas } from "@/modules/paciente/herramientas";
+import {
+  PACIENTE_HERRAMIENTAS,
+  activePacienteHerramientas,
+  isPacienteHerramientaDisabled,
+} from "@/modules/paciente/herramientas";
 import { naraAsset } from "./naraAsset";
 
 type Tab =
   | "home"
+  | "mood"
   | "chat"
   | "route"
   | "hist"
@@ -263,7 +269,13 @@ function resolvePatientRow(
 
 function crisisWasAttended(
   S: {
-    closedToday?: Array<{ sev?: string; pid?: string; outcome?: string; status?: string }>;
+    closedToday?: Array<{
+      sev?: string;
+      pid?: string;
+      outcome?: string;
+      status?: string;
+      patientConfirmedAt?: number | null;
+    }>;
     crisisLog?: Array<{ type?: string; pid?: string }>;
   },
   ids: string[],
@@ -290,11 +302,66 @@ function crisisWasAttended(
   );
 }
 
+const WELL_LS_PREFIX = "nara:well-confirmed:";
+
+function rememberWellConfirmed(pid: string) {
+  if (typeof window === "undefined" || !pid) return;
+  try {
+    window.sessionStorage.setItem(
+      WELL_LS_PREFIX + pid,
+      String(Date.now() + 24 * 60 * 60 * 1000),
+    );
+  } catch {
+    /* private mode */
+  }
+}
+
+function readWellConfirmed(ids: string[]): string | null {
+  if (typeof window === "undefined") return null;
+  const now = Date.now();
+  for (const id of ids) {
+    if (!id) continue;
+    try {
+      const raw = window.sessionStorage.getItem(WELL_LS_PREFIX + id);
+      if (!raw) continue;
+      const until = Number(raw);
+      if (Number.isFinite(until) && now < until) return id;
+      window.sessionStorage.removeItem(WELL_LS_PREFIX + id);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+function clearWellConfirmed(ids: string[]) {
+  if (typeof window === "undefined") return;
+  for (const id of ids) {
+    if (!id) continue;
+    try {
+      window.sessionStorage.removeItem(WELL_LS_PREFIX + id);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function isWellConfirmedLocal(
+  ids: string[],
+  ref: { pid: string; until: number } | null,
+) {
+  if (ref && Date.now() < ref.until && ids.some((x) => x === ref.pid)) {
+    return true;
+  }
+  return !!readWellConfirmed(ids);
+}
+
 export function usePacienteScreen() {
   const store = useNaraStore();
   useNaraLive();
   const router = useRouter();
   const pathname = usePathname();
+  const { start: startRouteLoading } = useRouteLoading();
   const S = store.get();
   const C = store.C;
   const R = store.REC;
@@ -305,17 +372,22 @@ export function usePacienteScreen() {
     pacienteTabForPath(pathname || "/paciente"),
   );
   const pendingTabPathRef = useRef<string | null>(null);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
 
   const setTab = useCallback(
     (next: Tab | ((t: Tab) => Tab)) => {
-      setTabRaw((prev) => {
-        const value = typeof next === "function" ? next(prev) : next;
-        const path = pacientePathForTab(value);
-        if (path !== pathname) pendingTabPathRef.current = path;
-        return value;
-      });
+      const prev = tabRef.current;
+      const value = typeof next === "function" ? next(prev) : next;
+      const path = pacientePathForTab(value);
+      if (path !== pathname) {
+        // Loading primero; luego cambia la pestaña (no al revés).
+        startRouteLoading();
+        pendingTabPathRef.current = path;
+      }
+      if (value !== prev) setTabRaw(value);
     },
-    [pathname],
+    [pathname, startRouteLoading],
   );
 
   useEffect(() => {
@@ -578,26 +650,7 @@ export function usePacienteScreen() {
       setQuick([]);
       return;
     }
-    const pr = store.get().recursos?.people?.[id];
-    const tk = new Date().toDateString();
-    if (pr && pr.teoDay !== tk && pr.teoDay != null) {
-      const m = courseMod(pr);
-      if (m) {
-        store.set((s) => {
-          if (s.recursos?.people?.[id]) s.recursos.people[id].teoDay = tk;
-        });
-        store.logAi(id, "Chat con TEO", "Recordatorio del curso");
-        setMsgs([
-          {
-            t: "ai",
-            text: `Hola, ${fname}. Esta semana le toca «${R.cuento(m.cuento).title}». ¿Lo leemos o lo escuchamos?`,
-          },
-        ]);
-        setQuick(["Leerlo", "Escucharlo", "Más tarde"]);
-        setStage("course");
-        return;
-      }
-    }
+    // Chat limpio: solo el saludo por defecto de TEO (sin chips de demo).
     const sleepHint = Array.isArray(P.sleep) && P.sleep.length
       ? `Según su manilla, ha dormido cerca de ${Number(P.sleep[P.sleep.length - 1]).toFixed(1).replace(".", ",")} horas.`
       : "Aún no hay datos de manilla; vamos con cómo se siente.";
@@ -607,8 +660,9 @@ export function usePacienteScreen() {
         text: `${saludo()}, ${fname}. ${sleepHint} ¿Cómo se siente hoy?`,
       },
     ]);
-    setQuick(["Bien", "Con algo de miedo", "Cansada"]);
-  }, [R, courseMod, store]);
+    setQuick([]);
+    setStage("free");
+  }, [store]);
 
   const initWA = useCallback(() => {
     const st = store.get();
@@ -2054,17 +2108,21 @@ export function usePacienteScreen() {
     router.replace("/paciente/pendiente");
   }, [ready, isDiana, servicesUnlocked, patientStatus, DP, router, inactiveOpen]);
 
-  const activeHerramientas = activePacienteHerramientas(mods);
+  const activeHerramientas = activePacienteHerramientas(mods).filter(
+    (h) => !isPacienteHerramientaDisabled(h.id),
+  );
   const activeHerramientaIds = activeHerramientas.map((h) => h.id);
   const firstHerramientaTab = (): Tab => {
     const id = activeHerramientaIds[0];
+    if (id === "mood") return "mood";
     if (id === "ia") return "chat";
-    if (id === "cursos") return "route";
-    if (id === "clin" || id === "tech" || id === "revisit") return id;
-    return "home"; // mood u otros → inicio
+    if (id === "clin") return "clin";
+    return "home";
   };
 
   useEffect(() => {
+    // El inicio (hub) siempre es válido.
+    if (tab === "home") return;
     if (!hasAnyModule || !activeHerramientaIds.length) {
       setTab("home");
       return;
@@ -2074,22 +2132,17 @@ export function usePacienteScreen() {
       return;
     }
     if (tab === "chat" && !mods.ia) setTab(firstHerramientaTab());
-    if (tab === "route" && !mods.cursos && !showRouteTab) setTab(firstHerramientaTab());
-    if (tab === "home" && !mods.mood && !showHomeTab) setTab(firstHerramientaTab());
+    if (tab === "mood" && !mods.mood) setTab("home");
     if (tab === "clin" && !mods.clin) setTab(firstHerramientaTab());
-    if (tab === "tech" && !mods.tech) setTab(firstHerramientaTab());
-    if (tab === "revisit" && !mods.revisit) setTab(firstHerramientaTab());
+    // tech / revisit / cursos deshabilitadas (próximamente)
+    if (tab === "tech" || tab === "revisit" || tab === "route")
+      setTab(firstHerramientaTab());
   }, [
     tab,
     mods.ia,
-    mods.cursos,
     mods.mood,
     mods.clin,
-    mods.tech,
-    mods.revisit,
-    showRouteTab,
     hasAnyModule,
-    showHomeTab,
     activeHerramientaIds.join(","),
   ]);
 
@@ -2097,13 +2150,8 @@ export function usePacienteScreen() {
   useEffect(() => {
     const localId = pidRef.current;
     const { P, id, accountId } = resolvePatientRow(store, localId);
-    const ids = [id, accountId, localId].filter(Boolean);
-    const well = wellConfirmedRef.current;
-    const justConfirmed =
-      well &&
-      Date.now() < well.until &&
-      ids.some((x) => x === well.pid);
-    if (justConfirmed) {
+    const ids = [id, accountId, localId].filter(Boolean) as string[];
+    if (isWellConfirmedLocal(ids, wellConfirmedRef.current)) {
       if (help || helpSent) {
         setHelp(false);
         setHelpSent(false);
@@ -2114,6 +2162,7 @@ export function usePacienteScreen() {
       (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
         a.sev === "crisis" &&
         a.status !== "closed" &&
+        a.status !== "awaiting_patient" &&
         ids.some(
           (x) =>
             a.pid === x || String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
@@ -2493,31 +2542,36 @@ export function usePacienteScreen() {
     tab,
     setTab,
     tabHome: tab === "home",
+    tabMood: tab === "mood",
     tabChat: tab === "chat",
     tabRoute: tab === "route",
     tabClin: tab === "clin",
     tabTech: tab === "tech",
     tabRevisit: tab === "revisit",
     tabRes: tab === "resumen",
-    /** Barra inferior = servicios activos de la ruta (2–6). */
-    herramientaNav: activeHerramientas.map((h) => {
+    /** Barra inferior = las 6 herramientas; tech/revisit/cursos en gris. */
+    herramientaNav: PACIENTE_HERRAMIENTAS.map((h) => {
+      const disabled = isPacienteHerramientaDisabled(h.id);
       const on =
-        (h.id === "mood" && tab === "home") ||
-        (h.id === "ia" && tab === "chat") ||
-        (h.id === "cursos" && tab === "route") ||
-        (h.id === "clin" && tab === "clin") ||
-        (h.id === "tech" && tab === "tech") ||
-        (h.id === "revisit" && tab === "revisit");
+        !disabled &&
+        ((h.id === "mood" && tab === "mood") ||
+          (h.id === "ia" && tab === "chat") ||
+          (h.id === "cursos" && tab === "route") ||
+          (h.id === "clin" && tab === "clin") ||
+          (h.id === "tech" && tab === "tech") ||
+          (h.id === "revisit" && tab === "revisit"));
       const go = () => {
-        if (h.id === "mood") setTab("home");
+        if (disabled) return;
+        if (h.id === "mood") setTab("mood");
         else if (h.id === "ia") setTab("chat");
         else if (h.id === "cursos") setTab("route");
         else if (h.id === "clin" || h.id === "tech" || h.id === "revisit")
           setTab(h.id);
       };
-      return { ...h, on, go };
+      return { ...h, on, go, disabled };
     }),
-    herramientaNavCount: activeHerramientas.length,
+    herramientaNavCount: PACIENTE_HERRAMIENTAS.length,
+    goHome: () => setTab("home"),
     openResumen: () => setTab("resumen"),
     closeResumen: () => setTab("home"),
     greet,
@@ -2587,6 +2641,28 @@ export function usePacienteScreen() {
     chatMsgs,
     typing,
     quick: quick.map((label) => ({ label, go: () => quickDiana(label) })),
+    /** Reinicia el hilo a solo el saludo por defecto de TEO. */
+    resetTeoChat: () => {
+      const localId = pidRef.current;
+      const row = (store.PATIENTS[localId] ||
+        store.emptyPatient?.(localId, firstName || "Paciente", 0) ||
+        {}) as { name?: string; sleep?: number[] };
+      const fname = String(row.name || firstName || "Paciente").split(/\s+/)[0];
+      const sleepHint = Array.isArray(row.sleep) && row.sleep.length
+        ? `Según su manilla, ha dormido cerca de ${Number(row.sleep[row.sleep.length - 1]).toFixed(1).replace(".", ",")} horas.`
+        : "Aún no hay datos de manilla; vamos con cómo se siente.";
+      setMsgs([
+        {
+          t: "ai",
+          text: `${saludo()}, ${fname}. ${sleepHint} ¿Cómo se siente hoy?`,
+        },
+      ]);
+      setQuick([]);
+      setStage("free");
+      setInput("");
+      setTyping(false);
+      setPaused(false);
+    },
     paused,
     notPaused: !paused,
     input,
@@ -2677,7 +2753,7 @@ export function usePacienteScreen() {
     clearConsentMsg: () => setConsentMsg(""),
     tabs: activeHerramientas.map((h) => {
       const on =
-        (h.id === "mood" && tab === "home") ||
+        (h.id === "mood" && tab === "mood") ||
         (h.id === "ia" && tab === "chat") ||
         (h.id === "cursos" && tab === "route") ||
         (h.id === "clin" && tab === "clin") ||
@@ -2693,13 +2769,14 @@ export function usePacienteScreen() {
         dot: on ? "#FDCD22" : "transparent",
         op: on ? 1 : 0.7,
         isHome: h.id === "mood",
+        isMood: h.id === "mood",
         isTeo: h.id === "ia",
         isRoute: h.id === "cursos",
         isClin: h.id === "clin",
         isTech: h.id === "tech",
         isRevisit: h.id === "revisit",
         go: () => {
-          if (h.id === "mood") setTab("home");
+          if (h.id === "mood") setTab("mood");
           else if (h.id === "ia") setTab("chat");
           else if (h.id === "cursos") setTab("route");
           else if (h.id === "clin" || h.id === "tech" || h.id === "revisit")
@@ -2744,19 +2821,13 @@ export function usePacienteScreen() {
     crisisAlertSent: (() => {
       const localId = pidRef.current;
       const { P, id, accountId } = resolvePatientRow(store, localId);
-      const ids = [id, accountId, localId].filter(Boolean);
-      const well = wellConfirmedRef.current;
-      if (
-        well &&
-        Date.now() < well.until &&
-        ids.some((x) => x === well.pid)
-      ) {
-        return false;
-      }
+      const ids = [id, accountId, localId].filter(Boolean) as string[];
+      if (isWellConfirmedLocal(ids, wellConfirmedRef.current)) return false;
       const openCrisis = (S.alerts || []).some(
         (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
           a.sev === "crisis" &&
           a.status !== "closed" &&
+          a.status !== "awaiting_patient" &&
           ids.some(
             (x) =>
               a.pid === x || String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
@@ -2770,15 +2841,8 @@ export function usePacienteScreen() {
     crisisAttended: (() => {
       const localId = pidRef.current;
       const { P, id, accountId } = resolvePatientRow(store, localId);
-      const ids = [id, accountId, localId].filter(Boolean);
-      const well = wellConfirmedRef.current;
-      if (
-        well &&
-        Date.now() < well.until &&
-        ids.some((x) => x === well.pid)
-      ) {
-        return false;
-      }
+      const ids = [id, accountId, localId].filter(Boolean) as string[];
+      if (isWellConfirmedLocal(ids, wellConfirmedRef.current)) return false;
       const stillInCrisisUi =
         P.crisisLock === true ||
         /^crisis$/i.test(String(P.status || P.signal || "")) ||
@@ -2786,6 +2850,7 @@ export function usePacienteScreen() {
           (a: { id?: string; pid?: string; sev?: string; status?: string }) =>
             a.sev === "crisis" &&
             a.status !== "closed" &&
+            a.status !== "awaiting_patient" &&
             ids.some(
               (x) =>
                 a.pid === x ||
@@ -2908,6 +2973,7 @@ export function usePacienteScreen() {
           P.profile && /^P\d+$/i.test(String(P.profile)) ? String(P.profile) : "";
         const phone = String(P.phone || "").trim();
         wellConfirmedRef.current = null;
+        clearWellConfirmed([id, localId, String(sess?.id || ""), String(sess?.patientId || "")]);
         confirmWellBusyRef.current = false;
         setConfirmWellBusy(false);
         setHelpSent(true);
@@ -2986,46 +3052,44 @@ export function usePacienteScreen() {
       if (confirmWellBusyRef.current) return;
       const localId = pidRef.current;
       const { P, id, accountId } = resolvePatientRow(store, localId);
-      const canon = id || localId;
-      const ids = [canon, localId, accountId].filter(Boolean);
-      if (!crisisWasAttended(store.get(), ids, P)) return;
+      const canon = String(id || localId || "");
+      const ids = [canon, localId, accountId].filter(Boolean) as string[];
+      if (!canon || !crisisWasAttended(store.get(), ids, P)) return;
       confirmWellBusyRef.current = true;
       setConfirmWellBusy(true);
-      wellConfirmedRef.current = { pid: canon, until: Date.now() + 60_000 };
+      wellConfirmedRef.current = { pid: canon, until: Date.now() + 120_000 };
+      rememberWellConfirmed(canon);
+      if (accountId) rememberWellConfirmed(accountId);
+      if (localId && localId !== canon) rememberWellConfirmed(localId);
       const displayName = String(P.name || "Paciente");
       // Cerrar UI de inmediato (un solo log; no spam).
       setHelp(false);
       setHelpSent(false);
-      pauseLiveHydrate(20_000);
+      pauseLiveHydrate(30_000);
       const activeAt = Date.now();
       lastActivityRef.current = activeAt;
+      const confirmedAt = Date.now();
       store.set((s: any) => {
         s.patients = s.patients || {};
+        const patchRow = (key: string) => {
+          if (!key || !s.patients[key]) return;
+          s.patients[key].status = "Activo";
+          s.patients[key].signal = "Activo";
+          s.patients[key].crisisLock = false;
+          s.patients[key].inactiveLock = false;
+          s.patients[key].activeAt = activeAt;
+          s.patients[key].crisisAttendedAt = null;
+          s.patients[key].crisisAttendedOutcome = null;
+          s.patients[key].crisisBtnReady = true;
+          s.patients[key].crisisBtnReadyAt = activeAt;
+        };
         const row = s.patients[canon] || { id: canon, name: displayName };
-        row.status = "Activo";
-        row.signal = "Activo";
-        row.crisisLock = false;
-        row.inactiveLock = false;
-        row.activeAt = activeAt;
-        row.crisisAttendedAt = null;
-        row.crisisAttendedOutcome = null;
-        row.crisisBtnReady = true;
-        row.crisisBtnReadyAt = activeAt;
+        row.id = canon;
+        row.name = displayName;
         s.patients[canon] = row;
-        if (localId !== canon && s.patients[localId]) {
-          s.patients[localId].status = "Activo";
-          s.patients[localId].crisisLock = false;
-          s.patients[localId].inactiveLock = false;
-          s.patients[localId].activeAt = activeAt;
-          s.patients[localId].crisisAttendedAt = null;
-        }
-        if (accountId && accountId !== canon && s.patients[accountId]) {
-          s.patients[accountId].status = "Activo";
-          s.patients[accountId].crisisLock = false;
-          s.patients[accountId].inactiveLock = false;
-          s.patients[accountId].activeAt = activeAt;
-          s.patients[accountId].crisisAttendedAt = null;
-        }
+        patchRow(canon);
+        if (localId !== canon) patchRow(localId);
+        if (accountId && accountId !== canon) patchRow(accountId);
         const pe = (s.people || []).find(
           (p: { id?: string; accountId?: string }) =>
             p.id === canon || p.accountId === localId || p.accountId === accountId,
@@ -3035,9 +3099,33 @@ export function usePacienteScreen() {
           pe.inactiveLock = false;
           pe.activeAt = activeAt;
         }
-        // Crisis cerrada de verdad: solo tras «estoy bien».
         const idSet = new Set(ids.map(String));
+        // Cerrar alertas aún abiertas (si el sync no las había movido).
+        s.alerts = Array.isArray(s.alerts) ? s.alerts : [];
         s.closedToday = Array.isArray(s.closedToday) ? s.closedToday : [];
+        const stillOpen = s.alerts.filter(
+          (a: { sev?: string; pid?: string; id?: string }) =>
+            a.sev === "crisis" &&
+            (idSet.has(String(a.pid || "")) ||
+              ids.some((x) => String(a.id || "").startsWith("a-" + x + "-crisis-btn"))),
+        );
+        s.alerts = s.alerts.filter(
+          (a: { sev?: string; pid?: string; id?: string }) =>
+            !(
+              a.sev === "crisis" &&
+              (idSet.has(String(a.pid || "")) ||
+                ids.some((x) =>
+                  String(a.id || "").startsWith("a-" + x + "-crisis-btn"),
+                ))
+            ),
+        );
+        for (const a of stillOpen) {
+          a.status = "closed";
+          a.patientConfirmedAt = confirmedAt;
+          a.closedAt = confirmedAt;
+          a.closedBy = displayName;
+          s.closedToday.unshift(a);
+        }
         s.closedToday.forEach(
           (c: {
             sev?: string;
@@ -3050,8 +3138,8 @@ export function usePacienteScreen() {
             if (c.sev !== "crisis" || !c.pid || !idSet.has(String(c.pid))) return;
             if (c.patientConfirmedAt) return;
             c.status = "closed";
-            c.patientConfirmedAt = Date.now();
-            c.closedAt = Date.now();
+            c.patientConfirmedAt = confirmedAt;
+            c.closedAt = confirmedAt;
             c.closedBy = displayName;
           },
         );
@@ -3079,6 +3167,22 @@ export function usePacienteScreen() {
         }
       });
       void (async () => {
+        let apiId = canon;
+        try {
+          const meRes = await fetch("/api/patients/me", {
+            credentials: "same-origin",
+          });
+          const meData = (await meRes.json()) as {
+            ok?: boolean;
+            patient?: { id?: string };
+          };
+          if (meRes.ok && meData.ok && meData.patient?.id) {
+            apiId = String(meData.patient.id);
+            rememberWellConfirmed(apiId);
+          }
+        } catch {
+          /* usar canon */
+        }
         try {
           await Promise.all([
             fetch("/api/people", {
@@ -3086,7 +3190,7 @@ export function usePacienteScreen() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                id: canon,
+                id: apiId,
                 name: displayName,
                 status: "Activo",
                 crisisLock: false,
@@ -3099,7 +3203,7 @@ export function usePacienteScreen() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                id: canon,
+                id: apiId,
                 name: displayName,
                 status: "Activo",
                 signal: "Activo",
@@ -3115,7 +3219,7 @@ export function usePacienteScreen() {
         } catch {
           /* reintento vía sync más adelante */
         }
-        pauseLiveHydrate(8_000);
+        pauseLiveHydrate(12_000);
         await flushPersistWhenReady(store);
         confirmWellBusyRef.current = false;
         setConfirmWellBusy(false);

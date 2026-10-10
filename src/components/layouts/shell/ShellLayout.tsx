@@ -1,11 +1,11 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
-import { RouteLoadingProvider } from "@/components/shared/nara-loading/RouteLoadingProvider";
+import { useEffect } from "react";
 
 /**
  * Shell de roles: viewport bloqueado.
  * El documento no scrollea; cada pantalla define su propia zona de scroll bajo el topbar.
+ * El loading de rutas vive en NaraProvider (cubre shell + paciente).
  */
 export function ShellLayout({
   children,
@@ -30,9 +30,7 @@ export function ShellLayout({
       data-shell-root
       className="fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-nara-crema"
     >
-      <Suspense fallback={null}>
-        <RouteLoadingProvider>{children}</RouteLoadingProvider>
-      </Suspense>
+      {children}
     </div>
   );
 }

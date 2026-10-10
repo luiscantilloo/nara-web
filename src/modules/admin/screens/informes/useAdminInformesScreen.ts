@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { filterRowsBySearch } from "@/components/shared/table-search/TableSearch";
 import { adminPathForView } from "@/modules/admin/routes";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 
@@ -187,13 +188,10 @@ export function useAdminInformesScreen() {
       .concat(fromAgent)
       .sort((a: any, b: any) => (b.at || 0) - (a.at || 0))
       .concat(pinned);
-    const q = st.fq.trim().toLowerCase();
-    const lib = allR.filter(
-      (r: any) =>
-        (!st.ft || r.type === st.ft) &&
-        (!st.fa || r.author === st.fa) &&
-        (!q || r.name.toLowerCase().includes(q)),
+    const byFilters = allR.filter(
+      (r: any) => (!st.ft || r.type === st.ft) && (!st.fa || r.author === st.fa),
     );
+    const lib = filterRowsBySearch(byFilters, st.fq);
     const accs = S.accounts.filter((a: any) => a.status === "Activo");
     const shareTo = (r: any) =>
       accs
@@ -391,7 +389,10 @@ export function useAdminInformesScreen() {
       fq: st.fq,
       setFt: (e: { target: { value: string } }) => setState({ ft: e.target.value }),
       setFa: (e: { target: { value: string } }) => setState({ fa: e.target.value }),
-      setFq: (e: { target: { value: string } }) => setState({ fq: e.target.value }),
+      setFq: (value: string | { target: { value: string } }) =>
+        setState({
+          fq: typeof value === "string" ? value : value.target.value,
+        }),
       typeOpts: allR.map((r: any) => r.type).filter((x: string, i: number, a: string[]) => a.indexOf(x) === i),
       authorOpts: allR
         .map((r: any) => r.author)

@@ -1,4 +1,5 @@
 "use client";
+import { naraAsset } from "@/modules/paciente/app/naraAsset";
 import { fecha, hora12, larga, sumarDias } from "./fechas";
 import type { AgendaVM } from "./useAgenda";
 
@@ -37,10 +38,19 @@ export function Resumen({ vm }: { vm: AgendaVM }) {
   const quedan = semana.filter((c) => !c.hecha && c.fecha >= hoy).length;
 
   return (
-    <section className="flex flex-col gap-4 rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Resumen de todos sus pacientes">
-      <div className="flex h-8 items-baseline gap-1.5">
-        <h2 className="m-0 font-titulos text-[18px] font-semibold">Resumen</h2>
-        <span className="text-[12px] text-texto-secundario">todos sus pacientes</span>
+    <section className="flex h-full min-h-0 flex-col gap-3 rounded-[20px] border border-linea bg-nara-blanco p-4" aria-label="Resumen de todos sus pacientes">
+      <div className="flex items-center gap-2">
+        <img
+          src={naraAsset("marca/personajes/nara-energia.svg")}
+          alt=""
+          className="h-8 w-auto shrink-0"
+        />
+        <div className="min-w-0">
+          <h2 className="m-0 font-titulos text-[18px] font-semibold leading-tight">
+            Resumen
+          </h2>
+          <span className="text-[12px] text-texto-secundario">todos sus pacientes</span>
+        </div>
       </div>
       <div>
         <span className="text-[12px] text-texto-secundario">Citas realizadas</span>
@@ -66,7 +76,7 @@ export function Resumen({ vm }: { vm: AgendaVM }) {
           <Promedio titulo="Pacientes" valor={pp} nota={pp == null ? "Cuando califiquen" : `${conRp.length} de ${hechas.length} citas`} />
         </div>
       </div>
-      <div className="mt-auto border-t border-linea pt-3">
+      <div className="border-t border-linea pt-3">
         <span className="text-[12px] text-texto-secundario">Próxima cita</span>
         {prox ? (
           <>
@@ -86,7 +96,7 @@ export function Resumen({ vm }: { vm: AgendaVM }) {
           <p className="m-0 text-[14px] text-nara-tinta/60">{citas.length ? "No quedan citas agendadas." : "Sin agendar"}</p>
         )}
       </div>
-      <div className="flex h-10 items-center justify-between gap-2 rounded-[12px] bg-nara-crema px-3 text-[13px]">
+      <div className="mt-auto flex h-10 items-center justify-between gap-2 rounded-[12px] bg-nara-crema px-3 text-[13px]">
         <span>Esta semana</span>
         <span className="font-semibold clin-tnum">
           {semana.length === 1 ? "1 cita" : `${semana.length} citas`}
