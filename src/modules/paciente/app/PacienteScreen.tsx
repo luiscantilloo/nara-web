@@ -336,13 +336,13 @@ function DianaApp({ vm }: { vm: Vm }) {
         {vm.tabChat && vm.mods?.ia ? <DianaChat vm={vm} /> : null}
         {vm.tabRes ? <DianaResumen vm={vm} /> : null}
         {vm.tabRoute ? <DianaRoute vm={vm} /> : null}
-        {vm.tabClin ? (
+        {vm.tabClin && vm.mods?.clin ? (
           <ClinPanel patientId={String(vm.patientId || "")} />
         ) : null}
-        {vm.tabTech ? (
+        {vm.tabTech && vm.mods?.tech ? (
           <TechPanel patientId={String(vm.patientId || "")} />
         ) : null}
-        {vm.tabRevisit ? (
+        {vm.tabRevisit && vm.mods?.revisit ? (
           <RevisitPanel patientId={String(vm.patientId || "")} />
         ) : null}
       </div>

@@ -1701,9 +1701,17 @@ export function useClinicoScreen() {
           ]),
         approve: () => {
           try {
+            const syncedPatients: {
+              id: string;
+              code?: string;
+              name?: string;
+              profile?: string;
+              modulesEnabled: string[];
+              modulesVisible: string[];
+            }[] = [];
             A.set((s) => {
               s.pathOverrides = s.pathOverrides || {};
-              // Copia profunda: s:{} (sin módulos) debe quedar tal cual, sin reinyectar mood
+              // Copia profunda + catálogo completo ('' = apagado; pathList no rellena default).
               const approved = JSON.parse(
                 JSON.stringify(
                   rq.draft || {
@@ -1717,6 +1725,9 @@ export function useClinicoScreen() {
                 approved.inactiveMinutes = DEFAULT_INACTIVE_MINUTES;
               }
               if (!approved.s || typeof approved.s !== "object") approved.s = {};
+              if (typeof A.normalizePathS === "function") {
+                approved.s = A.normalizePathS(approved.s);
+              }
               s.pathOverrides[rq.code] = approved;
               // Pacientes de este perfil: alinear app con servicios activos (freq truthy).
               const { r: pr, d: pd } = A.parseCode(rq.code);
@@ -1728,11 +1739,20 @@ export function useClinicoScreen() {
                     )
                 ).map(String),
               );
+              const mods = Array.from(approvedIds);
               Object.keys(s.patients || {}).forEach((pid) => {
                 const pat = s.patients[pid];
                 if (!pat || String(pat.profile || "") !== String(rq.code)) return;
-                pat.modulesEnabled = Array.from(approvedIds);
-                pat.modulesVisible = Array.from(approvedIds);
+                pat.modulesEnabled = mods.slice();
+                pat.modulesVisible = mods.slice();
+                syncedPatients.push({
+                  id: String(pat.id || pid),
+                  code: pat.code ? String(pat.code) : undefined,
+                  name: pat.name ? String(pat.name) : undefined,
+                  profile: String(pat.profile || rq.code),
+                  modulesEnabled: mods.slice(),
+                  modulesVisible: mods.slice(),
+                });
               });
               const now = Date.now();
               s.pathRequests = (s.pathRequests || []).map((x) =>
@@ -1761,6 +1781,15 @@ export function useClinicoScreen() {
                 "/rutas",
               );
               A.logActivity(s, "lucia", "Aprobó la ruta " + rq.code);
+            });
+            void flushPersist(A);
+            syncedPatients.forEach((pat) => {
+              void fetch("/api/patients", {
+                credentials: "same-origin",
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(pat),
+              }).catch(() => {});
             });
             setState({
               msg: "Ruta " + rq.code + " aprobada. Ya aplica en el programa.",

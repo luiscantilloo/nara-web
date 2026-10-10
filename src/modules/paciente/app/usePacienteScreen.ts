@@ -2033,22 +2033,44 @@ export function usePacienteScreen() {
     inactiveOpen;
   const servicesUnlocked =
     /^activo$/i.test(patientStatus) && !inactiveLocked && !inactiveOpen;
-  // Fuente de verdad: servicios activos de la ruta (defaultPath = 6 ON).
-  // modulesEnabled viejo/incompleto no debe ocultar lo que la ruta ya trae activo.
-  const pathAppIds =
+  // Fuente de verdad: ruta aprobada (pathOverrides).
+  // modulesEnabled viejo no debe quitar lo que la ruta ya tiene ON (p. ej. TEO).
+  // tech / revisit / cursos: aún no salen en la app del paciente.
+  const PATH_LOCKED = new Set(["tech", "revisit", "cursos"]);
+  const pathAppIds = (
     typeof store.appModuleIdsFromPath === "function"
       ? (store.appModuleIdsFromPath(pathR, pathD, null, store.ctxFor(pid)) as string[])
-      : pathServices.map((s: { id: string }) => s.id);
+      : pathServices.map((s: { id: string }) => s.id)
+  ).filter((id) => !PATH_LOCKED.has(id));
+  const profileCode = String(DP.profile || "P05");
+  const pathOv = store.get().pathOverrides && store.get().pathOverrides[profileCode];
+  const hasPathOverride = !!(
+    pathOv &&
+    pathOv.s &&
+    typeof pathOv.s === "object"
+  );
+  const patientEnRaw = (DP as { modulesEnabled?: string[] | null }).modulesEnabled;
+  // [] es válido (= ninguna herramienta): no confundir con «sin configurar».
+  const patientEnabled = Array.isArray(patientEnRaw)
+    ? patientEnRaw.map(String).filter((id) => !PATH_LOCKED.has(id))
+    : null;
   const enabledList: string[] = !servicesUnlocked
     ? []
-    : pathAppIds.length
+    : hasPathOverride
       ? pathAppIds.slice()
-      : DEFAULT_PATIENT_MODULES.slice();
+      : pathAppIds.length
+        ? pathAppIds.slice()
+        : patientEnabled != null
+          ? patientEnabled.slice()
+          : DEFAULT_PATIENT_MODULES.filter((id) => !PATH_LOCKED.has(id));
+  // modulesVisible solo puede ocultar (lista vacía); no recorta la ruta activa.
   const rawVisible = (DP as { modulesVisible?: string[] }).modulesVisible;
-  // Solo [] explícito oculta todo; una lista parcial (datos viejos) no recorta la ruta.
   const effectiveVisible =
     Array.isArray(rawVisible) && rawVisible.length === 0 ? [] : enabledList;
-  const on = (id: string) => enabledList.includes(id) && effectiveVisible.includes(id);
+  const on = (id: string) =>
+    !PATH_LOCKED.has(id) &&
+    enabledList.includes(id) &&
+    effectiveVisible.includes(id);
   const mods = {
     mood: on("mood"), // ¿Cómo se siente hoy?
     clin: on("clin"),
@@ -2131,17 +2153,26 @@ export function usePacienteScreen() {
       setTab(firstHerramientaTab());
       return;
     }
-    if (tab === "chat" && !mods.ia) setTab(firstHerramientaTab());
+    if (tab === "chat" && !mods.ia) setTab("home");
     if (tab === "mood" && !mods.mood) setTab("home");
-    if (tab === "clin" && !mods.clin) setTab(firstHerramientaTab());
-    // tech / revisit / cursos deshabilitadas (próximamente)
-    if (tab === "tech" || tab === "revisit" || tab === "route")
-      setTab(firstHerramientaTab());
+    if (tab === "clin" && !mods.clin) setTab("home");
+    if (tab === "route" && !mods.cursos) setTab("home");
+    // tech / revisit / cursos: si la ruta las apagó, fuera; si siguen ON pero aún «próximamente», también.
+    if (tab === "tech" && (!mods.tech || isPacienteHerramientaDisabled("tech")))
+      setTab("home");
+    if (
+      tab === "revisit" &&
+      (!mods.revisit || isPacienteHerramientaDisabled("revisit"))
+    )
+      setTab("home");
   }, [
     tab,
     mods.ia,
     mods.mood,
     mods.clin,
+    mods.cursos,
+    mods.tech,
+    mods.revisit,
     hasAnyModule,
     activeHerramientaIds.join(","),
   ]);
@@ -2549,28 +2580,29 @@ export function usePacienteScreen() {
     tabTech: tab === "tech",
     tabRevisit: tab === "revisit",
     tabRes: tab === "resumen",
-    /** Barra inferior = las 6 herramientas; tech/revisit/cursos en gris. */
-    herramientaNav: PACIENTE_HERRAMIENTAS.map((h) => {
-      const disabled = isPacienteHerramientaDisabled(h.id);
-      const on =
-        !disabled &&
-        ((h.id === "mood" && tab === "mood") ||
-          (h.id === "ia" && tab === "chat") ||
-          (h.id === "cursos" && tab === "route") ||
-          (h.id === "clin" && tab === "clin") ||
-          (h.id === "tech" && tab === "tech") ||
-          (h.id === "revisit" && tab === "revisit"));
+    /** Solo herramientas ON en la ruta; las apagadas no se listan (tampoco tech/revisit/cursos). */
+    herramientaNav: PACIENTE_HERRAMIENTAS.filter(
+      (h) => !!mods[h.id] && !isPacienteHerramientaDisabled(h.id),
+    ).map((h) => {
+      const selected =
+        (h.id === "mood" && tab === "mood") ||
+        (h.id === "ia" && tab === "chat") ||
+        (h.id === "cursos" && tab === "route") ||
+        (h.id === "clin" && tab === "clin") ||
+        (h.id === "tech" && tab === "tech") ||
+        (h.id === "revisit" && tab === "revisit");
       const go = () => {
-        if (disabled) return;
         if (h.id === "mood") setTab("mood");
         else if (h.id === "ia") setTab("chat");
         else if (h.id === "cursos") setTab("route");
         else if (h.id === "clin" || h.id === "tech" || h.id === "revisit")
           setTab(h.id);
       };
-      return { ...h, on, go, disabled };
+      return { ...h, on: selected, go, disabled: false };
     }),
-    herramientaNavCount: PACIENTE_HERRAMIENTAS.length,
+    herramientaNavCount: PACIENTE_HERRAMIENTAS.filter(
+      (h) => !!mods[h.id] && !isPacienteHerramientaDisabled(h.id),
+    ).length,
     goHome: () => setTab("home"),
     openResumen: () => setTab("resumen"),
     closeResumen: () => setTab("home"),

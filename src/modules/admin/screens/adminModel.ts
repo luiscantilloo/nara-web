@@ -19,60 +19,6 @@ export type AdminModelApi = {
 };
 
 export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
-  function pruneDraftS(s: Record<string, string>) {
-    const allowed = new Set((A.SERVICES || []).map((x: { id: string }) => x.id));
-    const out: Record<string, string> = {};
-    Object.keys(s || {}).forEach((k) => {
-      if (!allowed.has(k)) return;
-      // Conservar '' = apagado explícito (para no reactivar desde defaultPath).
-      out[k] = s[k];
-    });
-    if (out.cursos) out.cursos = 'Biblioteca';
-    return out;
-  }
-  function draft(code: string) {
-    if (st.drafts[code]) {
-      const dr = st.drafts[code];
-      return {
-        // Respetar apagados: no rellenar desde defaultPath.
-        s: pruneDraftS(dr.s || {}),
-        months: dr.months,
-        inactiveMinutes: dr.inactiveMinutes != null ? dr.inactiveMinutes : DEFAULT_INACTIVE_MINUTES,
-      };
-    }
-    const S0 = A.get();
-    const { r, d } = A.parseCode(code);
-    const full = A.defaultPath(r, d);
-    const ov = S0.pathOverrides && S0.pathOverrides[code];
-    // Override incompleto: claves ausentes = activas (default); '' = apagado.
-    const mergedS: Record<string, string> = Object.assign({}, full.s || {});
-    if (ov && ov.s && typeof ov.s === "object") {
-      Object.keys(ov.s).forEach((k) => {
-        const v = ov.s[k];
-        if (v === "" || v == null) delete mergedS[k];
-        else mergedS[k] = v;
-      });
-    }
-    return {
-      s: pruneDraftS(mergedS),
-      months: ov && ov.months != null ? ov.months : full.months,
-      inactiveMinutes:
-        ov && ov.inactiveMinutes != null
-          ? ov.inactiveMinutes
-          : full.inactiveMinutes != null
-            ? full.inactiveMinutes
-            : DEFAULT_INACTIVE_MINUTES,
-    };
-  }
-  function setDraft(code: string, fn: (d: { s: Record<string, string>; months: number; inactiveMinutes?: number }) => void) {
-    const d = JSON.parse(JSON.stringify(draft(code)));
-    fn(d);
-    d.s = pruneDraftS(d.s || {});
-    api.setState({ drafts: Object.assign({}, st.drafts, { [code]: d }) });
-  }
-  api.draft = draft;
-  api.setDraft = setDraft;
-
   function perfVals(A: any, S: any, C: any, st: AdminUiState) {
     const per = st.pfPer || '4w', terr = st.pfTerr || '';
     const P = A.teamPerf(S, per, terr), sk = st.pfSort || 'name', dir = st.pfDir || 1;
@@ -733,14 +679,21 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
         api.setState({ msg: f.fromVisit ? 'Visita rechazada. No cuenta para la cuota de ' + f.expertName + ' y se le avisó.' : 'Visita rechazada. Se restó de la cuota de ' + f.expertName + ' y se le avisó.', msgActions: [] });
       } }));
 
-    const cellFor = (ri, di) => { const code = A.code(ri, di); const dr = api.draft(code); return { code, n: Object.keys(dr.s).length }; };
+    const cellFor = (ri, di) => {
+      const code = A.code(ri, di);
+      const dr = api.draft(code);
+      const n = Object.keys(dr.s || {}).filter(
+        (k) => dr.s[k] && String(dr.s[k]).trim(),
+      ).length;
+      return { code, n };
+    };
     const pm = A.RISK.map((r, ri) => ({ k: r.k, c: r.c, cells: [0, 1, 2].map(di => { const x = cellFor(ri, di); const on = st.sel === x.code; return Object.assign(x, { bg: on ? C.verde : r.bg, fg: on ? '#fff' : C.tinta, bd: on ? C.amarillo : 'transparent', pick: () => api.setState({ sel: x.code }) }); }) }));
     const { r: sr, d: sd } = A.parseCode(st.sel); const dr = api.draft(st.sel);
     const req = (S.pathRequests || []).find(
       (x) =>
         x.code === st.sel &&
-        x.scope === st.scope &&
-        String(x.status || 'pending') === 'pending',
+        String(x.scope || 'all') === String(st.scope || 'all') &&
+        String(x.status || 'pending').toLowerCase() === 'pending',
     );
     const pe = {
       title: st.sel + ' · ' + A.RISK[sr].k + ' × digital ' + A.DIG[sd].k.toLowerCase(), people: A.people(S).filter(p => p.profile === st.sel).length,
@@ -913,30 +866,66 @@ export function buildAdminModel(A: any, st: AdminUiState, api: AdminModelApi) {
       experts, flags, flagCount: flags.filter(f => f.pending).length + ' por revisar', checks: CHECKS.map(([k, v]) => ({ k, v })),
       pm, pe, scope: st.scope, setScope: e => api.setState({ scope: e.target.value }),
       sendPath: () => {
-        // Copia profunda del borrador actual (incluye s:{} si apagaron todo)
+        // Copia profunda + catálogo completo ('' = apagado; no se rellena al aprobar).
         const live = api.draft(st.sel);
         const draft = JSON.parse(JSON.stringify(live));
-        if (!draft.s || typeof draft.s !== 'object') draft.s = {};
-        A.set(s => {
-          const id = st.sel + '-' + (st.scope || 'all');
-          s.pathRequests = (s.pathRequests || []).filter(x => x.id !== id && !(x.code === st.sel && x.scope === st.scope));
+        if (!draft.s || typeof draft.s !== "object") draft.s = {};
+        draft.s =
+          typeof A.normalizePathS === "function"
+            ? A.normalizePathS(draft.s)
+            : draft.s;
+        const scope = st.scope || "all";
+        // Id único: si reutilizamos el mismo id que un approved viejo, el merge
+        // en Mongo descarta el pending nuevo y el clínico nunca lo ve.
+        const id = st.sel + "-" + scope + "-" + Date.now();
+        A.set((s) => {
+          const now = Date.now();
+          s.pathRequests = (s.pathRequests || []).map((x) => {
+            const same =
+              x.code === st.sel && String(x.scope || "all") === scope;
+            const stRq = String(x.status || "pending").toLowerCase();
+            if (same && stRq === "pending") {
+              return { ...x, status: "superseded", resolvedAt: now };
+            }
+            return x;
+          });
           s.pathRequests.push({
             id,
             code: st.sel,
-            scope: st.scope,
+            scope,
             draft,
-            at: Date.now(),
-            status: 'pending',
+            at: now,
+            status: "pending",
           });
-          A.pushNotif(s, 'clin', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/clinico/aprobaciones');
-          A.pushNotif(s, 'clinico', 'Cambio de ruta ' + st.sel + ' esperando aprobación clínica', '/clinico/aprobaciones');
+          A.pushNotif(
+            s,
+            "clin",
+            "Cambio de ruta " + st.sel + " esperando aprobación clínica",
+            "/clinico/aprobaciones",
+          );
+          A.pushNotif(
+            s,
+            "clinico",
+            "Cambio de ruta " + st.sel + " esperando aprobación clínica",
+            "/clinico/aprobaciones",
+          );
         });
-        void import('@/lib/store/persist').then(m => m.flushPersistWhenReady(A));
-        const n = Object.keys(draft.s).length;
+        void import("@/lib/store/persist").then((m) => {
+          void m.flushPersistWhenReady(A);
+        });
+        const n = Object.keys(draft.s).filter(
+          (k) => draft.s[k] && String(draft.s[k]).trim(),
+        ).length;
         api.setState({
           msg: n
-            ? 'Ruta ' + st.sel + ' enviada a aprobación clínica (' + n + ' servicios).'
-            : 'Ruta ' + st.sel + ' enviada a aprobación clínica (sin módulos en la app).',
+            ? "Ruta " +
+              st.sel +
+              " enviada a aprobación clínica (" +
+              n +
+              " servicios)."
+            : "Ruta " +
+              st.sel +
+              " enviada a aprobación clínica (sin módulos en la app).",
           msgActions: [],
         });
       }
