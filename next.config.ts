@@ -13,7 +13,28 @@ if (!NARA_API_URL && process.env.NODE_ENV !== "test") {
   );
 }
 
+/**
+ * H-008 (TRL 2026-10-10): Content-Security-Policy. Next inyecta scripts y estilos en línea, por eso
+ * 'unsafe-inline'; 'unsafe-eval' solo en desarrollo (HMR). Orígenes externos que usa el navegador:
+ * el webhook de TEO en n8n y los mosaicos de OpenStreetMap del mapa de visitas.
+ */
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
+  "font-src 'self' data:",
+  "connect-src 'self' https://polariatech.app.n8n.cloud",
+  "media-src 'self' blob:",
+  "frame-ancestors 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
 const nextConfig: NextConfig = {
+  // H-008: sin la cabecera X-Powered-By: Next.js
+  poweredByHeader: false,
   // Acceso HMR desde la red local (p. ej. celular/otro PC en la LAN)
   allowedDevOrigins: ["192.168.80.12"],
   // El código portado del prototipo aún tiene deuda de tipos; no bloquear el deploy.
@@ -61,6 +82,7 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: CSP },
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(self)",

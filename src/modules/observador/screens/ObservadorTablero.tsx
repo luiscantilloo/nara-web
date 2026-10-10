@@ -1,39 +1,31 @@
 "use client";
 
 /**
- * H-012 (caso O-02): tablero del observador con datos agregados.
- * Usa /api/people, que para el observador llega sin datos identificables (SPEC-02 FR-02.4),
- * y solo muestra conteos: nunca nombres, teléfonos ni códigos.
+ * Tablero del observador (caso O-02). H-004 (TRL 2026-10-10): /api/people le entrega al observador
+ * solo un resumen agregado; los grupos con menos personas que `minGrupo` llegan en null y se muestran
+ * como «menos de N» para que nadie sea reidentificable.
  */
 
 import { useEffect, useState } from "react";
 
-type Fila = { terr?: string; status?: string; profile?: string | null };
-const RIESGO = ["Mínimo", "Leve", "Moderado", "Moderado-severo", "Severo"];
+type Conteos = Record<string, number | null>;
+type Resumen = {
+  total: number;
+  minGrupo: number;
+  porTerritorio: Conteos;
+  porEstado: Conteos;
+  porRiesgo: Conteos;
+};
 
-function contar(filas: Fila[], clave: (f: Fila) => string) {
-  const m = new Map<string, number>();
-  for (const f of filas) {
-    const k = clave(f);
-    m.set(k, (m.get(k) || 0) + 1);
-  }
-  return [...m.entries()].sort((a, b) => b[1] - a[1]);
-}
-
-function riesgo(f: Fila) {
-  const n = parseInt(String(f.profile || "").slice(1), 10);
-  return Number.isFinite(n) && n >= 1 && n <= 15 ? RIESGO[Math.floor((n - 1) / 3)] : "Sin evaluación";
-}
-
-function Bloque({ titulo, datos }: { titulo: string; datos: [string, number][] }) {
+function Bloque({ titulo, datos, minGrupo }: { titulo: string; datos: Conteos; minGrupo: number }) {
   return (
     <section className="flex min-w-0 flex-col gap-2 rounded-[16px] border border-linea bg-nara-blanco p-4">
       <h2 className="font-titulos text-lg font-semibold text-nara-tinta">{titulo}</h2>
       <ul className="flex flex-col gap-1.5 font-texto text-[15px] text-nara-tinta">
-        {datos.map(([k, v]) => (
+        {Object.entries(datos).map(([k, v]) => (
           <li key={k} className="flex justify-between gap-3">
             <span className="truncate">{k}</span>
-            <span className="font-medium tabular-nums">{v}</span>
+            <span className="font-medium tabular-nums">{v === null ? `menos de ${minGrupo}` : v}</span>
           </li>
         ))}
       </ul>
@@ -42,7 +34,7 @@ function Bloque({ titulo, datos }: { titulo: string; datos: [string, number][] }
 }
 
 export function ObservadorTablero() {
-  const [filas, setFilas] = useState<Fila[] | null>(null);
+  const [resumen, setResumen] = useState<Resumen | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,7 +43,7 @@ export function ObservadorTablero() {
       .then((r) => r.json())
       .then((d) => {
         if (!vivo) return;
-        if (d?.ok && Array.isArray(d.people)) setFilas(d.people);
+        if (d?.ok && d.summary) setResumen(d.summary as Resumen);
         else setError("No se pudieron cargar los datos.");
       })
       .catch(() => vivo && setError("No se pudieron cargar los datos."));
@@ -61,17 +53,17 @@ export function ObservadorTablero() {
   }, []);
 
   if (error) return <p className="font-texto text-sm text-texto-secundario">{error}</p>;
-  if (!filas) return <p className="font-texto text-sm text-texto-secundario">Cargando datos del programa…</p>;
+  if (!resumen) return <p className="font-texto text-sm text-texto-secundario">Cargando datos del programa…</p>;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3" data-testid="observador-tablero">
       <p className="font-titulos text-2xl font-semibold text-nara-tinta">
-        {filas.length} personas en el programa
+        {resumen.total.toLocaleString("es-CO")} personas en el programa
       </p>
       <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-        <Bloque titulo="Por territorio" datos={contar(filas, (f) => f.terr || "Sin territorio")} />
-        <Bloque titulo="Por estado" datos={contar(filas, (f) => f.status || "Sin estado")} />
-        <Bloque titulo="Por nivel de riesgo" datos={contar(filas, riesgo)} />
+        <Bloque titulo="Por territorio" datos={resumen.porTerritorio} minGrupo={resumen.minGrupo} />
+        <Bloque titulo="Por estado" datos={resumen.porEstado} minGrupo={resumen.minGrupo} />
+        <Bloque titulo="Por nivel de riesgo" datos={resumen.porRiesgo} minGrupo={resumen.minGrupo} />
       </div>
       <p className="font-texto text-xs text-texto-secundario">Solo datos agregados. No se muestran datos personales.</p>
     </div>

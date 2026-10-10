@@ -741,8 +741,13 @@ export function usePacienteScreen() {
     } | null;
     const isPaciente =
       !!su && (su.roleId === "paciente" || /Paciente/i.test(su.role || ""));
-    if (!su || !isPaciente) {
+    if (!su) {
       router.replace("/ingreso");
+      return;
+    }
+    if (!isPaciente) {
+      // H-010 (T-05): con sesión de otro rol vuelve a su panel sin cerrar la sesión.
+      router.replace(su.href ? `${su.href}?acceso=denegado` : "/ingreso");
       return;
     }
 

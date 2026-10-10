@@ -532,23 +532,8 @@ export async function hydrateProgramData(
 
       if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
         programJobs.push(hydratePeopleFlagsWorklists(store));
-      } else if (roleId === "observador") {
-        programJobs.push(
-          apiFetch("/api/people")
-            .then(async (peopleRes) => {
-              const peopleData = (await peopleRes.json()) as {
-                ok?: boolean;
-                people?: Record<string, unknown>[];
-              };
-              if (peopleRes.ok && peopleData.ok && Array.isArray(peopleData.people)) {
-                store.set((s: { people: Record<string, unknown>[] }) => {
-                  s.people = peopleData.people!;
-                });
-              }
-            })
-            .catch(() => {}),
-        );
       }
+      // H-004: el observador no carga personas en el store; su tablero pide el resumen agregado.
 
       await Promise.all(programJobs);
       if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {

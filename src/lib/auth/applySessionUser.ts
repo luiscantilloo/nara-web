@@ -17,26 +17,27 @@ export function applySessionUser(user: {
   orgType?: string;
   modules?: string[];
 }) {
+  const acct = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    roleId: user.roleId,
+    terr: user.terr,
+    org: user.org,
+    contact: user.contact,
+    status: user.status,
+    patientId: user.patientId,
+    ...(user.orgType ? { orgType: user.orgType } : {}),
+    ...(user.modules ? { modules: user.modules } : {}),
+  };
   AlientoStore.set((s: { accounts: Record<string, unknown>[] }) => {
     const list = Array.isArray(s.accounts) ? s.accounts.slice() : [];
     const i = list.findIndex((a) => a.id === user.id);
-    const acct = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      roleId: user.roleId,
-      terr: user.terr,
-      org: user.org,
-      contact: user.contact,
-      status: user.status,
-      patientId: user.patientId,
-      ...(user.orgType ? { orgType: user.orgType } : {}),
-      ...(user.modules ? { modules: user.modules } : {}),
-    };
     if (i >= 0) list[i] = { ...list[i], ...acct };
     else list.push(acct);
     s.accounts = list;
   });
-  AlientoStore.login(user.id);
+  // H-001: la sesión no depende de que la cuenta siga en `accounts` cuando se recargue la lista filtrada.
+  AlientoStore.login(user.id, acct);
 }

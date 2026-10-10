@@ -6,6 +6,10 @@ import { apiFetch } from "@/lib/api/client";
 let paused = true;
 let timer = null;
 let lastError = null;
+// H-011 (TRL 2026-10-10): último estado que coincide con el servidor. Si nada cambió, no hay PUT
+// (antes cada pantalla enviaba todo el estado al cargar).
+let lastSynced = null;
+let flushing = false;
 
 export function pausePersist(v = true) {
   paused = v;
@@ -51,6 +55,8 @@ export async function hydrateAppState(store) {
     const data = await res.json();
     if (!res.ok || !data.ok || !data.slices) return;
     const slices = data.slices;
+    // ¿Había un cambio local sin enviar antes de traer lo del servidor?
+    const pendienteAntes = !!timer || flushing;
     store.set((s) => {
       Object.keys(slices).forEach((k) => {
         if (slices[k] === undefined) return;
@@ -156,6 +162,15 @@ export async function hydrateAppState(store) {
         s[k] = slices[k];
       });
     });
+    // Lo recién traído del servidor no es un cambio local: no se reenvía. Si había un cambio local
+    // pendiente, se deja que su guardado siga su curso.
+    if (!pendienteAntes) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      lastSynced = JSON.stringify(pickSlices(store.get()));
+    }
   } catch (e) {
     lastError = e;
   }
@@ -173,20 +188,27 @@ export function schedulePersist(store) {
 export async function flushPersist(store) {
   if (paused || typeof window === "undefined") return;
   // H-012: el observador es de solo lectura; no escribe el estado compartido (antes daba 403 en consola).
+  // Sin sesión todavía (carga inicial) tampoco hay nada que guardar.
   const roleId = typeof store.session === "function" ? store.session()?.roleId : null;
-  if (roleId === "observador") return;
+  if (!roleId || roleId === "observador") return;
+  const slices = pickSlices(store.get());
+  const body = JSON.stringify(slices);
+  if (body === lastSynced) return;
+  flushing = true;
   try {
-    const slices = pickSlices(store.get());
     const res = await apiFetch("/api/app-state", {
       method: "PUT",
       body: JSON.stringify({ slices }),
     });
-    if (!res.ok) {
+    if (res.ok) lastSynced = body;
+    else {
       const data = await res.json().catch(() => ({}));
       lastError = data.error || res.statusText;
     }
   } catch (e) {
     lastError = e;
+  } finally {
+    flushing = false;
   }
 }
 

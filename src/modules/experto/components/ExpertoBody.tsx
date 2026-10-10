@@ -221,7 +221,8 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                       >
                         Visitas de hoy
                       </span>
-                      <span style={{ fontSize: 16, color: "#5E5750" }}>
+                      {/* H-009: fecha real de hoy; la capa de fechas relativas no debe volver a correrla. */}
+                      <span style={{ fontSize: 16, color: "#5E5750" }} data-real-date>
                         {(v.quotaDateLabel as string) || "Hoy"} · Solo cuentan
                         las visitas validadas
                       </span>

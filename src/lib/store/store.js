@@ -851,6 +851,9 @@ const KEY = 'nara-memory-v1';
   // Sesión y modo desarrollador (solo memoria; se pierden al recargar hasta MongoDB)
   const USERS = [];
   let sessionId = null;
+  // H-001 (TRL 2026-10-10): la cuenta de la sesión viene de /api/auth/me y se guarda aparte,
+  // porque la API puede filtrar /api/accounts (el clínico no recibe su propia cuenta).
+  let sessionAccount = null;
   let devFlag = false;
   const ROLE_HREF = {
     Administrador: '/inicio', Administradora: '/inicio',
@@ -908,16 +911,19 @@ const KEY = 'nara-memory-v1';
   function session() {
     if (typeof window === 'undefined' || !sessionId) return null;
     const a = (get().accounts || []).find(x => x.id === sessionId);
-    return accountAsUser(a);
+    if (a) return accountAsUser(a);
+    return sessionAccount && sessionAccount.id === sessionId ? accountAsUser(sessionAccount) : null;
   }
-  function login(id) {
+  function login(id, account) {
     if (typeof window === 'undefined') return;
     sessionId = id;
+    sessionAccount = account && account.id === id ? { ...account } : null;
     window.dispatchEvent(new Event('nara-change'));
   }
   function logout() {
     if (typeof window === 'undefined') return;
     sessionId = null;
+    sessionAccount = null;
     fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' } })
       .catch(() => {})
       .finally(() => { location.href = '/ingreso'; });
