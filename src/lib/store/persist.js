@@ -129,6 +129,31 @@ export async function hydrateAppState(store) {
           };
           return;
         }
+        // moodLogs: unir arrays por paciente (at+value) para que el clínico vea check-ins del paciente.
+        if (k === "moodLogs" && slices.moodLogs && typeof slices.moodLogs === "object") {
+          const local =
+            s.moodLogs && typeof s.moodLogs === "object" ? s.moodLogs : {};
+          const remote = slices.moodLogs;
+          const out = { ...local };
+          Object.keys(remote).forEach((pid) => {
+            const map = new Map();
+            const put = (row) => {
+              if (!row || typeof row !== "object") return;
+              const at = Number(row.at || 0);
+              const value = Number(row.value || 0);
+              const id = `${at}:${value}:${String(row.label || "")}`;
+              const prev = map.get(id);
+              if (!prev || at >= Number(prev.at || 0)) map.set(id, row);
+            };
+            (Array.isArray(local[pid]) ? local[pid] : []).forEach(put);
+            (Array.isArray(remote[pid]) ? remote[pid] : []).forEach(put);
+            out[pid] = Array.from(map.values()).sort(
+              (a, b) => Number(b.at || 0) - Number(a.at || 0),
+            );
+          });
+          s.moodLogs = out;
+          return;
+        }
         if (k === "rules" && slices.rules && typeof slices.rules === "object") {
           const local = s.rules && typeof s.rules === "object" ? s.rules : {};
           const remote = slices.rules;

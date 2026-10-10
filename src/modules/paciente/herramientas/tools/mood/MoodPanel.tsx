@@ -7,39 +7,24 @@
 import {
   MOOD_LABELS,
   MOOD_TINTS,
-  clearMoodHistoryFor,
   moodWindowStatusFor,
   saveMoodCheckin,
 } from "@/lib/nara-services/mood.js";
 import { useNaraStore } from "@/providers/nara-provider";
-import { useEffect, useState } from "react";
-
-const RESET_FLAG = "nara.mood.devReset.v2";
+import { useState } from "react";
 
 export function MoodPanel({ patientId }: { patientId: string }) {
   const store = useNaraStore();
-  const [ready, setReady] = useState(false);
-
-  // Una sola vez: vaciar historial para poder re-probar el flujo.
-  useEffect(() => {
-    try {
-      if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem(RESET_FLAG)) {
-        clearMoodHistoryFor(store, patientId);
-        sessionStorage.setItem(RESET_FLAG, "1");
-      }
-    } catch {
-      clearMoodHistoryFor(store, patientId);
-    }
-    setReady(true);
-  }, [store, patientId]);
+  const [, setBump] = useState(0);
 
   const status = moodWindowStatusFor(store, patientId);
   const freqInfo = status.freqInfo;
-  const showPicker = ready && status.needs;
+  const showPicker = status.needs;
 
   const onPick = (i: number) => {
     if (!status.needs) return;
     saveMoodCheckin(store, patientId, i, {});
+    setBump((n) => n + 1);
     void import("@/lib/store/hydrateProgram").then((m) => {
       if (typeof m.pauseLiveHydrate === "function") m.pauseLiveHydrate(8_000);
     });
@@ -97,7 +82,7 @@ export function MoodPanel({ patientId }: { patientId: string }) {
         </div>
       ) : (
         <span className="text-[13px] text-texto-secundario">
-          {ready ? "Listo para su primer registro." : "Cargando…"}
+          Listo para su primer registro.
         </span>
       )}
     </div>

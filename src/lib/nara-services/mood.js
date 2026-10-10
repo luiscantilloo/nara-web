@@ -341,7 +341,21 @@ export function computeMoodStats(hist) {
   };
 }
 
-/** Historial completo: timeline + moodLogs del store + localStorage. */
+/** Parsea «Muy bien (5/5)» desde aiLog (legado mientras moodLogs se sincroniza). */
+function moodFromAiLogText(text) {
+  const m = String(text || "").match(
+    /(Muy mal|Mal|Regular|Bien|Muy bien)\s*\((\d)\s*\/\s*5\)/i,
+  );
+  if (!m) return null;
+  const value = Math.max(1, Math.min(5, Number(m[2]) || 0));
+  if (value < 1) return null;
+  const label =
+    MOOD_LABELS.find((l) => l.toLowerCase() === String(m[1]).toLowerCase()) ||
+    MOOD_LABELS[value - 1];
+  return { value, label };
+}
+
+/** Historial completo: timeline + moodLogs + aiLog + localStorage. */
 export function listMoodHistoryFor(store, patientId) {
   const { patient, aliases } = resolveMoodPatient(store, patientId);
   const fromStore = listMoodHistory(patient);
@@ -362,10 +376,27 @@ export function listMoodHistoryFor(store, patientId) {
       fromMoodLogs.push(e);
     });
   });
+  const fromAi = [];
+  const aliasSet = new Set(aliases.map(String));
+  (Array.isArray(S.aiLog) ? S.aiLog : []).forEach((row) => {
+    if (!row || !aliasSet.has(String(row.pid || ""))) return;
+    if (!/check-in de ánimo|check.?in.*ánimo|ánimo/i.test(String(row.channel || ""))) {
+      return;
+    }
+    const parsed = moodFromAiLogText(row.text);
+    if (!parsed) return;
+    const at = Number(row.at) || Date.now();
+    fromAi.push({
+      value: parsed.value,
+      label: parsed.label,
+      at,
+      when: formatMoodWhen(at),
+    });
+  });
   const fromLs = lsEntriesFor(aliases);
   const seen = new Set(fromStore.map(entryKey));
   const merged = fromStore.slice();
-  [...fromMoodLogs, ...fromLs].forEach((e) => {
+  [...fromMoodLogs, ...fromAi, ...fromLs].forEach((e) => {
     const k = entryKey(e);
     if (seen.has(k)) return;
     seen.add(k);
@@ -641,6 +672,37 @@ export function saveMoodCheckin(store, patientId, index0to4, opts = {}) {
 
   if (typeof store.logAi === "function") {
     store.logAi(id || patientId, "Check-in de ánimo", `${label} (${value}/5)`);
+  }
+
+  // Persistir moodLogs (app-state) + ficha paciente para que el clínico lo vea.
+  const canonId = id || patientId;
+  const patAfter = store.get?.()?.patients?.[canonId];
+  void import("@/lib/store/persist")
+    .then((m) => {
+      if (typeof m.flushPersistWhenReady === "function") {
+        return m.flushPersistWhenReady(store);
+      }
+      if (typeof m.flushPersist === "function") return m.flushPersist(store);
+    })
+    .catch(() => {});
+  if (patAfter && typeof fetch === "function") {
+    void fetch("/api/patients", {
+      credentials: "same-origin",
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: patAfter.id || canonId,
+        accountId: patAfter.accountId,
+        code: patAfter.code,
+        name: patAfter.name,
+        timeline: patAfter.timeline,
+        lastMood: patAfter.lastMood,
+        lastMoodLabel: patAfter.lastMoodLabel,
+        lastCheckin: patAfter.lastCheckin,
+        status: patAfter.status,
+        signal: patAfter.signal,
+      }),
+    }).catch(() => {});
   }
 
   return { label, value, at: now, aliases };

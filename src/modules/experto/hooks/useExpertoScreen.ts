@@ -1058,14 +1058,12 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       }[s] ?? 50);
     wlRows.sort((a, b) => rank(a.status) - rank(b.status) || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
     const worklist = wlRows.map((w) => {
-      const crisisDone = (S.closedToday || []).some((x: any) => (x.pid === w.id || x.id === 'a-' + w.id) && x.sev === 'crisis');
+      // Crisis ya cerrada/resuelta: no mostrar «Crisis atendida»; vuelve el estado normal.
       const [tag, tagBg, tagFg] = w.reassignedTo
         ? ['Reasignada a ' + w.reassignedTo, C.niebla, C.texto2]
-        : crisisDone
-          ? ['Crisis atendida', '#E3F1E8', '#161413']
-          : (STATUS[w.status] || ['Pendiente', C.niebla, C.texto2]);
-      // Crisis: solo ver (sin botón). Por aprobar / validada: también sin acción.
-      const act = w.reassignedTo || crisisDone || w.status === 'crisis'
+        : (STATUS[w.status] || ['Pendiente', C.niebla, C.texto2]);
+      // Crisis abierta: solo ver (sin botón). Por aprobar / validada: también sin acción.
+      const act = w.reassignedTo || w.status === 'crisis'
         ? ''
         : w.status === 'sin_evaluacion' || w.status === 'rechazada' || w.status === 'cierre'
           ? w.status === 'rechazada'
