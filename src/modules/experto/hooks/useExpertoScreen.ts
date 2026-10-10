@@ -175,12 +175,14 @@ export function useExpertoScreen() {
     if (path !== pathname) router.push(path);
   }, [st.screen, st.pid, st.newForm, pathname, router]);
 
-  // URL → estado (deep link / back-forward)
+  // URL → estado (deep link / back-forward).
+  // No recrear el formulario: el layout mantiene el estado; aquí solo alineamos la vista.
   useEffect(() => {
     const parsed = expertoScreenForPath(pathname || "/experto");
     setStateRaw((prev) => {
       if (parsed.newForm) {
         if (prev.newForm && prev.screen === "list") return prev;
+        // Conservar nf / editPid si ya se cargaron al pulsar Evaluar.
         return { ...prev, screen: "list", newForm: true };
       }
       if (parsed.pid && parsed.screen) {
@@ -196,7 +198,7 @@ export function useExpertoScreen() {
           screen: parsed.screen,
           pid: parsed.pid,
           newForm: false,
-          editPid: null,
+          // No tocar items/consent: vienen del setState de la visita.
         };
       }
       if (prev.screen === "list" && !prev.newForm && !prev.pid) return prev;

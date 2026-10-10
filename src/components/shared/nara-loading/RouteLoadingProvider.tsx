@@ -14,7 +14,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { NaraLoadingScreen } from "./NaraLoadingScreen";
 
 type RouteLoadingApi = {
-  /** Muestra la carga de inmediato (antes de cambiar vista / router.push). */
+  /** Muestra la carga solo en navegación real de sección (antes de router.push / Link). */
   start: () => void;
 };
 
@@ -40,9 +40,10 @@ function sameDestination(href: string) {
 const MIN_VISIBLE_MS = 420;
 
 /**
- * Muestra NaraLoadingScreen al navegar.
- * `start()` pinta el overlay síncrono (flushSync) para que nunca se vea
- * la ruta nueva antes del loading.
+ * Loading a pantalla completa solo cuando se pide con `start()` (p. ej. nav de rol)
+ * o al clic en un <Link>/<a> a otra sección.
+ * No se dispara solo por sync de URL de modales / tabs / pasos de visita.
+ * `start()` pinta el overlay síncrono (flushSync) para que no se vea la ruta nueva antes.
  */
 export function RouteLoadingProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -52,6 +53,8 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
   const startedAt = useRef(0);
   const pathKey = `${pathname}?${searchParams?.toString() || ""}`;
   const pathKeyRef = useRef(pathKey);
+  /** true solo tras start() o clic en link; evita loading en router.push de formularios. */
+  const armedRef = useRef(false);
 
   const clearHide = () => {
     if (hideTimer.current) {
@@ -62,6 +65,7 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(() => {
     clearHide();
+    armedRef.current = true;
     startedAt.current = Date.now();
     // Forzar paint del overlay antes de que el click cambie la vista/URL.
     flushSync(() => {
@@ -70,6 +74,7 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
     // Si la ruta no cambia (error / misma vista), no dejar el overlay colgado.
     hideTimer.current = setTimeout(() => {
       setLoading(false);
+      armedRef.current = false;
       hideTimer.current = null;
     }, 2500);
   }, []);
@@ -80,6 +85,7 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
     const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
     hideTimer.current = setTimeout(() => {
       setLoading(false);
+      armedRef.current = false;
       hideTimer.current = null;
     }, wait);
   }, []);
@@ -110,22 +116,18 @@ export function RouteLoadingProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (sameDestination(href)) return;
+      // Links de nav de sección (RoleNav). router.push de modales/tabs no pasa por aquí.
       start();
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
   }, [start]);
 
-  // Cuando la ruta cambia: si ya había loading, cumplir mínimo y ocultar;
-  // si no (push sin start), mostrar y ocultar (mejor tarde que nunca).
+  // Cuando la ruta cambia: si había loading armado, ocultarlo; si no, no inventar loading.
   useEffect(() => {
     if (pathKeyRef.current === pathKey) return;
     pathKeyRef.current = pathKey;
-    if (loading) {
-      scheduleHide();
-    } else {
-      startedAt.current = Date.now();
-      setLoading(true);
+    if (armedRef.current || loading) {
       scheduleHide();
     }
   }, [pathKey, loading, scheduleHide]);
