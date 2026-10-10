@@ -81,3 +81,20 @@ test('H-011: el observador y la carga sin sesión nunca escriben', async () => {
   await P.flushPersist(S);
   assert.equal(puts.length, 0);
 });
+
+test('H-011: el paciente solo envía sus propias entradas y nada que la API rechazaría', async () => {
+  S.login('u-p1', { id: 'u-p1', role: 'Paciente', roleId: 'paciente', status: 'Activo', patientId: 'sm-1' });
+  P.pausePersist(false);
+  await P.hydrateAppState(S);
+  puts.length = 0;
+  // Un cambio en una porción que el paciente no escribe (notes) no produce PUT
+  S.set((s) => { s.notes = [{ pid: 'otro' }]; });
+  await P.flushPersist(S);
+  assert.equal(puts.length, 0, 'sin PUT por porciones ajenas');
+  // Su alerta sí se envía, sin las de otros
+  S.set((s) => { s.alerts = [{ id: 'a1', pid: 'sm-1' }, { id: 'a2', pid: 'sm-9' }]; });
+  await P.flushPersist(S);
+  assert.equal(puts.length, 1);
+  assert.deepEqual(Object.keys(puts[0].slices), ['alerts']);
+  assert.deepEqual(puts[0].slices.alerts, [{ id: 'a1', pid: 'sm-1' }]);
+});

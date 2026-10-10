@@ -11,6 +11,13 @@ let lastError = null;
 let lastSynced = null;
 let flushing = false;
 
+function sesionDe(store) {
+  return typeof store.session === "function" ? store.session() || null : null;
+}
+function rolDe(store) {
+  return sesionDe(store)?.roleId || null;
+}
+
 export function pausePersist(v = true) {
   paused = v;
 }
@@ -19,9 +26,42 @@ export function isPersistPaused() {
   return paused;
 }
 
-function pickSlices(s) {
+// Lo que cada rol puede escribir en app-state (misma política que nara-api, app-state.policy.ts).
+// El navegador no envía lo que la API rechazaría: así un cambio local de otra porción no produce un 403.
+const PACIENTE_ESCRIBE = ["alerts", "crisisLog", "closedToday", "notifs", "consents"];
+const NO_ESCRIBE = {
+  experto: ["rules", "pathOverrides", "pathRequests", "recursos", "terrOv", "expertOv", "personOv", "assetOv", "assets", "weekBase", "reports", "customReports", "schedules"],
+  clinico: ["terrOv", "expertOv", "personOv", "assetOv", "assets", "weekBase"],
+};
+const SOLO_ADMIN = ["accessLog", "agentLog", "aiLog", "activity"];
+
+function puedeEscribir(roleId, key) {
+  if (roleId === "admin") return true;
+  if (roleId === "paciente") return PACIENTE_ESCRIBE.includes(key);
+  if (SOLO_ADMIN.includes(key)) return false;
+  return !(NO_ESCRIBE[roleId] || []).includes(key);
+}
+
+/** Del paciente solo salen sus propias entradas (la API filtra igual por patientId y por id de cuenta). */
+function soloDelPaciente(out, user) {
+  const pid = user?.patientId || "";
+  const propio = (arr) => (Array.isArray(arr) ? arr.filter((x) => String(x?.pid ?? x?.personId ?? x?.patientId ?? "") === pid) : []);
+  for (const k of ["alerts", "crisisLog", "closedToday"]) {
+    const v = propio(out[k]);
+    if (v.length) out[k] = v;
+    else delete out[k];
+  }
+  if (out.notifs && user?.id && out.notifs[user.id] !== undefined) out.notifs = { [user.id]: out.notifs[user.id] };
+  else delete out.notifs;
+  if (out.consents && pid && out.consents[pid] !== undefined) out.consents = { [pid]: out.consents[pid] };
+  else delete out.consents;
+  return out;
+}
+
+function pickSlices(s, roleId, user) {
   const out = {};
   for (const key of APP_STATE_SLICES) {
+    if (roleId && !puedeEscribir(roleId, key)) continue;
     if (s[key] !== undefined) {
       try {
         out[key] = JSON.parse(JSON.stringify(s[key]));
@@ -30,7 +70,7 @@ function pickSlices(s) {
       }
     }
   }
-  return out;
+  return roleId === "paciente" ? soloDelPaciente(out, user) : out;
 }
 
 function mergeAlertsById(local, remote) {
@@ -169,7 +209,7 @@ export async function hydrateAppState(store) {
         clearTimeout(timer);
         timer = null;
       }
-      lastSynced = JSON.stringify(pickSlices(store.get()));
+      lastSynced = JSON.stringify(pickSlices(store.get(), rolDe(store), sesionDe(store)));
     }
   } catch (e) {
     lastError = e;
@@ -189,9 +229,10 @@ export async function flushPersist(store) {
   if (paused || typeof window === "undefined") return;
   // H-012: el observador es de solo lectura; no escribe el estado compartido (antes daba 403 en consola).
   // Sin sesión todavía (carga inicial) tampoco hay nada que guardar.
-  const roleId = typeof store.session === "function" ? store.session()?.roleId : null;
+  const roleId = rolDe(store);
   if (!roleId || roleId === "observador") return;
-  const slices = pickSlices(store.get());
+  const slices = pickSlices(store.get(), roleId, sesionDe(store));
+  if (!Object.keys(slices).length) return;
   const body = JSON.stringify(slices);
   if (body === lastSynced) return;
   flushing = true;
