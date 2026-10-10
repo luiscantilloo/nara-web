@@ -12,8 +12,8 @@ import { MongoClient } from "mongodb";
 import { resolve, dirname, join } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
-import { readFileSync, existsSync } from "fs";
-import XLSX from "xlsx";
+import { existsSync } from "fs";
+import ExcelJS from "exceljs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, "../.env.local") });
@@ -41,11 +41,24 @@ function titleCaseMun(s) {
     .join(" ");
 }
 
-function parseRows(filePath) {
-  const buf = readFileSync(filePath);
-  const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+async function parseRows(filePath) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(filePath);
+  const ws = wb.worksheets[0];
+  if (!ws) throw new Error("El Excel no tiene hojas.");
+  const aoa = [];
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    const vals = [];
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      vals[colNumber - 1] =
+        cell.value != null && typeof cell.value === "object" && "text" in cell.value
+          ? cell.value.text
+          : cell.value instanceof Date
+            ? cell.value
+            : cell.value;
+    });
+    aoa.push(vals);
+  });
   const hi = aoa.findIndex((r) => r && String(r[0]).trim() === "ID");
   if (hi < 0) throw new Error("No se encontró la fila de encabezados (ID).");
   const headers = aoa[hi].map((h) => String(h || "").trim());
@@ -113,7 +126,7 @@ async function main() {
 
   const sample15 = process.argv.includes("--sample-15");
   console.log("Excel:", filePath);
-  let rows = parseRows(filePath);
+  let rows = await parseRows(filePath);
   console.log("Filas:", rows.length);
   if (sample15) {
     rows = rows.slice(0, 15);

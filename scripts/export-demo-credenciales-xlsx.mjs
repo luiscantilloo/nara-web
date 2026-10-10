@@ -18,13 +18,28 @@ const dbName = process.env.MONGODB_DB || "nara";
 const outDir = join(homedir(), "Downloads", "nara-data");
 const outFile = join(outDir, "credenciales-demo-nara.xlsx");
 
+function requireEnv(name) {
+  const v = String(process.env[name] || "").trim();
+  if (!v) {
+    console.error(`Falta ${name} en .env.local (sin valor por defecto).`);
+    process.exit(1);
+  }
+  return v;
+}
+
 const DEMO_PATIENT = {
   id: "pac-gloria-patino",
   email: "gloria.patino@nara.com",
-  password: "PacienteGloria2026",
+  password: requireEnv("SEED_DEMO_PATIENT_PASSWORD"),
   name: "Gloria Patiño",
   terr: "Salento",
   patientId: "p-gloria-patino",
+};
+
+const OBS_PASSWORDS = {
+  salento: requireEnv("SEED_OBS_SALENTO_PASSWORD"),
+  financiador: requireEnv("SEED_OBS_FINANCIADOR_PASSWORD"),
+  investigacion: requireEnv("SEED_OBS_INVESTIGACION_PASSWORD"),
 };
 
 /** @type {Array<{ title: string; accent: string; rows: Array<[string, string]> }>} */
@@ -66,7 +81,7 @@ const SECTIONS = [
     accent: "6B4E71",
     rows: [
       ["Correo", "observador@nara.com"],
-      ["Contraseña", "ObservadorNara2026"],
+      ["Contraseña", OBS_PASSWORDS.salento],
       ["Nombre", "Hospital local de Salento"],
       ["Rol", "Observador"],
       ["Tipo", "Institución de salud"],
@@ -78,7 +93,7 @@ const SECTIONS = [
     accent: "8A5A2F",
     rows: [
       ["Correo", "financiador@nara.com"],
-      ["Contraseña", "FinanciadorNara2026"],
+      ["Contraseña", OBS_PASSWORDS.financiador],
       ["Nombre", "Fundación NARA"],
       ["Rol", "Observador"],
       ["Tipo", "Financiador"],
@@ -90,7 +105,7 @@ const SECTIONS = [
     accent: "4A6FA5",
     rows: [
       ["Correo", "investigacion@nara.com"],
-      ["Contraseña", "InvestigacionNara2026"],
+      ["Contraseña", OBS_PASSWORDS.investigacion],
       ["Nombre", "Centro de Investigación NARA"],
       ["Rol", "Observador"],
       ["Tipo", "Investigación"],

@@ -22,11 +22,20 @@ const OBS_TEMPLATES = {
   "Institución de salud": ["casos"],
 };
 
+function requireEnv(name) {
+  const v = String(process.env[name] || "").trim();
+  if (!v) {
+    console.error(`Falta ${name} en .env.local (sin valor por defecto).`);
+    process.exit(1);
+  }
+  return v;
+}
+
 const users = [
   {
     id: "obs-salento",
     email: "observador@nara.com",
-    password: "ObservadorNara2026",
+    password: requireEnv("SEED_OBS_SALENTO_PASSWORD"),
     name: "Hospital local de Salento",
     org: "Hospital local de Salento",
     orgType: "Institución de salud",
@@ -35,7 +44,7 @@ const users = [
   {
     id: "obs-financiador",
     email: "financiador@nara.com",
-    password: "FinanciadorNara2026",
+    password: requireEnv("SEED_OBS_FINANCIADOR_PASSWORD"),
     name: "Fundación NARA",
     org: "Fundación NARA",
     orgType: "Financiador",
@@ -44,7 +53,7 @@ const users = [
   {
     id: "obs-investigacion",
     email: "investigacion@nara.com",
-    password: "InvestigacionNara2026",
+    password: requireEnv("SEED_OBS_INVESTIGACION_PASSWORD"),
     name: "Centro de Investigación NARA",
     org: "Centro de Investigación NARA",
     orgType: "Investigación",
