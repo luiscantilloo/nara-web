@@ -4,7 +4,7 @@ import { hydrateProgramData } from "@/lib/store/hydrateProgram";
 
 type Store = typeof import("@/lib/store/store").default;
 
-const DEFAULT_INTERVAL_MS = 4_000;
+const DEFAULT_INTERVAL_MS = 10_000;
 
 /**
  * Mantiene el store alineado con Mongo sin recargar la página:

@@ -175,6 +175,27 @@ export async function hydrateAppState(store) {
           };
           return;
         }
+        // consents: no pisar appAt local con {} remoto (poll mientras el PUT aún no refleja).
+        if (k === "consents" && slices.consents && typeof slices.consents === "object") {
+          const local =
+            s.consents && typeof s.consents === "object" ? s.consents : {};
+          const remote = slices.consents;
+          const out = { ...local };
+          Object.keys(remote).forEach((pid) => {
+            const loc =
+              local[pid] && typeof local[pid] === "object" ? local[pid] : {};
+            const rem =
+              remote[pid] && typeof remote[pid] === "object" ? remote[pid] : {};
+            out[pid] = {
+              ...loc,
+              ...rem,
+              appAt: rem.appAt || loc.appAt,
+              appVersion: rem.appVersion || loc.appVersion,
+            };
+          });
+          s.consents = out;
+          return;
+        }
         // moodLogs: unir arrays por paciente (at+value) para que el clínico vea check-ins del paciente.
         if (k === "moodLogs" && slices.moodLogs && typeof slices.moodLogs === "object") {
           const local =
@@ -187,7 +208,8 @@ export async function hydrateAppState(store) {
               if (!row || typeof row !== "object") return;
               const at = Number(row.at || 0);
               const value = Number(row.value || 0);
-              const id = `${at}:${value}:${String(row.label || "")}`;
+              // Mismo minuto + valor = un check-in (evita dupes timeline/aiLog/sync).
+              const id = `${at > 0 ? Math.floor(at / 60_000) : 0}:${value}:${String(row.label || "")}`;
               const prev = map.get(id);
               if (!prev || at >= Number(prev.at || 0)) map.set(id, row);
             };
@@ -288,7 +310,14 @@ export async function flushPersistWhenReady(store, tries = 12) {
     }
     await new Promise((r) => setTimeout(r, 150));
   }
-  await flushPersist(store);
+  // Si el hydrate sigue pausando, forzar un PUT (p. ej. consentimiento app).
+  const wasPaused = paused;
+  paused = false;
+  try {
+    await flushPersist(store);
+  } finally {
+    paused = wasPaused;
+  }
 }
 
 export function getPersistError() {

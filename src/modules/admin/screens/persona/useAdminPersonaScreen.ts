@@ -8,6 +8,8 @@ import {
   patientStateLabel,
   resolveAdminPersonState,
 } from "@/lib/clinical/patientStates";
+import { NARA_SERVICES } from "@/lib/nara-services";
+import { PATH_SERVICES_LOCKED } from "@/modules/admin/rutas/servicios";
 import { useNaraStore } from "@/providers/nara-provider";
 
 export function useAdminPersonaScreen() {
@@ -74,7 +76,7 @@ export function useAdminPersonaScreen() {
     const weeks = Number(person?.weeks || patient?.weeks || 13);
     const pct = weeks ? Math.round((week / weeks) * 100) : 0;
 
-    // Misma fuente que Rutas → Servicios por perfil: solo los activos de la ruta.
+    // Misma fuente que Rutas → Servicios por perfil (lectura; no modulesEnabled).
     const ctx = (patient?.ctx || person?.ctx || { dano: 0, perdida: 0 }) as {
       dano?: number;
       perdida?: number;
@@ -88,6 +90,25 @@ export function useAdminPersonaScreen() {
           main?: boolean;
         }>)
       : [];
+    const pathById = Object.fromEntries(
+      pathServices.map((s) => [s.id, s]),
+    ) as Record<
+      string,
+      { id: string; name: string; freq: string; channel?: string; main?: boolean }
+    >;
+    // Mismo s que el editor de Rutas (override aprobado o default del perfil).
+    const pathS: Record<string, string> = (() => {
+      if (!hasProfile || parsed.r < 0 || parsed.d < 0) return {};
+      const full = store.defaultPath(parsed.r, parsed.d) as {
+        s?: Record<string, string>;
+      };
+      const ov = S.pathOverrides && S.pathOverrides[profile];
+      const raw =
+        ov && ov.s && typeof ov.s === "object" ? ov.s : full.s || {};
+      return typeof store.normalizePathS === "function"
+        ? (store.normalizePathS(raw) as Record<string, string>)
+        : { ...raw };
+    })();
 
     const splitName = (full: string) => {
       const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
@@ -207,27 +228,27 @@ export function useAdminPersonaScreen() {
       genero: person?.genero || patient?.genero || "",
       estadoCivil: person?.estadoCivil || patient?.estadoCivil || "",
       estrato: person?.estrato || patient?.estrato || "",
-      modules: (() => {
-        const enabled = new Set(
-          Array.isArray(patient?.modulesEnabled)
-            ? patient.modulesEnabled.map(String)
-            : pathServices.map((s) => s.id),
-        );
-        // Mostrar servicios de la ruta; el switch refleja si están en la app (modulesEnabled).
-        return pathServices.map((s) => {
-          const on = enabled.has(s.id);
-          return {
-            key: s.id,
-            name: s.name + (s.main ? " · servicio principal" : ""),
-            desc: [s.freq, s.channel].filter(Boolean).join(" · ") +
-              (on ? " · activo en la app" : " · en ruta, no habilitado en la app"),
-            on,
-            patientHid: !on,
-            swBg: on ? "#2F6F4E" : "#C4BDB3",
-            x: on ? "21px" : "3px",
-          };
-        });
-      })(),
+      modules: hasProfile
+        ? NARA_SERVICES.map((sv) => {
+            const locked = PATH_SERVICES_LOCKED.has(sv.id);
+            const freq = String(pathS[sv.id] || "").trim();
+            const on = !locked && !!freq;
+            const fromList = pathById[sv.id];
+            const desc = locked
+              ? "Próximamente"
+              : on
+                ? [freq, fromList?.channel].filter(Boolean).join(" · ")
+                : "Apagado en la ruta";
+            return {
+              key: sv.id,
+              name: sv.name + (fromList?.main ? " · servicio principal" : ""),
+              desc,
+              on,
+              swBg: on ? "#2F6F4E" : "#C4BDB3",
+              x: on ? "21px" : "3px",
+            };
+          })
+        : [],
       agentOpen,
       openAgent: () => setAgentOpen(true),
       closeAgent: () => setAgentOpen(false),

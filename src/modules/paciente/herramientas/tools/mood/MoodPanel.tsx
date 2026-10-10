@@ -16,13 +16,15 @@ import { useState } from "react";
 export function MoodPanel({ patientId }: { patientId: string }) {
   const store = useNaraStore();
   const [, setBump] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const status = moodWindowStatusFor(store, patientId);
   const freqInfo = status.freqInfo;
-  const showPicker = status.needs;
+  const showPicker = status.needs && !saving;
 
   const onPick = (i: number) => {
-    if (!status.needs) return;
+    if (!status.needs || saving) return;
+    setSaving(true);
     saveMoodCheckin(store, patientId, i, {});
     setBump((n) => n + 1);
     void import("@/lib/store/hydrateProgram").then((m) => {
@@ -52,8 +54,9 @@ export function MoodPanel({ patientId }: { patientId: string }) {
                 key={label}
                 type="button"
                 onClick={() => onPick(i)}
+                disabled={saving}
                 aria-label={`${i + 1}: ${label}`}
-                className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-0.5 py-2.5 transition-transform active:scale-95"
+                className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-0.5 py-2.5 transition-transform active:scale-95 disabled:opacity-60"
                 style={{
                   borderColor: tint.bd,
                   background: tint.bg,

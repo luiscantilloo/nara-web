@@ -170,10 +170,10 @@ function AdminPersonaInner() {
                 <div className="flex flex-col gap-1">
                   <h2 className="font-titulos text-lg font-semibold">Servicios de su ruta</h2>
                   <p className="text-sm text-texto-secundario">
-                    Solo consulta. Son los mismos servicios activos de{" "}
+                    Solo consulta: la misma configuración de{" "}
                     <strong className="font-medium text-nara-tinta">Rutas · Servicios por perfil</strong>
-                    {v.hasProfile ? ` para ${v.profile}` : ""}. Los cambios se hacen allá y pasan por
-                    aprobación clínica; aquí solo se ven los que están activos.
+                    {v.hasProfile ? ` para ${v.profile}` : ""}. Los cambios se hacen allá (y pasan por
+                    aprobación clínica); aquí solo se previsualiza.
                   </p>
                 </div>
                 {!v.hasProfile ? (

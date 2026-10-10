@@ -119,8 +119,22 @@ function entryAt(row) {
   return 0;
 }
 
-function entryKey(e) {
-  return `${Number(e.at) || 0}:${Number(e.value) || 0}:${String(e.label || "")}`;
+/** Misma valoración en el mismo minuto = un solo check-in (timeline + moodLogs + aiLog). */
+function softEntryKey(e) {
+  const at = Number(e?.at) || 0;
+  const minute = at > 0 ? Math.floor(at / 60_000) : 0;
+  return `${minute}:${Number(e?.value) || 0}:${String(e?.label || "")}`;
+}
+
+function dedupeMoodEntries(entries) {
+  const best = new Map();
+  (entries || []).forEach((e) => {
+    if (!e || !(Number(e.value) >= 1)) return;
+    const k = softEntryKey(e);
+    const prev = best.get(k);
+    if (!prev || Number(e.at) >= Number(prev.at)) best.set(k, e);
+  });
+  return Array.from(best.values()).sort((a, b) => b.at - a.at);
 }
 
 function readMoodLs() {
@@ -156,7 +170,7 @@ function lsEntriesFor(aliases) {
       const at = entryAt(row);
       const label = row.label || MOOD_LABELS[value - 1];
       const e = { value, label, at, when: formatMoodWhen(at) };
-      const k = entryKey(e);
+      const k = softEntryKey(e);
       if (seen.has(k)) return;
       seen.add(k);
       out.push(e);
@@ -234,11 +248,17 @@ export function resolveMoodPatient(store, patientId) {
       const tlA = Array.isArray(patient.timeline) ? patient.timeline : [];
       const tlB = Array.isArray(row.timeline) ? row.timeline : [];
       const seen = new Set(
-        tlA.map((r) => entryKey({ at: entryAt(r), value: r?.value, label: r?.label })),
+        tlA.map((r) =>
+          softEntryKey({ at: entryAt(r), value: r?.value, label: r?.label }),
+        ),
       );
       const mergedTl = tlA.slice();
       tlB.forEach((r) => {
-        const k2 = entryKey({ at: entryAt(r), value: r?.value, label: r?.label });
+        const k2 = softEntryKey({
+          at: entryAt(r),
+          value: r?.value,
+          label: r?.label,
+        });
         if (seen.has(k2)) return;
         seen.add(k2);
         mergedTl.push(r);
@@ -286,7 +306,7 @@ export function listMoodHistory(patient) {
     });
   }
 
-  return fromTl.sort((a, b) => b.at - a.at);
+  return dedupeMoodEntries(fromTl);
 }
 
 /**
@@ -370,7 +390,7 @@ export function listMoodHistoryFor(store, patientId) {
       const at = entryAt(row);
       const label = row.label || MOOD_LABELS[value - 1];
       const e = { value, label, at, when: formatMoodWhen(at) };
-      const key = entryKey(e);
+      const key = softEntryKey(e);
       if (seenMl.has(key)) return;
       seenMl.add(key);
       fromMoodLogs.push(e);
@@ -394,15 +414,13 @@ export function listMoodHistoryFor(store, patientId) {
     });
   });
   const fromLs = lsEntriesFor(aliases);
-  const seen = new Set(fromStore.map(entryKey));
-  const merged = fromStore.slice();
-  [...fromMoodLogs, ...fromAi, ...fromLs].forEach((e) => {
-    const k = entryKey(e);
-    if (seen.has(k)) return;
-    seen.add(k);
-    merged.push(e);
-  });
-  return merged.sort((a, b) => b.at - a.at);
+  // aiLog es legado: solo aporta si no hay ya el mismo check-in en timeline/moodLogs/LS.
+  return dedupeMoodEntries([
+    ...fromStore,
+    ...fromMoodLogs,
+    ...fromLs,
+    ...fromAi,
+  ]);
 }
 
 export function formatMoodWhen(at) {
@@ -607,9 +625,36 @@ export function saveMoodCheckin(store, patientId, index0to4, opts = {}) {
       }
 
       const prevStatus = String(prev.status || "");
-      const nextStatus = /^aprobad/i.test(prevStatus)
+      const becomingActive = /^aprobad/i.test(prevStatus);
+      const nextStatus = becomingActive
         ? "Activo"
         : prevStatus || prev.status;
+
+      // Al pasar a Activo, habilitar lo que diga la ruta del perfil (no dejar []).
+      let pathMods = null;
+      if (
+        becomingActive &&
+        typeof store.parseCode === "function" &&
+        (typeof store.appModuleIdsFromPath === "function" ||
+          typeof store.pathList === "function")
+      ) {
+        try {
+          const profile = prev.profile || "P05";
+          const { r, d } = store.parseCode(profile);
+          if (r >= 0 && d >= 0) {
+            const ctx =
+              typeof store.ctxFor === "function"
+                ? store.ctxFor(prev.id || key)
+                : prev.ctx;
+            pathMods =
+              typeof store.appModuleIdsFromPath === "function"
+                ? store.appModuleIdsFromPath(r, d, null, ctx)
+                : (store.pathList(r, d, null, ctx) || []).map((x) => x.id);
+          }
+        } catch {
+          pathMods = null;
+        }
+      }
 
       s.patients[key] = {
         ...prev,
@@ -623,6 +668,12 @@ export function saveMoodCheckin(store, patientId, index0to4, opts = {}) {
           ? {
               status: nextStatus,
               signal: nextStatus === "Activo" ? "Activo" : prev.signal,
+            }
+          : {}),
+        ...(Array.isArray(pathMods) && pathMods.length
+          ? {
+              modulesEnabled: pathMods.slice(),
+              modulesVisible: pathMods.slice(),
             }
           : {}),
       };
@@ -670,9 +721,7 @@ export function saveMoodCheckin(store, patientId, index0to4, opts = {}) {
     /* ignore */
   }
 
-  if (typeof store.logAi === "function") {
-    store.logAi(id || patientId, "Check-in de ánimo", `${label} (${value}/5)`);
-  }
+  // No escribir en aiLog: el historial vive en timeline + moodLogs; aiLog duplicaba el mismo check-in.
 
   // Persistir moodLogs (app-state) + ficha paciente para que el clínico lo vea.
   const canonId = id || patientId;
@@ -701,6 +750,8 @@ export function saveMoodCheckin(store, patientId, index0to4, opts = {}) {
         lastCheckin: patAfter.lastCheckin,
         status: patAfter.status,
         signal: patAfter.signal,
+        modulesEnabled: patAfter.modulesEnabled,
+        modulesVisible: patAfter.modulesVisible,
       }),
     }).catch(() => {});
   }

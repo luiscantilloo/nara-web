@@ -430,6 +430,8 @@ export function usePacienteScreen() {
   const [help, setHelp] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
   const [consentMsg, setConsentMsg] = useState("");
+  /** Evita que el poll vuelva a mostrar «Antes de empezar» tras aceptar en esta sesión. */
+  const [appConsentAccepted, setAppConsentAccepted] = useState(false);
   const [wa, setWa] = useState<WaRaw[]>([]);
   const [waQuick, setWaQuick] = useState<string[]>([]);
   const [waStage, setWaStage] = useState("none");
@@ -504,9 +506,30 @@ export function usePacienteScreen() {
     store.PATIENTS[pid] ||
     store.emptyPatient(pid, sessionNow?.name || "Paciente", 0);
   const firstName = String(DP.name || "Paciente").split(/\s+/)[0] || "Paciente";
-  // El consentimiento se guarda con el id del paciente de la sesión (la API solo acepta esa clave).
-  const consKey = String((sessionNow as { patientId?: string } | null)?.patientId || pid);
-  const cons = (S.consents && (S.consents[consKey] || S.consents[pid])) || {};
+  // El consentimiento se guarda con patientId de sesión (la API solo acepta esa clave).
+  const consKey = String(
+    (sessionNow as { patientId?: string } | null)?.patientId ||
+      DP.id ||
+      pid,
+  );
+  const consentAliasKeys = Array.from(
+    new Set(
+      [
+        consKey,
+        pid,
+        sessionNow?.id,
+        (sessionNow as { patientId?: string } | null)?.patientId,
+        DP.id,
+        DP.accountId,
+      ]
+        .filter(Boolean)
+        .map(String),
+    ),
+  );
+  const cons =
+    consentAliasKeys
+      .map((k) => (S.consents && S.consents[k]) || null)
+      .find((c) => c && typeof c === "object") || {};
 
   const recP = useCallback(() => {
     const st = store.get();
@@ -1166,34 +1189,12 @@ export function usePacienteScreen() {
         { who: "teo", text: ack.whyPrompt },
       ]);
       setMoodChoices(ack.whys);
-      store.set((s: { patients: Record<string, Record<string, unknown>> }) => {
-        s.patients = s.patients || {};
-        const prev = s.patients[id] || store.emptyPatient(id, fname, 0);
-        const timeline = Array.isArray(prev.timeline) ? prev.timeline.slice() : [];
-        timeline.push({
-          type: "mood",
-          label,
-          value: i + 1,
-          at: Date.now(),
-          d: "Hoy",
-        });
-        const prevStatus = String(prev.status || "");
-        // Aprobado → Activo con el primer contacto / check-in (seguimiento continuo).
-        const nextStatus = /^aprobad/i.test(prevStatus) ? "Activo" : prevStatus || prev.status;
-        s.patients[id] = {
-          ...prev,
-          lastCheckin: new Date().toISOString(),
-          lastMood: i + 1,
-          lastMoodLabel: label,
-          timeline,
-          ...(nextStatus ? { status: nextStatus, signal: nextStatus === "Activo" ? "Activo" : prev.signal } : {}),
-        };
-        if (nextStatus === "Activo") {
-          const pe = (s.people || []).find((p: { id?: string }) => p.id === id);
-          if (pe) pe.status = "Activo";
+      // Persistencia unificada en mood.js (evita duplicar timeline + aiLog).
+      void import("@/lib/nara-services/mood.js").then((m) => {
+        if (typeof m.saveMoodCheckin === "function") {
+          m.saveMoodCheckin(store, id, i, {});
         }
       });
-      store.logAi(id, "Check-in de ánimo", `${label} (${i + 1}/5)`);
     },
     [firstName, paused, store],
   );
@@ -2101,10 +2102,13 @@ export function usePacienteScreen() {
         : patientEnabled != null
           ? patientEnabled.slice()
           : DEFAULT_PATIENT_MODULES.filter((id) => !PATH_LOCKED.has(id));
-  // modulesVisible solo puede ocultar (lista vacía); no recorta la ruta activa.
+  // modulesVisible [] = legado «Por aprobar» (experto); no debe tapar la ruta en Activo.
+  // Si hay lista con ids → puede ocultar; si falta o está vacía → se muestra lo de enabledList.
   const rawVisible = (DP as { modulesVisible?: string[] }).modulesVisible;
   const effectiveVisible =
-    Array.isArray(rawVisible) && rawVisible.length === 0 ? [] : enabledList;
+    Array.isArray(rawVisible) && rawVisible.length > 0
+      ? rawVisible.map(String).filter((id) => !PATH_LOCKED.has(id))
+      : enabledList;
   const on = (id: string) =>
     !PATH_LOCKED.has(id) &&
     enabledList.includes(id) &&
@@ -2570,14 +2574,31 @@ export function usePacienteScreen() {
   }));
 
   // P-01 (TRL 2026-10-10): en el primer ingreso a la app la persona acepta el consentimiento de uso de la
-  // app antes de que se registre nada desde ella. Queda en consents[pid].appAt (fecha) y appVersion.
-  const needsAppConsent = ready && isDiana && !cons.appAt;
+  // app antes de que se registre nada desde ella. Queda en consents[patientId].appAt y appVersion.
+  const hasAppConsent =
+    appConsentAccepted ||
+    consentAliasKeys.some((k) => {
+      const c = S.consents && S.consents[k];
+      return !!(c && (c as { appAt?: unknown }).appAt);
+    });
+  const needsAppConsent = ready && isDiana && !hasAppConsent;
   const acceptAppConsent = () => {
-    const id = consKey;
+    setAppConsentAccepted(true);
+    const at = Date.now();
+    const canonical = consKey;
     store.set((s: { consents?: Record<string, Record<string, unknown>> }) => {
       s.consents = s.consents || {};
-      s.consents[id] = { ...(s.consents[id] || {}), appAt: Date.now(), appVersion: "app-v1" };
+      const entry = {
+        ...(s.consents[canonical] || {}),
+        appAt: at,
+        appVersion: "app-v1",
+      };
+      // Escribir en patientId (API) y aliases locales para no perder el check al leer.
+      consentAliasKeys.forEach((k) => {
+        s.consents![k] = { ...(s.consents![k] || {}), ...entry };
+      });
     });
+    pauseLiveHydrate(3_000);
     void flushPersistWhenReady(store);
   };
 
