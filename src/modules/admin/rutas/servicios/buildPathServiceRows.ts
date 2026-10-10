@@ -46,7 +46,8 @@ export function buildPathServiceRows(
           else d.s[sv.id] = isCursos ? "Biblioteca" : sv.freqs[0] || "Activo";
         });
       },
-      freqs: locked || isCursos
+      // IA (TEO): solo interruptor; sin chips de frecuencia.
+      freqs: locked || isCursos || sv.id === "ia"
         ? []
         : (sv.freqs || []).map((label) => {
             const sel = dr.s[sv.id] === label;
