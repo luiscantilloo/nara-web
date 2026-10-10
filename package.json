@@ -10,7 +10,8 @@
     "lint": "eslint",
     "db:init": "node scripts/init-db.mjs",
     "db:seed-admin": "node scripts/seed-admin.mjs",
-    "db:migrate-patients": "node scripts/migrate-patients-xlsx.mjs"
+    "db:migrate-patients": "node scripts/migrate-patients-xlsx.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

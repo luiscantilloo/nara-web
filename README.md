@@ -1,7 +1,16 @@
 # NARA (nara-web)
 
 Frontend del programa de salud mental post-sismo (Eje Cafetero).  
-Fuente de verdad de UX: mockup HTML interactivo. Solo frontend mock hasta que haya API.
+Frontend Next.js. El backend es [nara-api](https://github.com/luiscantilloo/nara-api) (NestJS): todas las rutas `/api/*` se reescriben hacia él.
+
+## Instalación desde cero
+
+1. Requisitos: Node.js 24 y una base MongoDB (local o Atlas). Primero levante **nara-api** (vea su README) en `http://127.0.0.1:4000`.
+2. `npm ci`
+3. Copie `.env.example` a `.env.local` y complete las variables. **`NARA_API_URL` es obligatoria y se lee al compilar**: sin ella, `/api/*` no tiene backend.
+4. Desarrollo: `npm run dev` → http://localhost:3002. Producción: `npm run build` y `npm run start`.
+5. Pruebas: `npm test`.
+6. Cuenta inicial de administrador (solo si la base está vacía): `SEED_ADMIN_PASSWORD=<clave de 12+ caracteres> npm run db:seed-admin`.
 
 ## Scripts
 
@@ -12,6 +21,7 @@ Fuente de verdad de UX: mockup HTML interactivo. Solo frontend mock hasta que ha
 | `npm run build` | Build de producción |
 | `npm run start` | Serve build en puerto 3002 |
 | `npm run lint` | ESLint |
+| `npm test` | Pruebas unitarias de las reglas clínicas (`node --test`) |
 
 ## Convención
 

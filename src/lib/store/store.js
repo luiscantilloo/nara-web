@@ -185,27 +185,16 @@ const KEY = 'nara-memory-v1';
   function basePath(r, d) {
     const s = {};
     const on = (id, freq) => { s[id] = freq; };
-    // Los 6 servicios, siempre.
-    on('mood', 'Diario');
-    on('ia', r <= 1 ? 'Acceso libre' : 'Entre sesiones');
-    on('tech', d === 0 ? 'Material impreso' : 'En audio');
-    on('cursos', cursosMod(r, d));
-    on(
-      'clin',
-      r <= 1 ? 'Mensual' : r === 2 ? 'Mensual' : r === 3 ? 'Quincenal' : 'Semanal',
-    );
-    on(
-      'revisit',
-      r <= 1
-        ? d === 0
-          ? 'Cada 2 semanas'
-          : 'Mensual'
-        : r === 2
-          ? d === 0
-            ? 'Cada 2 semanas'
-            : 'Mensual'
-          : 'Cada 2 semanas',
-    );
+    // Matriz v2 (2026-10-08) limitada a los 3 servicios que funcionan hoy (decisión de Dani, 2026-10-09):
+    // estado de ánimo, psicólogo clínico y TEO. Técnicas, revisita y cursos quedan apagados.
+    // · Ánimo en la app solo con capacidad Alta.
+    if (d === 2) on('mood', 'Diario');
+    // · Psicólogo desde Moderado (Mensual, Quincenal, Semanal). P01 y P04 (riesgo bajo y capacidad Baja)
+    //   quedarían sin ningún servicio: llevan psicólogo mensual (provisional, pendiente de aprobación clínica).
+    if (r >= 2) on('clin', r === 2 ? 'Mensual' : r === 3 ? 'Quincenal' : 'Semanal');
+    else if (d === 0) on('clin', 'Mensual');
+    // · TEO con capacidad Media o Alta, nunca en Severo.
+    if (d >= 1 && r <= 3) on('ia', r <= 1 ? 'Acceso libre' : 'Entre sesiones');
     // inactiveMinutes: umbral del perfil para estado Inactivo (default: 1 día).
     if (r <= 1) return { s, months: 3, inactiveMinutes: 1440 };
     if (r === 2) return { s, months: 6, inactiveMinutes: 1440 };

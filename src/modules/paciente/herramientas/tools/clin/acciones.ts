@@ -12,7 +12,7 @@ import type { Cita, Respuesta } from "@/modules/clinico/herramientas/tools/clin/
 
 export type Solicitud = { id: string; franja: "mañana" | "tarde"; estado: "solicitada" | "programada"; at: number };
 export type MisCitas = { activo: boolean; perfil: string; clinico: string; hoy: string; citas: Cita[]; solicitud: Solicitud | null };
-export const SOLICITUDES = "clin_solicitudes";
+const SOLICITUDES = "clin_solicitudes";
 
 async function miFicha() {
   const user = await sesionCon("paciente");
