@@ -1,12 +1,18 @@
-/** Cola IndexedDB para POST de experto sin red (TRL 5.16 / 6.26 / R-04). */
+/** Cola IndexedDB para POST/PUT de experto sin red (TRL 5.16 / 6.26 / R-04). */
 
-export type QueueKind = "people" | "worklists" | "patients" | "flags";
+export type QueueKind =
+  | "people"
+  | "worklists"
+  | "patients"
+  | "flags"
+  | "app-state";
 
 export type QueueItem = {
-  /** Id idempotente del recurso (mismo body.id). */
+  /** Id idempotente del recurso (mismo body.id o clave de slice). */
   id: string;
   kind: QueueKind;
   url: string;
+  method: "POST" | "PUT";
   body: Record<string, unknown>;
   createdAt: number;
 };
@@ -41,24 +47,45 @@ export function isBrowserOnline(): boolean {
   return navigator.onLine !== false;
 }
 
+async function putQueueItem(item: QueueItem): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(STORE, "readwrite");
+  tx.objectStore(STORE).put(item);
+  await txDone(tx);
+  db.close();
+}
+
 export async function enqueueOffline(
   kind: QueueKind,
   body: Record<string, unknown>,
 ): Promise<void> {
   const resourceId = String(body.id || "").trim();
   if (!resourceId) throw new Error("Falta id idempotente para la cola offline.");
-  const item: QueueItem = {
+  await putQueueItem({
     id: `${kind}:${resourceId}`,
     kind,
     url: `/api/${kind}`,
+    method: "POST",
     body: { ...body, id: resourceId },
     createdAt: Date.now(),
-  };
-  const db = await openDb();
-  const tx = db.transaction(STORE, "readwrite");
-  tx.objectStore(STORE).put(item);
-  await txDone(tx);
-  db.close();
+  });
+}
+
+/** Encola un PUT a /api/app-state (p. ej. consents de la visita). */
+export async function enqueueAppState(
+  slices: Record<string, unknown>,
+  idempotentKey: string,
+): Promise<void> {
+  const key = String(idempotentKey || "").trim();
+  if (!key) throw new Error("Falta clave idempotente para app-state offline.");
+  await putQueueItem({
+    id: `app-state:${key}`,
+    kind: "app-state",
+    url: "/api/app-state",
+    method: "PUT",
+    body: { slices },
+    createdAt: Date.now(),
+  });
 }
 
 export async function listOfflineQueue(): Promise<QueueItem[]> {
@@ -71,7 +98,10 @@ export async function listOfflineQueue(): Promise<QueueItem[]> {
   });
   await txDone(tx);
   db.close();
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    method: row.method === "PUT" ? "PUT" : "POST",
+  }));
 }
 
 export async function pendingOfflineCount(): Promise<number> {
@@ -87,6 +117,11 @@ async function removeQueued(key: string): Promise<void> {
   db.close();
 }
 
+function appStateAccepted(r: Response, j: { descartados?: { apartado: string }[] }) {
+  if (!r.ok) return false;
+  return !(j.descartados || []).some((d) => d.apartado === "consents");
+}
+
 /** Reintenta todos los pendientes. Upsert por id en el servidor evita duplicados. */
 export async function flushOfflineQueue(): Promise<{
   ok: number;
@@ -100,11 +135,18 @@ export async function flushOfflineQueue(): Promise<{
     try {
       const r = await fetch(item.url, {
         credentials: "same-origin",
-        method: "POST",
+        method: item.method || "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(item.body),
       });
-      if (!r.ok) throw new Error(String(r.status));
+      if (item.kind === "app-state") {
+        const j = (await r.json().catch(() => ({}))) as {
+          descartados?: { apartado: string }[];
+        };
+        if (!appStateAccepted(r, j)) throw new Error(String(r.status));
+      } else if (!r.ok) {
+        throw new Error(String(r.status));
+      }
       await removeQueued(item.id);
       ok += 1;
     } catch {
@@ -119,7 +161,7 @@ export async function flushOfflineQueue(): Promise<{
  * No lanza: el llamador decide si navegar.
  */
 export async function postOrQueue(
-  kind: QueueKind,
+  kind: Exclude<QueueKind, "app-state">,
   body: Record<string, unknown>,
 ): Promise<"ok" | "queued" | "error"> {
   const resourceId = String(body.id || "").trim();
@@ -150,6 +192,51 @@ export async function postOrQueue(
   } catch {
     try {
       await enqueueOffline(kind, payload);
+      return "queued";
+    } catch {
+      return "error";
+    }
+  }
+}
+
+/**
+ * PUT /api/app-state; sin red o fallo de red → cola IndexedDB.
+ * 4xx de política (p. ej. consentimiento descartado) → error sin encolar.
+ */
+export async function putAppStateOrQueue(
+  slices: Record<string, unknown>,
+  idempotentKey: string,
+): Promise<"ok" | "queued" | "error"> {
+  const key = String(idempotentKey || "").trim();
+  if (!key) return "error";
+  const body = { slices };
+
+  if (!isBrowserOnline()) {
+    try {
+      await enqueueAppState(slices, key);
+      return "queued";
+    } catch {
+      return "error";
+    }
+  }
+
+  try {
+    const r = await fetch("/api/app-state", {
+      credentials: "same-origin",
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = (await r.json().catch(() => ({}))) as {
+      descartados?: { apartado: string }[];
+    };
+    if (appStateAccepted(r, j)) return "ok";
+    if (r.status >= 400 && r.status < 500 && r.status !== 408) return "error";
+    await enqueueAppState(slices, key);
+    return "queued";
+  } catch {
+    try {
+      await enqueueAppState(slices, key);
       return "queued";
     } catch {
       return "error";

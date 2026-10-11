@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import AlientoAI from "@/lib/ai/ai";
+import { logIntegration } from "@/lib/observability/integration-log";
 import { BreathExercise } from "@/modules/paciente/app/BreathExercise";
 import { naraAsset } from "@/modules/paciente/app/naraAsset";
 import { useNaraStore } from "@/providers/nara-provider";
@@ -152,6 +153,7 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
     };
 
     try {
+      const started = Date.now();
       const res = await fetch(TEO_N8N_WEBHOOK, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -161,13 +163,47 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
       const raw = await res.text();
       if (res.ok) {
         const reply = readN8nRespuesta(raw);
-        if (reply) return reply;
+        if (reply) {
+          logIntegration({
+            service: "n8n",
+            ok: true,
+            ms: Date.now() - started,
+            status: res.status,
+            op: "teopaciente",
+          });
+          return reply;
+        }
+        logIntegration({
+          service: "n8n",
+          ok: false,
+          ms: Date.now() - started,
+          status: res.status,
+          detail: "empty",
+          op: "teopaciente",
+        });
+      } else {
+        logIntegration({
+          service: "n8n",
+          ok: false,
+          ms: Date.now() - started,
+          status: res.status,
+          detail: res.status >= 500 ? "upstream_5xx" : "http_error",
+          op: "teopaciente",
+        });
       }
     } catch {
+      logIntegration({
+        service: "n8n",
+        ok: false,
+        ms: 0,
+        detail: "network",
+        op: "teopaciente",
+      });
       /* el navegador no llega al webhook: el gateway hace la misma llamada */
     }
 
     try {
+      const started = Date.now();
       const res = await fetch("/api/teo/chat", {
         method: "POST",
         credentials: "same-origin",
@@ -176,13 +212,46 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
       });
       const raw = await res.text();
       const reply = readN8nRespuesta(raw);
-      if (res.ok && reply && !/^\{/.test(reply)) return reply;
+      if (res.ok && reply && !/^\{/.test(reply)) {
+        logIntegration({
+          service: "n8n",
+          ok: true,
+          ms: Date.now() - started,
+          status: res.status,
+          op: "teo.chat",
+        });
+        return reply;
+      }
       if (res.ok) {
         const data = JSON.parse(raw) as { ok?: boolean; text?: string };
-        if (data.ok && data.text?.trim()) return data.text.trim();
+        if (data.ok && data.text?.trim()) {
+          logIntegration({
+            service: "n8n",
+            ok: true,
+            ms: Date.now() - started,
+            status: res.status,
+            op: "teo.chat",
+          });
+          return data.text.trim();
+        }
       }
+      logIntegration({
+        service: "n8n",
+        ok: false,
+        ms: Date.now() - started,
+        status: res.status,
+        detail: res.ok ? "empty" : "http_error",
+        op: "teo.chat",
+      });
     } catch {
-      /* n8n no disponible */
+      logIntegration({
+        service: "n8n",
+        ok: false,
+        ms: 0,
+        detail: "network",
+        op: "teo.chat",
+      });
+      /* n8n / gateway no disponible */
     }
 
     try {
