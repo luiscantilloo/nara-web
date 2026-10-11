@@ -11,6 +11,7 @@ import {
   isBrowserOnline,
   pendingOfflineCount,
   postOrQueue,
+  putAppStateOrQueue,
   startOfflineQueueSync,
 } from "@/lib/offline/sync-queue";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
@@ -993,6 +994,9 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       at: evalAt,
       validatedAt: evalAt,
     };
+    // H-004 + R-04: people/wl/patients y consentimiento van a cola IndexedDB si no hay red.
+    // Sin red la visita se cierra en local; al volver online flushOfflineQueue reenvía todo.
+    const consentimiento = (store.get().consents || {})[personId];
     void (async () => {
       const results = await Promise.all([
         postOrQueue('people', peopleBody as Record<string, unknown>),
@@ -1002,6 +1006,12 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           : Promise.resolve('ok' as const),
         flagPayload
           ? postOrQueue('flags', flagPayload as Record<string, unknown>)
+          : Promise.resolve('ok' as const),
+        consentimiento
+          ? putAppStateOrQueue(
+              { consents: { [personId]: consentimiento } },
+              `consents:${personId}`,
+            )
           : Promise.resolve('ok' as const),
       ]);
       const queued = results.some((r) => r === 'queued');
@@ -1017,36 +1027,13 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         flash(
           'No se pudo guardar la visita en el servidor. Revise la señal e intente de nuevo; los datos locales se conservan.',
         );
-      } else if (queued) {
-        flash(OFFLINE_KEEP_MSG);
-      }
-    })();
-
-    // H-004 (SPEC-002 FR-004): la visita se da por guardada solo cuando el servidor confirma el
-    // consentimiento firmado. Antes dependía del guardado automático y se perdía si la app se cerraba.
-    const consentimiento = (store.get().consents || {})[personId];
-    void (async () => {
-      let guardado = !consentimiento;
-      for (let intento = 0; !guardado && intento < 3; intento++) {
-        if (intento) await new Promise((ok) => setTimeout(ok, 1500 * intento));
-        try {
-          const r = await fetch('/api/app-state', {
-            credentials: 'same-origin',
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ slices: { consents: { [personId]: consentimiento } } }),
-          });
-          const j = (await r.json().catch(() => ({}))) as { descartados?: { apartado: string }[] };
-          guardado = r.ok && !(j.descartados || []).some((d) => d.apartado === 'consents');
-        } catch {
-          /* sin señal: se reintenta */
-        }
-      }
-      if (!guardado) {
-        flash('No se pudo guardar el consentimiento en el servidor. Revise la señal y toque «Guardar visita» otra vez.');
         return;
       }
       setState({ screen: 'list', pid: null, newForm: false, editPid: null });
+      if (queued) {
+        flash(OFFLINE_KEEP_MSG);
+        return;
+      }
       flash(
         crisis
           ? 'Crisis registrada.'
