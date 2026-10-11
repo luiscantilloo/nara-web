@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { logIntegration } from "@/lib/observability/integration-log";
 
 export type VisitMapMarker = {
   lat: number;
@@ -45,11 +46,36 @@ export default function VisitsMapInner({ center, markers, emptyLabel }: Props) {
       scrollWheelZoom: false,
       attributionControl: true,
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 18,
-    }).addTo(map);
+    });
+    let osmLoggedOk = false;
+    let osmLoggedErr = false;
+    const osmStarted = Date.now();
+    tiles.on("load", () => {
+      if (osmLoggedOk) return;
+      osmLoggedOk = true;
+      logIntegration({
+        service: "osm",
+        ok: true,
+        ms: Date.now() - osmStarted,
+        op: "tileLayer",
+      });
+    });
+    tiles.on("tileerror", () => {
+      if (osmLoggedErr) return;
+      osmLoggedErr = true;
+      logIntegration({
+        service: "osm",
+        ok: false,
+        ms: Date.now() - osmStarted,
+        detail: "tileerror",
+        op: "tileLayer",
+      });
+    });
+    tiles.addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     // Leaflet needs a second pass once the container has layout.

@@ -1,3 +1,5 @@
+import { llmErrorDetail, logIntegration } from "@/lib/observability/integration-log";
+
 const PRIMARY = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const FALLBACKS = (
   process.env.GEMINI_FALLBACK_MODELS ||
@@ -29,6 +31,7 @@ async function callModel(model: string, prompt: string, opts?: { temperature?: n
   if (!key) throw new Error("Falta GEMINI_API_KEY en el entorno.");
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const started = Date.now();
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -54,11 +57,39 @@ async function callModel(model: string, prompt: string, opts?: { temperature?: n
     const err = new Error(message) as Error & { status?: number; capacity?: boolean };
     err.status = res.status;
     err.capacity = isCapacityError(res.status, message);
+    logIntegration({
+      service: "gemini",
+      ok: false,
+      ms: Date.now() - started,
+      status: res.status,
+      model,
+      detail: llmErrorDetail(err),
+      op: "generateContent",
+    });
     throw err;
   }
 
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-  if (!text.trim()) throw new Error("Gemini no devolvió texto.");
+  if (!text.trim()) {
+    logIntegration({
+      service: "gemini",
+      ok: false,
+      ms: Date.now() - started,
+      status: res.status,
+      model,
+      detail: "empty",
+      op: "generateContent",
+    });
+    throw new Error("Gemini no devolvió texto.");
+  }
+  logIntegration({
+    service: "gemini",
+    ok: true,
+    ms: Date.now() - started,
+    status: res.status,
+    model,
+    op: "generateContent",
+  });
   return { text: text.trim(), model };
 }
 
