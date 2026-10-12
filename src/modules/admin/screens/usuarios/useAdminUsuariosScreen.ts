@@ -7,6 +7,7 @@ import { filterRowsBySearch } from "@/components/shared/table-search/TableSearch
 import { adminPathForView } from "@/modules/admin/routes";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { DEFAULT_PATIENT_MODULES } from "@/lib/db/patientModules";
+import { minPasswordLengthForRole, passwordPolicyError } from "@/lib/auth/passwordPolicy";
 
 const ROLES = ["Administrador", "Experto de campo", "Clínico", "Paciente", "Observador"];
 const PAGE_SIZE = 5;
@@ -389,8 +390,16 @@ export function useAdminUsuariosScreen() {
         return setState({ err: "Use un correo válido (ej. nombre@nara.com) para el acceso." });
       if (!isEdit && !(f.password || "").trim())
         return setState({ err: "Defina una contraseña para el nuevo usuario." });
-      if ((f.password || "").trim() && (f.password || "").trim().length < 8)
-        return setState({ err: "La contraseña debe tener al menos 8 caracteres." });
+      const passTrim = (f.password || "").trim();
+      if (passTrim) {
+        const policyErr = passwordPolicyError({
+          password: passTrim,
+          email: f.contact,
+          name: fullName,
+          role: f.role,
+        });
+        if (policyErr) return setState({ err: policyErr });
+      }
       if (f.role === "Observador" && !f.org.trim())
         return setState({ err: "Escriba la organización del observador." });
       if (f.role === "Experto de campo") {
@@ -720,8 +729,14 @@ export function useAdminUsuariosScreen() {
       emailEditable: isCampoPatient ? !emailFromPerson : true,
       genPassword: () => {
         if (!f) return;
-        setState({ f: Object.assign({}, f, { password: genPassword(10) }), err: "" });
+        const len = Math.max(12, minPasswordLengthForRole(f.role));
+        setState({ f: Object.assign({}, f, { password: genPassword(len) }), err: "" });
       },
+      passwordHint: f
+        ? minPasswordLengthForRole(f.role) >= 12
+          ? "Mínimo 12 caracteres (Administrador / Clínico)"
+          : "Mínimo 8 caracteres"
+        : "Mínimo 8 caracteres",
       hasErr: !!st.err,
       err: st.err,
       clearErr: () => setState({ err: "" }),

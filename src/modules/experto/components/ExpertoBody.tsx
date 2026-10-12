@@ -740,7 +740,9 @@ export function ExpertoBody({ v }: { v: Record<string, any> }) {
                       onClick={() => v.newSave?.()}
                       className="h-[46px] w-full cursor-pointer rounded-[14px] border-none bg-nara-amarillo px-5 font-texto text-[15px] font-medium text-nara-tinta sm:w-auto"
                     >
-                      {v.formSaveLabel || "Agregar y empezar visita"}
+                      {v.newSaveRetry
+                        ? "Reintentar"
+                        : v.formSaveLabel || "Agregar y empezar visita"}
                     </button>
                     <button
                       type="button"

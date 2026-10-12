@@ -28,7 +28,31 @@ function newResourceId() {
 }
 
 const OFFLINE_KEEP_MSG =
-  "No hay conexión. Sus datos siguen aquí; se enviarán solos al volver la red.";
+  "No hay conexión. Tus datos no se han perdido: intenta de nuevo cuando vuelva la señal.";
+
+const NF_DRAFT_KEY = "nara.experto.nfDraft";
+
+function loadNfDraft(): Record<string, string> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(NF_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveNfDraft(draft: Record<string, string> | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!draft || !Object.keys(draft).length) localStorage.removeItem(NF_DRAFT_KEY);
+    else localStorage.setItem(NF_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    /* cuota / modo privado */
+  }
+}
 
 const blank = (n: number) =>
   Array.from({ length: n }, () => ({ v: null as number | null, st: "none" as const }));
@@ -334,6 +358,28 @@ export function useExpertoScreen() {
   // Consentimiento de persona inexistente → /experto con aviso (no persona vacía firmable).
   useEffect(() => {
     if (st.screen !== "consent" || !st.pid) return;
+    const pid = st.pid;
+    let cancelled = false;
+
+    const bounce = () => {
+      if (cancelled) return;
+      setStateRaw((prev) => ({
+        ...prev,
+        screen: "list",
+        pid: null,
+        newForm: false,
+        editPid: null,
+        toast:
+          "No se encontró a esa persona. Vuelva a captarla desde la lista.",
+      }));
+      pendingPathRef.current = "/experto";
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(
+        () => setStateRaw((p) => ({ ...p, toast: "" })),
+        4200,
+      );
+    };
+
     const S = store.get() as {
       people?: { id?: string; code?: string }[];
       worklists?: Record<string, { id?: string; code?: string }[]>;
@@ -341,31 +387,47 @@ export function useExpertoScreen() {
     const people = store.people ? store.people(S) : S.people || [];
     const inPeople = people.some(
       (p: { id?: string; code?: string }) =>
-        p.id === st.pid || p.code === st.pid,
+        p.id === pid || p.code === pid,
     );
     let inWl = false;
     for (const list of Object.values(S.worklists || {})) {
-      if ((list || []).some((w) => w.id === st.pid || w.code === st.pid)) {
+      if ((list || []).some((w) => w.id === pid || w.code === pid)) {
         inWl = true;
         break;
       }
     }
     if (inPeople || inWl) return;
-    setStateRaw((prev) => ({
-      ...prev,
-      screen: "list",
-      pid: null,
-      newForm: false,
-      editPid: null,
-      toast:
-        "No se encontró a esa persona. Vuelva a captarla desde la lista.",
-    }));
-    pendingPathRef.current = "/experto";
-    clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(
-      () => setStateRaw((p) => ({ ...p, toast: "" })),
-      4200,
-    );
+
+    // Sin ficha local: si hay red, confirmar en el servidor antes de firmar.
+    if (!isBrowserOnline()) {
+      bounce();
+      return;
+    }
+    void (async () => {
+      try {
+        // Lista del territorio (el servidor ya filtra por alcance); buscar id/código.
+        const r = await fetch("/api/people?limit=5000", {
+          credentials: "same-origin",
+        });
+        if (!r.ok) {
+          bounce();
+          return;
+        }
+        const data = (await r.json()) as {
+          people?: { id?: string; code?: string }[];
+        };
+        const found = (data.people || []).some(
+          (p) => p.id === pid || p.code === pid,
+        );
+        if (!found) bounce();
+      } catch {
+        bounce();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [st.screen, st.pid, store]);
   /** Último nf escrito: evita validar con un cierre de React obsoleto al pulsar «Empezar visita». */
   const nfRef = useRef(st.nf);
@@ -1502,6 +1564,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           next.age = value ? String(ageFromBirth(value)) : '';
         }
         nfRef.current = next;
+        if (!prev.editPid) saveNfDraft(next);
         return {
           ...prev,
           nf: next,
@@ -1518,19 +1581,31 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       scrollRef: scrollRef, chatRef: chatRef, sigRef: sigInit,
       goList: () => setState({ screen: 'list', newForm: false, editPid: null }),
       goNew: () => {
-        const id = newResourceId();
+        const draft = loadNfDraft();
+        const id = String(draft?.id || '').trim() || newResourceId();
         const pre = (A.TCODE && A.TCODE[terrName]) || terrName.slice(0, 3).toUpperCase();
-        const code = pre + '-' + String(1000 + ((A.people(A.get()).length) + 1));
-        setState({
-          newForm: true,
-          editPid: null,
-          nf: emptyPersonForm({
-            id,
-            code,
+        const code =
+          String(draft?.code || '').trim() ||
+          pre + '-' + String(1000 + ((A.people(A.get()).length) + 1));
+        const nf = {
+          ...emptyPersonForm({
             terr: terrName,
             expert: expertName,
             clin: clinForTerr(terrName),
           }),
+          ...(draft || {}),
+          id,
+          code,
+          terr: terrName,
+          expert: expertName,
+          clin: clinForTerr(terrName),
+        };
+        nfRef.current = nf;
+        saveNfDraft(nf);
+        setState({
+          newForm: true,
+          editPid: null,
+          nf,
           dupOk: false,
           newMsg: '',
         });
@@ -1739,6 +1814,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           const peopleRes = await postOrQueue('people', {
             id: pid,
             code: draft.code || undefined,
+            clientKey: String(draft.id || pid),
             ...personPayload,
           });
           if (peopleRes !== 'ok') {
@@ -1750,6 +1826,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
             setState({ newMsg: OFFLINE_KEEP_MSG });
             return;
           }
+          saveNfDraft(null);
           startVisit(visitRow || { id: pid, name, age, place, rural, phone, status: 'programada' });
           return;
         }
@@ -1773,9 +1850,11 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
             });
           }
         });
+        // clientKey = mismo id del borrador: reintentos no crean otra ficha (API idempotente).
         const peopleBody = {
           id,
           code,
+          clientKey: id,
           ...personPayload,
           status: 'Sin evaluación',
           profile: null,
@@ -1792,6 +1871,9 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
           code,
           phone,
         };
+        const keptNf = { ...draft, id, code };
+        nfRef.current = keptNf;
+        saveNfDraft(keptNf);
         // Detectar falta de red / fallo de fetch ANTES de navegar al consentimiento.
         if (!isBrowserOnline()) {
           await postOrQueue('people', peopleBody);
@@ -1801,7 +1883,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
             s.pendingSync[ex] = (s.pendingSync[ex] || 0) + 1;
           });
           void pendingOfflineCount().then(setOfflinePending);
-          setState({ newMsg: OFFLINE_KEEP_MSG, nf: { ...draft, id, code } });
+          setState({ newMsg: OFFLINE_KEEP_MSG, nf: keptNf });
           return;
         }
         const [peopleRes, wlRes] = await Promise.all([
@@ -1819,13 +1901,18 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
               peopleRes === 'error' || wlRes === 'error'
                 ? 'No se pudo guardar. Sus datos siguen en el formulario; revise la señal e intente de nuevo.'
                 : OFFLINE_KEEP_MSG,
-            nf: { ...draft, id, code },
+            nf: keptNf,
           });
           return;
         }
+        saveNfDraft(null);
         startVisit({ ...w, status: 'programada' });
         })();
       },
+      newSaveRetry:
+        !!st.newMsg &&
+        (/conexión|señal|intente de nuevo|siguen en el formulario/i.test(st.newMsg) ||
+          st.newMsg === OFFLINE_KEEP_MSG),
       personName: p.name, personMeta: p.age + ' años · ' + p.place + ' · ' + (p.rural ? 'Rural' : 'Urbano'), steps,
       consentItems, sigTitle: st.ruego ? 'Firma del testigo' : 'Firma de la persona', sigHint: st.signed ? 'Firma registrada.' : 'Firme con el dedo dentro del recuadro.',
       sigClear: () => { if (canvasRef.current) canvasRef.current.getContext('2d').clearRect(0, 0, 440, 150); setState({ signed: false }); },

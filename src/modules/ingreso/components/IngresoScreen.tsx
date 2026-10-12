@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
+import { passwordPolicyError } from "@/lib/auth/passwordPolicy";
 import { apiJson } from "@/lib/api/client";
 import { hydrateProgramData } from "@/lib/store/hydrateProgram";
 import { useNaraStore } from "@/providers/nara-provider";
@@ -98,8 +99,14 @@ export function IngresoScreen() {
 
   const changePassword = async () => {
     setErr("");
-    if (newPass.length < 8) {
-      setErr("La clave debe tener al menos 8 caracteres.");
+    const policyErr = passwordPolicyError({
+      password: newPass,
+      email: pendingUser?.email || email,
+      name: pendingUser?.name || "",
+      role: pendingUser?.role || pendingUser?.roleId || "",
+    });
+    if (policyErr) {
+      setErr(policyErr);
       return;
     }
     if (newPass !== newPass2) {

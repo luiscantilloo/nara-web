@@ -3,12 +3,11 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import AlientoAI from "@/lib/ai/ai";
+import { redactTextForTeo } from "@/lib/ai/redactForTeo";
 import { logIntegration } from "@/lib/observability/integration-log";
 import { BreathExercise } from "@/modules/paciente/app/BreathExercise";
 import { naraAsset } from "@/modules/paciente/app/naraAsset";
 import { useNaraStore } from "@/providers/nara-provider";
-
-const TEO_N8N_WEBHOOK = "https://polariatech.app.n8n.cloud/webhook/teopaciente";
 
 type Turn = { role: "paciente" | "teo"; text: string; crisis?: boolean };
 
@@ -137,70 +136,21 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
 
   async function askN8n(text: string, prior: Turn[]) {
     const ctx = patientContext();
-    const history = prior
-      .slice(-8)
-      .map((m) => `${m.role === "teo" ? "TEO" : ctx.fname}: ${m.text}`)
-      .join("\n");
-    const message = text.trim();
+    // Punto 5 · T4: el navegador no llama a n8n ni envía nombre/edad/lugar.
+    // Solo código de perfil + textos limpios (tel/correo) vía /api/teo/chat.
+    const history = redactTextForTeo(
+      prior
+        .slice(-8)
+        .map((m) => `${m.role === "teo" ? "TEO" : "Paciente"}: ${m.text}`)
+        .join("\n"),
+    );
+    const message = redactTextForTeo(text.trim());
     const payload = {
       message,
       chatInput: message,
       history,
-      patientName: ctx.name,
-      place: ctx.place,
-      profile: ctx.profile,
-      age: ctx.age ?? "",
+      profile: ctx.profile || "P01",
     };
-
-    try {
-      const started = Date.now();
-      const res = await fetch(TEO_N8N_WEBHOOK, {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(55_000),
-      });
-      const raw = await res.text();
-      if (res.ok) {
-        const reply = readN8nRespuesta(raw);
-        if (reply) {
-          logIntegration({
-            service: "n8n",
-            ok: true,
-            ms: Date.now() - started,
-            status: res.status,
-            op: "teopaciente",
-          });
-          return reply;
-        }
-        logIntegration({
-          service: "n8n",
-          ok: false,
-          ms: Date.now() - started,
-          status: res.status,
-          detail: "empty",
-          op: "teopaciente",
-        });
-      } else {
-        logIntegration({
-          service: "n8n",
-          ok: false,
-          ms: Date.now() - started,
-          status: res.status,
-          detail: res.status >= 500 ? "upstream_5xx" : "http_error",
-          op: "teopaciente",
-        });
-      }
-    } catch {
-      logIntegration({
-        service: "n8n",
-        ok: false,
-        ms: 0,
-        detail: "network",
-        op: "teopaciente",
-      });
-      /* el navegador no llega al webhook: el gateway hace la misma llamada */
-    }
 
     try {
       const started = Date.now();
@@ -256,7 +206,7 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
 
     try {
       const out = await AlientoAI.complete(
-        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con ${ctx.name}, ${ctx.age || "—"} años, de ${ctx.place}. Perfil ${ctx.profile}. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${history}\n${ctx.fname}: ${message}\nTEO:`,
+        `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con una persona del programa (perfil ${ctx.profile || "P01"}). Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga. Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${history}\nPaciente: ${message}\nTEO:`,
       );
       const reply = String(out || "").trim();
       if (reply) return reply;
