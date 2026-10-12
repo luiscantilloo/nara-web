@@ -1922,8 +1922,10 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
       consentMsg: st.consentMsg, clearConsentMsg: () => setState({ consentMsg: '' }),
       consentNext: () => { if (!reqOk) return setState({ consentMsg: 'Faltan puntos obligatorios. La persona debe aceptar los tres para continuar.' }); if (!sigOk) return setState({ consentMsg: st.ruego ? 'Falta la firma y el nombre del testigo.' : 'Falta la firma.' }); setState({ screen: 'eval', consentMsg: '' }); },
       crisis, notCrisis: !crisis, crisisStay: 'Quédese con ' + honor(p) + '. No lo deje solo.', alertStatusText, goResult: () => go('result'),
-      isChat: false,
+      // P5 · T6: el panel de nota libre del cuestionario debe estar visible (campo XSS / dictado).
+      isChat: true,
       modeForm: () => setState({ mode: 'form' }),
+      modeChat: () => setState({ mode: 'chat' }),
       progressOk: okN + ' de 15 preguntas confirmadas', progressDraft: drN ? ' · ' + drN + ' en borrador' : '',
       calcBg: allOk || crisis ? C.verde : '#DCD6CD', calcFg: allOk || crisis ? '#fff' : '#7A736B',
       calc: () => {
