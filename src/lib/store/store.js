@@ -803,7 +803,22 @@ const KEY = 'nara-memory-v1';
     braceletAvail: []
   };
 
-  function pushNotif(s, key, text, link) { (s.notifs[key] = s.notifs[key] || []).unshift({ id: 'n' + Date.now() + Math.random().toString(36).slice(2, 5), text, link, at: Date.now(), read: false }); }
+  // Punto 5 · T3: las notificaciones de crisis llevan pid y código (nunca el nombre).
+  function personCodeForAlert(s, a) {
+    const pid = a && a.pid;
+    if (a && a.code) return String(a.code);
+    const pe = pid && (s.people || []).find((p) => p.id === pid);
+    if (pe && pe.code) return String(pe.code);
+    const pat = pid && s.patients && s.patients[pid];
+    if (pat && pat.code) return String(pat.code);
+    return pid ? String(pid) : 'sin-código';
+  }
+  function pushNotif(s, key, text, link, extra) {
+    (s.notifs[key] = s.notifs[key] || []).unshift(Object.assign({
+      id: 'n' + Date.now() + Math.random().toString(36).slice(2, 5),
+      text, link, at: Date.now(), read: false,
+    }, extra || {}));
+  }
   function notify(key, text, link) { set(s => pushNotif(s, key, text, link)); }
   /** Log durable de movimientos de crisis (creación, toma, reintento, cierre…). */
   function pushCrisisLog(s, entry) {
@@ -841,10 +856,14 @@ const KEY = 'nara-memory-v1';
           status: 'new',
           at,
         });
-        pushNotif(s, 'clin', 'Nueva alerta de crisis: ' + a.name, '/clinico/crisis');
-        if (a.expert) pushNotif(s, a.expert, 'Crisis enviada: ' + a.name + ' · esperando a la clínica de turno', '/experto');
+        const codeLabel = personCodeForAlert(s, a);
+        const pidExtra = a.pid ? { pid: a.pid } : {};
+        pushNotif(s, 'clin', 'Nueva alerta de crisis: ' + codeLabel, '/clinico/crisis', pidExtra);
+        if (a.expert) pushNotif(s, a.expert, 'Crisis enviada: ' + codeLabel + ' · esperando a la clínica de turno', '/experto', pidExtra);
       }
-      else if (a.sev === 'info' && /Nueva paciente/.test(a.what)) pushNotif(s, 'clin', 'Nueva paciente asignada: ' + a.name, '/clinico/pacientes');
+      else if (a.sev === 'info' && /Nueva paciente/.test(a.what)) {
+        pushNotif(s, 'clin', 'Nueva paciente asignada: ' + personCodeForAlert(s, a), '/clinico/pacientes', a.pid ? { pid: a.pid } : {});
+      }
     });
   }
 

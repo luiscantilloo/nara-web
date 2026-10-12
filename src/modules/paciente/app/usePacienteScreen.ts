@@ -1,6 +1,7 @@
 "use client";
 
 import AlientoAI from "@/lib/ai/ai";
+import { redactTextForTeo } from "@/lib/ai/redactForTeo";
 import {
   DEFAULT_INACTIVE_MINUTES,
   inactivityThresholdMs,
@@ -617,7 +618,10 @@ export function usePacienteScreen() {
             method: "POST",
             credentials: "same-origin",
             headers: { Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ message: said || term, patientName: P.name || "" }),
+            body: JSON.stringify({
+              message: said || term,
+              profile: P.profile || "P01",
+            }),
           });
           const data = (await res.json()) as { crisis?: boolean; escalada?: boolean; text?: string };
           if (res.ok && data.crisis) r = data;
@@ -1393,11 +1397,15 @@ export function usePacienteScreen() {
     const P = store.PATIENTS[id] || store.emptyPatient(id, firstName, 0);
     const fname = String(P.name || firstName || "Paciente").split(/\s+/)[0];
     const place = String(P.place || "Quindío").split(",")[0];
-    const hist = msgs
-      .filter((m) => m.t === "ai" || m.t === "me")
-      .slice(-8)
-      .map((m) => `${m.t === "ai" ? "TEO: " : fname + ": "}${m.text}`)
-      .join("\n");
+    // Punto 5 · T4: no enviar nombre/edad/lugar al chat; limpiar textos.
+    const hist = redactTextForTeo(
+      msgs
+        .filter((m) => m.t === "ai" || m.t === "me")
+        .slice(-8)
+        .map((m) => `${m.t === "ai" ? "TEO: " : "Paciente: "}${m.text}`)
+        .join("\n"),
+    );
+    const cleanText = redactTextForTeo(text);
 
     let reply = "";
     try {
@@ -1406,12 +1414,10 @@ export function usePacienteScreen() {
         credentials: "same-origin",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: text,
+          message: cleanText,
+          chatInput: cleanText,
           history: hist,
-          patientName: P.name || firstName,
-          place,
           profile: P.profile || "P01",
-          age: P.age || "",
         }),
       });
       const data = (await res.json()) as { ok?: boolean; text?: string; fallback?: boolean; crisis?: boolean; escalada?: boolean };
@@ -1426,7 +1432,7 @@ export function usePacienteScreen() {
     if (!reply) {
       try {
         const out = await AlientoAI.complete(
-          `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con ${P.name || firstName}, ${P.age || "—"} años, de ${place}. Perfil ${P.profile || "P05"}. Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga (Dra. Lucía Marín). Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\n${fname}: ${text}\nTEO:`,
+          `Eres TEO, acompañante con IA de un programa de salud mental post-sismo en el Eje Cafetero (Colombia). Hablas con una persona del programa (perfil ${P.profile || "P01"}). Trátala de usted, con calidez, frases cortas y palabras sencillas, sin jerga clínica. No das diagnósticos ni reemplazas a su psicóloga. Puedes ofrecer la respiración 4-6, anotar un tema para la sesión o recomendar un video. Voz de TEO: escucha primero, valida y ofrece una sola cosa concreta. Una sola pregunta por mensaje. Nunca diagnostiques, recetes, hables de medicamentos ni contradigas a la psicóloga. Nunca minimices («no es para tanto»), culpes («debería»), prometas («se va a sentir mejor») ni finjas ser humano o sentir emociones. Sin chistes; en temas de miedo, sueño o respiración, frases lentas y sin signos de exclamación. Si detectas cualquier señal de riesgo suicida o peligro inmediato, responde solo con la palabra CRISIS. Responde en máximo 3 frases.\n\n${hist}\nPaciente: ${cleanText}\nTEO:`,
         );
         reply = String(out || "").trim();
       } catch {

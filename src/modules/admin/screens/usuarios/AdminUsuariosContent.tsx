@@ -551,7 +551,7 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                   type="text"
                   value={v.f.password ?? ""}
                   onChange={v.fSet.password}
-                  placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
+                  placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : (v.passwordHint || "Mínimo 8 caracteres")}
                   autoComplete="new-password"
                   className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco py-0 pl-3 pr-[5.5rem] font-texto text-[15px] font-normal text-nara-tinta"
                 />
@@ -568,15 +568,15 @@ export function AdminUsuariosContent({ v }: { v: Record<string, any> }) {
                 type="password"
                 value={v.f.password ?? ""}
                 onChange={v.fSet.password}
-                placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : "Mínimo 8 caracteres"}
+                placeholder={v.isEdit ? "Dejar vacío para no cambiarla" : (v.passwordHint || "Mínimo 8 caracteres")}
                 autoComplete="new-password"
                 className="box-border h-[42px] w-full rounded-[9px] border-[1.5px] border-linea bg-nara-blanco px-3 font-texto text-[15px] font-normal text-nara-tinta"
               />
             )}
             <span className="text-xs font-normal text-texto-secundario">
               {v.isEdit
-                ? "Solo complete si quiere cambiar la contraseña."
-                : "Esta contraseña se usa en Ingreso (correo + clave)."}
+                ? "Solo complete si quiere cambiar la contraseña. No use el correo ni el nombre dentro de la clave."
+                : "Esta contraseña se usa en Ingreso. No debe contener el correo ni el nombre; Admin/Clínico: mínimo 12."}
             </span>
           </label>
 
