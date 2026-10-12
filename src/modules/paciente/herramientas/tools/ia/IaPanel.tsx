@@ -136,8 +136,8 @@ export function IaPanel({ vm }: { vm: ChatVm }) {
 
   async function askN8n(text: string, prior: Turn[]) {
     const ctx = patientContext();
-    // Punto 5 · T4: el navegador no llama a n8n ni envía nombre/edad/lugar.
-    // Solo código de perfil + textos limpios (tel/correo) vía /api/teo/chat.
+    // Punto 5 · T4: el navegador no llama a n8n ni envía nombre/edad/lugar ni secretos.
+    // Solo código de perfil + textos limpios vía /api/teo/chat (la API añade x-nara-secret a n8n).
     const history = redactTextForTeo(
       prior
         .slice(-8)
