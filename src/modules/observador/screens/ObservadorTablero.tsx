@@ -39,16 +39,29 @@ export function ObservadorTablero() {
 
   useEffect(() => {
     let vivo = true;
-    fetch("/api/people", { credentials: "same-origin" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (!vivo) return;
-        if (d?.ok && d.summary) setResumen(d.summary as Resumen);
-        else setError("No se pudieron cargar los datos.");
-      })
-      .catch(() => vivo && setError("No se pudieron cargar los datos."));
+    const load = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetch("/api/people", { credentials: "same-origin" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!vivo) return;
+          if (d?.ok && d.summary) {
+            setResumen(d.summary as Resumen);
+            setError("");
+          } else setError("No se pudieron cargar los datos.");
+        })
+        .catch(() => vivo && setError("No se pudieron cargar los datos."));
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       vivo = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 

@@ -11,6 +11,7 @@ import { AgentDrawerShell } from "@/components/shared/agent-panel/AgentDrawerShe
 import { AgentPanel } from "@/components/shared/agent-panel/AgentPanel";
 import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingScreen";
 import { UserMenu } from "@/components/shared/user-menu/UserMenu";
+import { ensureSession } from "@/lib/auth/ensureSession";
 import { useNaraStore } from "@/providers/nara-provider";
 import { ObservadorTablero } from "./ObservadorTablero";
 
@@ -25,11 +26,19 @@ function ObservadorInner() {
   useEffect(() => store.subscribe(() => setTick((n) => n + 1)), [store]);
 
   useEffect(() => {
-    const roleId = (u as { roleId?: string } | null)?.roleId;
-    if (!u || (roleId !== "observador" && u.role !== "Observador")) {
-      router.replace("/ingreso");
-    }
-  }, [u, router]);
+    let cancelled = false;
+    void (async () => {
+      const sess = await ensureSession(store);
+      if (cancelled) return;
+      const roleId = (sess as { roleId?: string } | null)?.roleId;
+      if (!sess || (roleId !== "observador" && sess.role !== "Observador")) {
+        router.replace("/ingreso");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [store, router, u]);
 
   const account = useMemo(() => {
     void tick;

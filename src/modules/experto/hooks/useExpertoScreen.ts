@@ -7,6 +7,7 @@ import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingPr
 import { needsClosingEval } from "@/lib/clinical/patientStates";
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { LIVE_EXPERTO, useLiveProgramSync } from "@/lib/store/liveSync";
 import {
   isBrowserOnline,
   pendingOfflineCount,
@@ -147,6 +148,7 @@ function borrarBorradorVisita(pid: string | null) {
 export function useExpertoScreen() {
   const store = useNaraStore();
   const live = useNaraLive();
+  useLiveProgramSync({ parts: LIVE_EXPERTO });
   const session = useRequireSession(["experto"]);
   const router = useRouter();
   const pathname = usePathname();
@@ -1756,7 +1758,7 @@ Responde SOLO con JSON: {"reply":"texto breve en español de Colombia, trato de 
         if (!nacDate || Number.isNaN(nacDate.getTime())) return setState({ newMsg: 'La fecha de nacimiento no es válida.' });
         if (nacDate.getTime() > Date.now()) return setState({ newMsg: 'La fecha de nacimiento no puede ser futura.' });
         const edadAlta = ageFromBirth(birthDate);
-        if (!(edadAlta >= 18 && edadAlta <= 110)) return setState({ newMsg: 'La edad debe estar entre 18 y 110 años.' });
+        if (!(edadAlta >= 60 && edadAlta <= 110)) return setState({ newMsg: 'La edad debe estar entre 60 y 110 años.' });
         const telAlta = String(draft.phone || '').replace(/[\s-]/g, '');
         if (telAlta && !/^3\d{9}$/.test(telAlta)) {
           return setState({ newMsg: 'El teléfono debe tener 10 dígitos y empezar por 3.' });

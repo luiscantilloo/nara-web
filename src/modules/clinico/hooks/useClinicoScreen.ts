@@ -7,6 +7,7 @@ import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingPr
 import { useRequireSession } from "@/hooks/useRequireSession";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { LIVE_CLINICO, useLiveProgramSync } from "@/lib/store/liveSync";
 import { flushPersist } from "@/lib/store/persist";
 import {
   DEFAULT_INACTIVE_MINUTES,
@@ -36,6 +37,7 @@ const OUTCOMES = [
 export function useClinicoScreen() {
   const store = useNaraStore();
   const live = useNaraLive();
+  useLiveProgramSync({ parts: LIVE_CLINICO });
   const session = useRequireSession(["clinico"]);
   const router = useRouter();
   const pathname = usePathname();

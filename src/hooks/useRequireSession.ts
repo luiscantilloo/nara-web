@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useNaraStore } from "@/providers/nara-provider";
+import { ensureSession } from "@/lib/auth/ensureSession";
 import { roleIdFromLabel, type NaraRoleId } from "@/lib/db/roles";
 
 function resolveRoleId(u: { id: string; role?: string; roleId?: string | null }) {
@@ -42,14 +43,21 @@ export function useRequireSession(allowedIds: string[]) {
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
-    const u = store.session();
-    if (!isAllowed(u, allowedIds)) {
-      // H-015: con sesión de otro rol, a su propio panel con aviso; sin sesión, al ingreso.
-      const href = (u as { href?: string } | null)?.href;
-      router.replace(u && href ? `${href}?acceso=denegado` : "/ingreso");
-      return;
-    }
-    setOk(true);
+    let cancelled = false;
+    void (async () => {
+      const u = await ensureSession(store);
+      if (cancelled) return;
+      if (!isAllowed(u, allowedIds)) {
+        // H-015: con sesión de otro rol, a su propio panel con aviso; sin sesión, al ingreso.
+        const href = (u as { href?: string } | null)?.href;
+        router.replace(u && href ? `${href}?acceso=denegado` : "/ingreso");
+        return;
+      }
+      setOk(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [store, router, allowedIds]);
 
   return ok ? store.session() : null;

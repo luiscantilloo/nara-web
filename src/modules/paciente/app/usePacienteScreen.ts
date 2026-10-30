@@ -8,6 +8,7 @@ import {
 } from "@/lib/clinical/patientStates";
 import { flushPersist, flushPersistWhenReady } from "@/lib/store/persist";
 import { pauseLiveHydrate } from "@/lib/store/hydrateProgram";
+import { LIVE_PACIENTE, useLiveProgramSync } from "@/lib/store/liveSync";
 import { apiFetch } from "@/lib/api/client";
 import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
@@ -360,6 +361,7 @@ function isWellConfirmedLocal(
 export function usePacienteScreen() {
   const store = useNaraStore();
   useNaraLive();
+  useLiveProgramSync({ parts: LIVE_PACIENTE });
   const router = useRouter();
   const pathname = usePathname();
   const { start: startRouteLoading } = useRouteLoading();
