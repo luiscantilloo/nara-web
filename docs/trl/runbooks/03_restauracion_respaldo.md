@@ -52,13 +52,41 @@ Objetivo: demostrar que el respaldo captura el estado **en el momento** en que s
 
 **Acta mínima:** hora del respaldo · inicio/fin restauración · tiempo total · sí/no de las 3 checks (solo conteos) · confirmación de borrado local. Sin nombres de personas reales.
 
+### 3.1 Laboratorio sintético (sin datos reales)
+
+Si no hay acceso a la máquina de respaldos / volcados de producción, la prueba «3 + 1» puede ensayarse en **MongoDB local** con una base inventada (p. ej. `nara_trl`):
+
+```bash
+# Respaldo de la base sintética
+mongodump --db=nara_trl --out=<DUMP_DIR>
+
+# Mutar la base viva (3 altas TRL-QA-R06-* + archivar 1 existente)
+
+# Restaurar el volcado en OTRA base local (no reutilizar --nsFrom/--nsTo sobre la carpeta del dump:
+# en mongodb-database-tools recientes puede omitir los .bson)
+mongorestore --db=nara_trl_restore_verif --drop <DUMP_DIR>/nara_trl
+
+# Verificar checks A/B/C en nara_trl_restore_verif; luego:
+mongosh --eval "db.getSiblingDB('nara_trl_restore_verif').dropDatabase()"
+```
+
+Esto **no sustituye** la corrida con volcados reales en la máquina de ops; sirve para validar el procedimiento y el runbook.
+
+Evidencia de corrida sintética: `docs/trl/evidencia-punto7/t2-respaldo-3mas1.md` (o el acta en el paquete de evidencia PROD).
+
 ---
 
 ## 4. Restaurar en local (verificación)
 
 1. Tener MongoDB local escuchando (puerto habitual 27017).
 2. Crear una base vacía dedicada, p. ej. `nara_restore_verif`.
-3. Ejecutar el script de restauración apuntando al volcado elegido → base local (parámetros sin secretos en la línea de comando; URI local).
+3. Ejecutar la restauración apuntando al volcado elegido → base local. Con `mongorestore` de database-tools:
+
+   ```bash
+   mongorestore --db=nara_restore_verif --drop <DUMP_DIR>/<nombre_base_origen>
+   ```
+
+   Evitar `--nsFrom/--nsTo` sobre la carpeta del dump si la herramienta responde «don't know what to do with file …bson».
 4. Comprobar con el cliente `mongosh` o el script de comparación de conteos.
 5. Borrar la base local al terminar: `db.dropDatabase()` sobre `nara_restore_verif`.
 

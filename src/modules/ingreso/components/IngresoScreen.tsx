@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { NaraMsgAlert } from "@/components/shared/nara-alert/NaraMsgAlert";
 import { applySessionUser } from "@/lib/auth/applySessionUser";
 import { passwordPolicyError } from "@/lib/auth/passwordPolicy";
@@ -37,7 +36,6 @@ const linkBtnClass =
 
 export function IngresoScreen() {
   const store = useNaraStore();
-  const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -89,7 +87,10 @@ export function IngresoScreen() {
       }
       applySessionUser(data.user);
       await hydrateProgramData(store, { force: true });
-      router.push(data.user.href || "/inicio");
+      // Hard nav: con rewrite a nucleo, el soft push a veces no lleva la cookie
+      // nara_sid al middleware y el usuario vuelve a /ingreso (parece «pegado»).
+      const dest = data.user.href || "/inicio";
+      window.location.assign(dest);
     } catch {
       setErr("No se pudo conectar. Intente de nuevo.");
     } finally {
@@ -124,12 +125,13 @@ export function IngresoScreen() {
         return;
       }
       const u = pendingUser;
-      goLogin();
       if (u) {
         applySessionUser({ ...u, mustChangePassword: false } as LoginUser);
         await hydrateProgramData(store, { force: true });
-        router.push(u.href || "/inicio");
+        window.location.assign(u.href || "/inicio");
+        return;
       }
+      goLogin();
     } catch {
       setErr("No se pudo conectar. Intente de nuevo.");
     } finally {

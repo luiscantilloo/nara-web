@@ -6,9 +6,20 @@ const SESSION_COOKIE = "nara_sid";
 /** Rutas de página públicas (sin cookie). */
 const PUBLIC_PATHS = ["/", "/landing", "/ingreso"];
 
+function programId() {
+  return (
+    process.env.NEXT_PUBLIC_PROGRAM_ID ||
+    process.env.PROGRAM_ID ||
+    "nara"
+  )
+    .trim()
+    .toLowerCase();
+}
+
 function isPublicPath(pathname: string) {
-  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
-  // La API vive en nara-api (rewrite). Auth y errores los resuelve el gateway Nest.
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)))
+    return true;
+  // La API vive en el gateway (rewrite). Auth y errores los resuelve Nest.
   if (pathname.startsWith("/api/")) return true;
   if (
     pathname.startsWith("/_next") ||
@@ -28,11 +39,24 @@ function isPublicPath(pathname: string) {
 
 function hasSignedCookie(value: string | undefined) {
   if (!value) return false;
-  return value.split(".").length === 3;
+  // id puede traer puntos (p. ej. prueba.gestor). Formato: …exp[.programId].sig
+  const parts = value.split(".");
+  return parts.length >= 3 && parts.every((p) => p.length > 0);
+}
+
+function withProgramHeader(req: NextRequest) {
+  const headers = new Headers(req.headers);
+  headers.set("x-program-id", programId());
+  return NextResponse.next({ request: { headers } });
 }
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // API: marcar programa de este front (antes vivía en middleware.ts).
+  if (pathname.startsWith("/api/")) {
+    return withProgramHeader(req);
+  }
 
   if (isPublicPath(pathname)) {
     return NextResponse.next();

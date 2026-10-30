@@ -575,10 +575,19 @@ function healActivoModulesFromPath(store: Store) {
   });
 }
 
+/** Partes opcionales: pantallas activas piden solo lo que usan. */
+export type HydratePart =
+  | "territories"
+  | "experts"
+  | "accounts"
+  | "staff"
+  | "appState"
+  | "patientSelf";
+
 /** Carga territorios, expertos, personas, etc. según el rol de la sesión activa. */
 export async function hydrateProgramData(
   store: Store,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; parts?: HydratePart[] },
 ): Promise<void> {
   const session = store.session() as { id?: string; roleId?: string | null } | null;
   if (!session?.id) {
@@ -586,7 +595,8 @@ export async function hydrateProgramData(
     return;
   }
 
-  if (opts?.force && Date.now() < suppressLiveUntil) return;
+  // force=true (login / mutación) siempre hidrata; el suppress solo frena el poll.
+  if (!opts?.force && Date.now() < suppressLiveUntil) return;
 
   if (!opts?.force && lastHydratedSessionId === session.id && !inFlight) return;
   if (inFlight) {
@@ -594,36 +604,52 @@ export async function hydrateProgramData(
     await inFlight;
   }
 
+  const want = (p: HydratePart) => !opts?.parts || opts.parts.includes(p);
+
   inFlight = (async () => {
     pausePersist(true);
     try {
       const roleId = session.roleId || null;
 
       if (roleId === "paciente") {
-        await hydratePatientSelf(store);
-        await hydrateAppState(store);
+        if (want("patientSelf")) await hydratePatientSelf(store);
+        if (want("appState")) await hydrateAppState(store);
         healActivoModulesFromPath(store);
         lastHydratedSessionId = session.id!;
         return;
       }
 
-      const programJobs: Promise<unknown>[] = [
-        hydrateTerritories(store),
-        hydrateExperts(store),
-        hydrateAppState(store),
-      ];
+      const programJobs: Promise<unknown>[] = [];
+      if (want("territories")) programJobs.push(hydrateTerritories(store));
+      if (want("experts")) programJobs.push(hydrateExperts(store));
+      if (want("appState")) programJobs.push(hydrateAppState(store));
 
-      if (roleId === "admin" || roleId === "clinico") {
+      if (
+        want("accounts") &&
+        (roleId === "admin" || roleId === "clinico")
+      ) {
         programJobs.push(hydrateAccounts(store));
       }
 
-      if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
+      if (
+        want("staff") &&
+        (roleId === "admin" ||
+          roleId === "experto" ||
+          roleId === "clinico" ||
+          roleId === "cuidador")
+      ) {
         programJobs.push(hydratePeopleFlagsWorklists(store));
       }
       // H-004: el observador no carga personas en el store; su tablero pide el resumen agregado.
 
       await Promise.all(programJobs);
-      if (roleId === "admin" || roleId === "experto" || roleId === "clinico") {
+      if (
+        want("staff") &&
+        (roleId === "admin" ||
+          roleId === "experto" ||
+          roleId === "clinico" ||
+          roleId === "cuidador")
+      ) {
         applyOpenCrisisToPatients(store);
       }
       lastHydratedSessionId = session.id!;

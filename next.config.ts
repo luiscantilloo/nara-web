@@ -1,15 +1,30 @@
 import type { NextConfig } from "next";
 
 /**
- * Gateway Nest (nara-api). Obligatorio en runtime: sin esto `/api/*` no tiene backend
- * (las route handlers locales se eliminaron).
- * Dev: http://127.0.0.1:4000
+ * Gateway del núcleo (nucleo-api). Obligatorio en runtime: sin esto `/api/*` no tiene backend.
+ * Preferir NUCLEO_API_URL. NARA_API_URL se acepta por compatibilidad (legado nara-api).
+ * La instancia NARA del núcleo debe correr con PROGRAM_ID=nara.
+ * Dev NARA: http://127.0.0.1:4100 (Plateado usa :4000; no mezclar).
  */
-const NARA_API_URL = (process.env.NARA_API_URL || "").replace(/\/$/, "");
+const NARA_API_URL = (
+  process.env.NUCLEO_API_URL ||
+  process.env.NARA_API_URL ||
+  ""
+).replace(/\/$/, "");
 
 if (!NARA_API_URL && process.env.NODE_ENV !== "test") {
   console.warn(
-    "[nara-web] Falta NARA_API_URL — defínalo en .env.local (ej. http://127.0.0.1:4000).",
+    "[nara-web] Falta NUCLEO_API_URL — en .env.local: http://127.0.0.1:4100 (instancia PROGRAM_ID=nara).",
+  );
+}
+
+if (
+  NARA_API_URL &&
+  /:4000\/?$/.test(NARA_API_URL) &&
+  process.env.NODE_ENV !== "test"
+) {
+  console.warn(
+    "[nara-web] NUCLEO_API_URL apunta a :4000 (Plateado). NARA debe usar :4100.",
   );
 }
 

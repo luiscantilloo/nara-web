@@ -17,7 +17,6 @@ import { NaraLoadingScreen } from "@/components/shared/nara-loading/NaraLoadingS
 import { RouteLoadingProvider } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { pausePersist } from "@/lib/store/persist";
 import { hydrateProgramData } from "@/lib/store/hydrateProgram";
-import { startLiveProgramSync } from "@/lib/store/liveSync";
 
 export type NaraUser = {
   id: string;
@@ -66,27 +65,31 @@ export function NaraProvider({ children }: { children: ReactNode }) {
           ok?: boolean;
           user?: Parameters<typeof applySessionUser>[0];
         };
-        if (res.ok && data.ok && data.user) applySessionUser(data.user);
+        if (res.ok && data.ok && data.user) {
+          applySessionUser(data.user);
+          return data.user;
+        }
       } catch {
         /* sin sesión */
       }
+      return null;
     }
 
     pausePersist(true);
     let cancelled = false;
-    let stopLive: (() => void) | undefined;
     void (async () => {
       try {
         await import("@/lib/agent/agent.js");
         await import("@/lib/agent/agent-chart.js");
-        await hydrateSession();
+        const user = await hydrateSession();
+        // Una sola carga inicial; el polling vive en cada pantalla activa.
         await hydrateProgramData(AlientoStore);
+        // Tras hidratar accounts/people, reafirmar sesión (F5 no debe echar al ingreso).
+        if (user && !AlientoStore.session()) applySessionUser(user);
       } finally {
         pausePersist(false);
         if (cancelled) return;
         setReady(true);
-        // Sync continuo: módulos, estados, fichas, etc. sin recargar.
-        stopLive = startLiveProgramSync(AlientoStore);
       }
     })();
 
@@ -130,7 +133,6 @@ export function NaraProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
-      stopLive?.();
       document.removeEventListener("pointerdown", touchActivity);
       document.removeEventListener("keydown", touchActivity);
     };

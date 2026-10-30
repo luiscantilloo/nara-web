@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useRouteLoading } from "@/components/shared/nara-loading/RouteLoadingProvider";
 import { useNaraLive, useNaraStore } from "@/providers/nara-provider";
+import { ensureSession } from "@/lib/auth/ensureSession";
+import { LIVE_ADMIN, useLiveProgramSync } from "@/lib/store/liveSync";
 import { adminPathForView, adminViewForPath } from "../routes";
 import { INITIAL_ADMIN_STATE, type AdminUiState } from "./adminConstants";
 import { buildAdminModel, type AdminModelApi } from "./adminModel";
@@ -11,6 +13,7 @@ import { buildAdminModel, type AdminModelApi } from "./adminModel";
 export function useAdminScreen() {
   const store = useNaraStore();
   const live = useNaraLive();
+  useLiveProgramSync({ parts: LIVE_ADMIN });
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -36,27 +39,37 @@ export function useAdminScreen() {
   );
 
   useEffect(() => {
-    const u = store.session();
-    if (!u || !/Admin/i.test(u.role || "")) {
-      router.replace("/ingreso");
-      return;
-    }
-    // Compat: /admin?view=team → /equipos
-    const legacyView = searchParams.get("view");
-    if (pathname === "/admin" && legacyView) {
-      const target = adminPathForView(legacyView);
-      const tab = searchParams.get("tab");
-      router.replace(tab ? `${target}?tab=${tab}` : target);
-      return;
-    }
-    setSt((prev) => ({
-      ...prev,
-      view: viewFromPath,
-      ...(searchParams.get("tab") === "2" ? { pathTab: "2" } : {}),
-      ...(viewFromPath !== "assets"
-        ? { assetTerr: "", assetKind: undefined }
-        : {}),
-    }));
+    let cancelled = false;
+    void (async () => {
+      const u = await ensureSession(store);
+      if (cancelled) return;
+      const roleId = String(u?.roleId || "").toLowerCase();
+      const isAdmin =
+        roleId === "admin" || /Admin/i.test(String(u?.role || ""));
+      if (!u || !isAdmin) {
+        router.replace("/ingreso");
+        return;
+      }
+      // Compat: /admin?view=team → /equipos
+      const legacyView = searchParams.get("view");
+      if (pathname === "/admin" && legacyView) {
+        const target = adminPathForView(legacyView);
+        const tab = searchParams.get("tab");
+        router.replace(tab ? `${target}?tab=${tab}` : target);
+        return;
+      }
+      setSt((prev) => ({
+        ...prev,
+        view: viewFromPath,
+        ...(searchParams.get("tab") === "2" ? { pathTab: "2" } : {}),
+        ...(viewFromPath !== "assets"
+          ? { assetTerr: "", assetKind: undefined }
+          : {}),
+      }));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [store, router, searchParams, pathname, viewFromPath]);
 
   const api = useMemo((): AdminModelApi => {

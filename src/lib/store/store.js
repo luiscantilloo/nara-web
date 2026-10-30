@@ -912,7 +912,7 @@ const KEY = 'nara-memory-v1';
   };
   function isAdminRole(role) { return !!role && /Admin/i.test(role); }
   function accountAsUser(a) {
-    if (!a || a.status !== 'Activo') return null;
+    if (!a || !/^activo$/i.test(String(a.status || ''))) return null;
     const role = a.role || '';
     const roleId = a.roleId || ROLE_LABEL_TO_ID[role] || null;
     const href = ROLE_ID_HREF[roleId] || ROLE_HREF[role] || '/ingreso';
@@ -930,7 +930,11 @@ const KEY = 'nara-memory-v1';
   function session() {
     if (typeof window === 'undefined' || !sessionId) return null;
     const a = (get().accounts || []).find(x => x.id === sessionId);
-    if (a) return accountAsUser(a);
+    // Si la fila de accounts no sirve (status, etc.), caer a la cuenta de sesión.
+    if (a) {
+      const fromList = accountAsUser(a);
+      if (fromList) return fromList;
+    }
     return sessionAccount && sessionAccount.id === sessionId ? accountAsUser(sessionAccount) : null;
   }
   function login(id, account) {

@@ -146,7 +146,7 @@ export function AgentPanel({
             data.text ||
             data.error ||
             data.message ||
-            "TEO no respondió. Compruebe que nara-api (gateway :4000 y ai :4004) esté en marcha.",
+            "TEO no respondió. Compruebe que nucleo-api (gateway :4000 y ai :4004, PROGRAM_ID=nara) esté en marcha.",
         };
       }
     } catch {
@@ -154,7 +154,7 @@ export function AgentPanel({
         id,
         q: text,
         err: true,
-        text: "No pude contactar a TEO. Revise la conexión con nara-api e intente de nuevo.",
+        text: "No pude contactar a TEO. Revise la conexión con nucleo-api e intente de nuevo.",
       };
     }
     setConv((s) => s.map((x) => (x.id === id ? a : x)));

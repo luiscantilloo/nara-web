@@ -1,21 +1,56 @@
 "use client";
 
-import { hydrateProgramData } from "@/lib/store/hydrateProgram";
+import { useEffect } from "react";
+import {
+  hydrateProgramData,
+  type HydratePart,
+} from "@/lib/store/hydrateProgram";
+import { useNaraStore } from "@/providers/nara-provider";
 
 type Store = typeof import("@/lib/store/store").default;
 
-const DEFAULT_INTERVAL_MS = 10_000;
+const DEFAULT_INTERVAL_MS = 15_000;
+
+export type LiveSyncOpts = {
+  intervalMs?: number;
+  /** Si se omite, hidrata lo que el rol permite. */
+  parts?: HydratePart[];
+};
+
+/** Presets por pantalla (solo lo que esa UI necesita). */
+export const LIVE_ADMIN: HydratePart[] = [
+  "territories",
+  "experts",
+  "accounts",
+  "staff",
+  "appState",
+];
+export const LIVE_CLINICO: HydratePart[] = [
+  "territories",
+  "experts",
+  "accounts",
+  "staff",
+  "appState",
+];
+export const LIVE_EXPERTO: HydratePart[] = [
+  "territories",
+  "experts",
+  "staff",
+  "appState",
+];
+export const LIVE_PACIENTE: HydratePart[] = ["patientSelf", "appState"];
+export const LIVE_CUIDADOR: HydratePart[] = ["staff", "appState"];
 
 /**
- * Mantiene el store alineado con Mongo sin recargar la página:
- * - polling mientras la pestaña está visible
- * - refresh inmediato al volver a la pestaña / foco / reconexión
+ * Polling mientras la pantalla que lo monta está activa.
+ * No usar desde el provider global: solo desde hooks de pantalla.
  */
 export function startLiveProgramSync(
   store: Store,
-  opts?: { intervalMs?: number },
+  opts?: LiveSyncOpts,
 ): () => void {
   const intervalMs = opts?.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const parts = opts?.parts;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | null = null;
   let lastRun = 0;
@@ -28,14 +63,13 @@ export function startLiveProgramSync(
     if (!session?.id) return;
     running = true;
     lastRun = Date.now();
-    void hydrateProgramData(store, { force: true }).finally(() => {
+    void hydrateProgramData(store, { force: true, parts }).finally(() => {
       running = false;
     });
   };
 
   const onVisibleOrFocus = () => {
     if (typeof document !== "undefined" && document.hidden) return;
-    // Al volver: refrescar ya (aunque el intervalo no haya vencido).
     refresh();
   };
 
@@ -52,8 +86,8 @@ export function startLiveProgramSync(
   window.addEventListener("focus", onVisibleOrFocus);
   window.addEventListener("online", onVisibleOrFocus);
 
-  // Primer tick suave tras montar (el boot inicial ya hidrató).
-  const kick = setTimeout(refresh, 1_500);
+  // Primer tick suave (el boot del provider ya hidrató una vez).
+  const kick = setTimeout(refresh, 2_000);
 
   return () => {
     stopped = true;
@@ -63,4 +97,20 @@ export function startLiveProgramSync(
     window.removeEventListener("focus", onVisibleOrFocus);
     window.removeEventListener("online", onVisibleOrFocus);
   };
+}
+
+/** Activa sync solo mientras el componente de pantalla está montado. */
+export function useLiveProgramSync(opts?: LiveSyncOpts) {
+  const store = useNaraStore();
+  const partsKey = opts?.parts?.slice().sort().join(",") ?? "";
+  const intervalMs = opts?.intervalMs;
+
+  useEffect(() => {
+    return startLiveProgramSync(store, {
+      intervalMs,
+      parts: opts?.parts,
+    });
+    // parts via partsKey; opts.parts identity no importa
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, partsKey, intervalMs]);
 }
