@@ -43,7 +43,10 @@ export function useAdminScreen() {
     void (async () => {
       const u = await ensureSession(store);
       if (cancelled) return;
-      if (!u || !/Admin/i.test(u.role || "")) {
+      const roleId = String(u?.roleId || "").toLowerCase();
+      const isAdmin =
+        roleId === "admin" || /Admin/i.test(String(u?.role || ""));
+      if (!u || !isAdmin) {
         router.replace("/ingreso");
         return;
       }

@@ -595,7 +595,8 @@ export async function hydrateProgramData(
     return;
   }
 
-  if (opts?.force && Date.now() < suppressLiveUntil) return;
+  // force=true (login / mutación) siempre hidrata; el suppress solo frena el poll.
+  if (!opts?.force && Date.now() < suppressLiveUntil) return;
 
   if (!opts?.force && lastHydratedSessionId === session.id && !inFlight) return;
   if (inFlight) {
